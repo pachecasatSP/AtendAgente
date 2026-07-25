@@ -139,6 +139,42 @@ Só depois de confirmar que o bot responde pela Hetzner, desligue/destrua a
 instância Oracle para não deixar recurso órfão. Guarde um backup do `~/.hermes/`
 da Oracle antes, por segurança.
 
+## Passo 9 — Expor a API OpenAI-compatible (`/agent-api`)
+
+Usada pelo `re-colocar-me` (repo `core`) pra rotear as sugestões de IA (bio,
+apresentação, skills) pelo Hermes em vez de bater direto numa API externa.
+
+1. Gere um valor forte para `API_SERVER_KEY` (ex: `openssl rand -hex 32`).
+2. Adicione ao Secret `hermes-env` já existente no cluster (edite direto, sem
+   recriar do zero):
+   ```bash
+   kubectl -n hermes patch secret hermes-env \
+     --type=merge \
+     -p "{\"stringData\":{\"API_SERVER_ENABLED\":\"true\",\"API_SERVER_KEY\":\"<seu-valor>\"}}"
+   kubectl -n hermes rollout restart deploy/hermes
+   ```
+3. Aplique o Deployment/Service atualizados (portas novas) e o Ingress novo:
+   ```bash
+   kubectl apply -f hermes/03-deployment.yaml
+   kubectl apply -f hermes/04-service.yaml
+   kubectl apply -f hermes/06-ingress-agent-api.yaml
+   ```
+   Se o `apply` do `06-ingress-agent-api.yaml` falhar com
+   `no matches for kind "Middleware"`, o Traefik deste cluster espera o grupo
+   antigo `traefik.containo.us/v1alpha1` — troque no `apiVersion` do
+   `Middleware` e na annotation `router.middlewares` do arquivo, e reaplique.
+4. Teste:
+   ```bash
+   curl -s https://bot.colocar-me.com.br/agent-api/v1/chat/completions \
+     -H "Authorization: Bearer <seu-valor>" \
+     -H "Content-Type: application/json" \
+     -d '{"model":"hermes-agent","messages":[{"role":"user","content":"diga oi"}]}'
+   ```
+   Deve responder `200` com um `choices[0].message.content`. Guarde esse
+   mesmo `API_SERVER_KEY` — é o `ApiKey` que vai em
+   `re-colocar-me-core/appsettings.Development.json`, seção
+   `HermesAgentOptions`, com `BaseAddress` = `https://bot.colocar-me.com.br/agent-api/`.
+
 ## Comandos do dia a dia
 
 ```bash

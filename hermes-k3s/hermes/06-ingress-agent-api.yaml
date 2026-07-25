@@ -1,0 +1,58 @@
+# Expõe a API OpenAI-compatible do Hermes (/v1/chat/completions, ver
+# https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server)
+# em https://bot.colocar-me.com.br/agent-api/, reaproveitando o mesmo host e
+# certificado TLS já emitido pelo Ingress do webhook (05-ingress.yaml) — não
+# precisa reemitir certificado, e o diff do 05 fica em zero.
+#
+# O Hermes serve as rotas em /v1/... sem prefixo nenhum, então o Middleware
+# abaixo tira o /agent-api antes de encaminhar (StripPrefix).
+#
+# PRÉ-REQUISITO: no Secret hermes-env, adicionar:
+#   API_SERVER_ENABLED: "true"
+#   API_SERVER_KEY: "<gerar um valor forte>"
+# (o mesmo valor de API_SERVER_KEY vai virar o ApiKey do HermesAgentOptions
+# em re-colocar-me-core/appsettings.Development.json)
+#
+# Se o kubectl apply falhar com "no matches for kind Middleware", a versão do
+# Traefik empacotada neste k3s pode esperar o grupo antigo
+# "traefik.containo.us/v1alpha1" em vez de "traefik.io/v1alpha1" — troque nos
+# dois lugares abaixo (apiVersion do Middleware e a annotation do Ingress).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: hermes-strip-agent-api
+  namespace: hermes
+spec:
+  stripPrefix:
+    prefixes:
+      - /agent-api
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hermes-agent-api
+  namespace: hermes
+  annotations:
+    # SEM annotation de cert-manager aqui de propósito: o certificado de
+    # bot.colocar-me.com.br já é gerenciado pelo Ingress do webhook (05) e
+    # reaproveitado via o mesmo secretName — criar outra annotation de
+    # cluster-issuer aqui faria o cert-manager tentar gerenciar o mesmo
+    # Secret a partir de dois Certificates diferentes.
+    traefik.ingress.kubernetes.io/router.middlewares: hermes-hermes-strip-agent-api@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: bot.colocar-me.com.br
+      http:
+        paths:
+          - path: /agent-api
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes
+                port:
+                  number: 8642
+  tls:
+    - hosts:
+        - bot.colocar-me.com.br
+      secretName: hermes-bot-tls

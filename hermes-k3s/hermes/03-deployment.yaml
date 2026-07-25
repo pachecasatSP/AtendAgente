@@ -38,6 +38,11 @@ spec:
           ports:
             - name: webhook
               containerPort: 8090
+            # API server OpenAI-compatible (/v1/chat/completions), habilitada via
+            # API_SERVER_ENABLED=true no Secret hermes-env. Exposta externamente
+            # em https://bot.colocar-me.com.br/agent-api/ (ver 06-ingress-agent-api.yaml).
+            - name: api
+              containerPort: 8642
           envFrom:
             - secretRef:
                 name: hermes-env
