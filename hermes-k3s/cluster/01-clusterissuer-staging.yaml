@@ -1,0 +1,21 @@
+# ClusterIssuer de STAGING do Let's Encrypt.
+# Use este PRIMEIRO para validar o fluxo de certificado sem gastar o rate limit
+# do Let's Encrypt (produção limita ~5 certificados por domínio por semana).
+# O certificado emitido aqui é "inválido" no navegador — é esperado. Serve só
+# para confirmar que o desafio HTTP-01 funciona ponta a ponta.
+#
+# TROQUE <SEU_EMAIL> pelo seu e-mail real (recebe avisos de expiração).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: <SEU_EMAIL>
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: traefik

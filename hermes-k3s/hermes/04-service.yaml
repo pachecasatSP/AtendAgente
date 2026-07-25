@@ -1,0 +1,15 @@
+# Service interno que expõe o gateway do Hermes (porta 8090) dentro do cluster.
+# O Ingress (05) roteia o tráfego externo do webhook para este Service.
+# ClusterIP é suficiente — não precisa ser exposto direto; quem expõe é o Ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes
+  namespace: hermes
+spec:
+  selector:
+    app: hermes
+  ports:
+    - name: webhook
+      port: 80
+      targetPort: 8090

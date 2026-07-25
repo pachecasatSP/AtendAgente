@@ -1,0 +1,3 @@
+.env
+hermes-k3s/hermes/02-secret.yaml
+*.tar.gz

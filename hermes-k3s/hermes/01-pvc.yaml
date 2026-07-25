@@ -1,0 +1,19 @@
+# Volume persistente para os dados do Hermes (o equivalente ao ~/.hermes:
+# sessão do WhatsApp, memória dos alunos, SOUL.md, logs).
+#
+# Usa a StorageClass "local-path", que já vem no K3s por padrão — grava num
+# diretório do disco do próprio nó. Simples e suficiente para single-node.
+# (Quando o cluster crescer para múltiplos nós e precisar de réplica, aí se
+# avalia Longhorn; para agora, local-path é o certo.)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-data
+  namespace: hermes
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

@@ -1,0 +1,16 @@
+# Nunca versionar segredos nem credenciais
+.env
+*.env
+k3s.yaml
+kubeconfig
+*kubeconfig*
+# Secret preenchido (só o .EXAMPLE vai para o git)
+hermes/02-secret.yaml
+02-secret.yaml
+*-secret.yaml
+!*-secret.EXAMPLE.yaml
+# Chaves
+*.pem
+*.key
+*_rsa
+*_ed25519

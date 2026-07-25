@@ -1,0 +1,70 @@
+# Deployment do Hermes Agent.
+#
+# Notas de projeto:
+# - replicas: 1  — o Hermes mantém sessão de WhatsApp e estado local; NÃO
+#   escale para 2+ réplicas (duas instâncias brigariam pela mesma sessão, o
+#   mesmo problema do "gateway já rodando" que enfrentamos na Oracle).
+# - strategy: Recreate — ao atualizar, mata a antiga ANTES de subir a nova,
+#   evitando duas instâncias simultâneas acessando o mesmo volume.
+# - envFrom: injeta todas as variáveis do Secret hermes-env de uma vez.
+# - resources: com a CX32 (8 GB) há folga; os limites abaixo são conservadores
+#   e podem ser afrouxados. O importante é ter request para o scheduler.
+#
+# TROQUE a imagem se a tag não for a que você quer fixar. Recomendo fixar uma
+# versão específica em produção em vez de :latest, para deploys previsíveis.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes
+  namespace: hermes
+  labels:
+    app: hermes
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: hermes
+  template:
+    metadata:
+      labels:
+        app: hermes
+    spec:
+      containers:
+        - name: hermes
+          image: nousresearch/hermes-agent:latest
+          args: ["gateway", "run"]
+          ports:
+            - name: webhook
+              containerPort: 8090
+          envFrom:
+            - secretRef:
+                name: hermes-env
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1500m"
+              memory: "2Gi"
+          # readinessProbe: o endpoint /health do gateway indica que subiu.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 30
+            periodSeconds: 20
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hermes-data

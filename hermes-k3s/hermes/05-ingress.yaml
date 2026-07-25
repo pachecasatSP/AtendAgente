@@ -1,0 +1,39 @@
+# Ingress que expõe o webhook do Hermes em https://bot.colocar-me.com.br,
+# com certificado TLS emitido e renovado automaticamente pelo cert-manager.
+#
+# É ISTO que elimina o cloudflared frágil da Oracle: a URL do webhook passa a
+# ser fixa (bot.colocar-me.com.br) e o HTTPS é gerenciado pelo cluster.
+#
+# IMPORTANTE — a troca staging -> produção:
+#   Comece com a annotation apontando para "letsencrypt-staging".
+#   Quando o certificado de staging for emitido (mesmo sendo "inválido" no
+#   navegador, prova que o fluxo funciona), troque para "letsencrypt-prod"
+#   e reaplique. Aí o certificado válido é emitido.
+#
+# PRÉ-REQUISITO DE DNS: o registro A de bot.colocar-me.com.br no Registro.br
+# precisa apontar para o IP público da CX32 ANTES de aplicar — o desafio
+# HTTP-01 do Let's Encrypt precisa alcançar o servidor pelo domínio.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hermes
+  namespace: hermes
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: bot.colocar-me.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hermes
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - bot.colocar-me.com.br
+      secretName: hermes-bot-tls

@@ -1,0 +1,7 @@
+# Namespace dedicado ao Hermes.
+# Isolar por namespace é o que permite, no futuro, trazer os projetos do Azure
+# para o mesmo cluster sem que um interfira no outro (cada projeto no seu namespace).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hermes
