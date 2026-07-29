@@ -1,3 +1,7 @@
 .env
 hermes-k3s/hermes/02-secret.yaml
 *.tar.gz
+/hermes
+*.pem
+id_rsa
+id_ed25519
