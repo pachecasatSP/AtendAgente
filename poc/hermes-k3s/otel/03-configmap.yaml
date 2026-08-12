@@ -1,0 +1,57 @@
+# Coleta métricas de host/pod (CPU, memória, disco, rede) e exporta via
+# OTLP/HTTPS, com bearer token, pro gateway público que roda no cluster
+# re-colocar-me — o único lugar que escreve no Elasticsearch. Este agente
+# nunca recebe conexão de fora: só fala pra fora.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-agent-config
+  namespace: hermes
+data:
+  config.yaml: |
+    receivers:
+      hostmetrics:
+        collection_interval: 30s
+        root_path: /hostfs
+        scrapers:
+          cpu: {}
+          memory: {}
+          disk: {}
+          filesystem: {}
+          network: {}
+      kubeletstats:
+        collection_interval: 30s
+        auth_type: serviceAccount
+        endpoint: "https://${env:K8S_NODE_NAME}:10250"
+        insecure_skip_verify: true
+        metric_groups: [container, pod, node]
+
+    processors:
+      batch: {}
+      k8sattributes:
+        auth_type: "serviceAccount"
+      # hostmetrics não anexa nenhum resource attribute por conta própria (sem isso,
+      # os dados de CPU/memória/disco do host ficam sem host.name — impossível saber
+      # de qual nó/cluster vieram uma vez que os dois clusters escrevem no mesmo ES).
+      resourcedetection:
+        detectors: [system]
+        system:
+          hostname_sources: ["os"]
+      resource:
+        attributes:
+          - key: k8s.cluster.name
+            value: "hermes"
+            action: upsert
+
+    exporters:
+      otlphttp:
+        endpoint: "https://otel-consultor-re.colocar-me.com.br"
+        headers:
+          Authorization: "Bearer ${env:OTEL_BEARER_TOKEN}"
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [hostmetrics, kubeletstats]
+          processors: [resourcedetection, resource, k8sattributes, batch]
+          exporters: [otlphttp]

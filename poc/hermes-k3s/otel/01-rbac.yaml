@@ -1,0 +1,33 @@
+# RBAC do Collector OTel (agente de métricas de host/pod). Mesmo padrão do
+# cluster re-colocar-me (core/k8s/15-otel-gateway.yaml) — kubeletstats
+# precisa ler nodes/stats via API do kubelet.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-agent
+  namespace: hermes
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-agent
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes", "nodes/stats", "nodes/proxy"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-agent
+subjects:
+  - kind: ServiceAccount
+    name: otel-agent
+    namespace: hermes
