@@ -15,23 +15,44 @@ número via **Embedded Signup**, configura o SOUL, e paga assinatura —
 **com um painel** onde a Ac Soluções (e/ou o próprio cliente) vê as
 conversas e pode intervir manualmente quando necessário.
 
-Levantamento do repo (`bot-hermes`) confirma que hoje **não existe
-nenhum código de aplicação** — só manifests K3s (`hermes-k3s/`) e SOULs em
-markdown. Todo o comportamento do bot vem da imagem vendor
-`nousresearch/hermes-agent`. A peça mais valiosa já descoberta
-(`infra_hermes_profiles`): essa imagem suporta **múltiplos "profiles"** —
-processos `hermes -p <nome> gateway run` isolados, cada um com seu próprio
-`config.yaml`/`SOUL.md`/`.env`, supervisionados no mesmo pod. Isso já foi
-usado para dar ao `/agent-api` um modelo de visão sem tocar no WhatsApp
-(profile `agent-api-vision`). **A mesma mecânica, aplicada ao
-`whatsapp_cloud`, é o caminho de menor esforço para multi-tenant**: um
-profile por tenant, cada um com seu próprio `phone_number_id` /
-`access_token` / SOUL — sem precisar reescrever o Hermes.
+Levantamento do repo original (`bot-hermes`, agora `poc/` neste
+repositório) confirma que até aqui **não existia nenhum código de
+aplicação** — só manifests K3s e SOULs em markdown. Todo o comportamento
+do bot vem da imagem vendor `nousresearch/hermes-agent`.
 
-O trabalho real (não coberto pelo vendor) é: automatizar a criação desses
-profiles a partir de um onboarding self-service, e construir o painel de
-conversas/intervenção do zero (greenfield confirmado — não existe nenhum
-esqueleto de painel/admin/CRM no repo).
+**Decisão de arquitetura (revista em 2026-08-12): pod-por-tenant, não
+profile-por-tenant.** A primeira ideia era reaproveitar o mecanismo de
+"profiles" do `hermes-agent` (múltiplos processos `hermes -p <nome>
+gateway run` num único pod, usado hoje pelo profile `agent-api-vision` —
+ver `infra_hermes_profiles`). Isso foi descartado como base do
+multi-tenant: colocar N clientes no mesmo pod significa que um profile
+com problema (o footgun já documentado de arquivo de log com dono errado
+travando silenciosamente) pode arrastar todos os outros tenants junto, e
+o webhook/roteamento por profile dentro do mesmo Ingress vira um problema
+extra pra resolver. Com uma segunda máquina Hetzner disponível
+(**62.238.103.17**, `ubuntu-16gb-hel1-1`, 8 vCPU/16GB, K3s já instalado,
+~8.2GB livres — já roda em produção o namespace `consultor`/re-colocar-me,
+isolado e intocado), a escolha é **um Deployment/Service/Ingress próprio
+por tenant**, usando os primitivos nativos do K8s para isolamento em vez
+de depender da multiplexação interna do hermes-agent. Namespace dedicado
+criado: **`atendagente`** (separado de `consultor`).
+
+**Domínio: `atendpragente.com.br`** (registrado, DNS na Cloudflare, ainda
+propagando em 2026-08-12). Cada tenant recebe um subdomínio
+(`<tenant>.atendpragente.com.br`). Certificado **por tenant via HTTP-01**
+(não wildcard/DNS-01) — mais simples de automatizar, mesmo padrão já
+usado em `bot.colocar-me.com.br`: basta o registro A do subdomínio
+apontar pro `62.238.103.17` antes do Ingress ser aplicado.
+
+O trabalho real (não coberto pelo vendor) é: gerar os manifests K8s por
+tenant a partir de um template, automatizar esse provisionamento a partir
+de um onboarding self-service, e construir o painel de conversas/
+intervenção do zero (greenfield confirmado — não existe nenhum esqueleto
+de painel/admin/CRM no repo). A migração/renomeação do namespace
+`consultor` → `re-colocar-me` foi discutida e **adiada deliberadamente**
+— não é trivial (tem Postgres/RabbitMQ/Elasticsearch com dados reais,
+exigiria uma migração cuidadosa com backup) e não bloqueia o AtendAgente,
+que fica isolado no namespace `atendagente`.
 
 ---
 
@@ -65,22 +86,29 @@ esqueleto de painel/admin/CRM no repo).
 
 ## Roadmap técnico (fases, em ordem de dependência)
 
-### Fase 1 — Provar o padrão "1 profile = 1 tenant" com WhatsApp real
-Repetir a receita do `agent-api-vision`, mas habilitando
-`platforms.whatsapp_cloud` num profile novo (não no `default`) com um
-número de teste real (Meta permite números de teste grátis para isso).
-Confirmar: dois `whatsapp_cloud` simultâneos no mesmo pod funcionam sem
-brigar por webhook/porta, e a CPX22 (2vCPU/4GB) aguenta o processo
-adicional. **Isso valida a arquitetura inteira antes de construir
-qualquer automação em cima dela.** Sem isso, as fases seguintes são
-apostas.
-- Repetir os footguns já documentados em `infra_hermes_profiles`: dono do
-  arquivo de log (`chown hermes:hermes`), `gateway start` precisa rodar
-  uma vez para persistir `desired_state`.
-- Descobrir e documentar (novo item de memória) se o `webhook path` da
-  Meta por número precisa de Ingress próprio por profile, ou se um único
-  webhook + roteamento por `phone_number_id` no payload resolve — isso
-  não está confirmado ainda e muda o design do Ingress.
+### Fase 1 — Provar o padrão "1 pod = 1 tenant" no cluster novo
+No namespace `atendagente` (62.238.103.17), criar o primeiro Deployment
+de tenant de teste:
+- **Deployment**: imagem `nousresearch/hermes-agent:latest`, `args:
+  ["gateway","run"]` (sem `-p`, cada pod já é single-tenant por si só —
+  não precisa da mecânica de profiles aqui), `replicas: 1`, `strategy:
+  Recreate`, `envFrom` um Secret próprio do tenant.
+- **PVC** dedicado (ex. 1-2Gi, `local-path`) montado em `/opt/data`,
+  guardando o `SOUL.md` e o estado/memória daquele tenant.
+- **Secret**: `WHATSAPP_CLOUD_PHONE_NUMBER_ID/ACCESS_TOKEN/APP_SECRET/
+  WABA_ID/VERIFY_TOKEN` do número de teste (Meta dá número de teste
+  grátis).
+- **Service** (ClusterIP, porta 8090) + **Ingress** (host
+  `<tenant-de-teste>.atendpragente.com.br`, TLS via `letsencrypt-prod`
+  já configurado no cluster, HTTP-01) — precisa do registro A na
+  Cloudflare apontando pro `62.238.103.17` **antes** de aplicar o
+  Ingress (mesma regra já aprendida em `infra_k3s`).
+- Nomear todos os recursos com prefixo do tenant (`<tenant>-hermes`,
+  etc.) para não colidir quando houver um segundo tenant.
+
+**Isso valida a arquitetura inteira antes de construir qualquer
+automação em cima dela** — inclusive serve de molde (YAML) que a Fase 3
+vai aprender a gerar automaticamente.
 
 ### Fase 2 — SOUL como template, não arquivo à mão
 Criar um template de SOUL (baseado na estrutura já validada: Quem eu sou
@@ -91,12 +119,15 @@ respostas do formulário de onboarding e produz o `SOUL.md` final. Isso
 desacopla "configurar um tenant" de "editar markdown".
 
 ### Fase 3 — Automação do provisionamento (CLI interno, sem UI ainda)
-Um script que, dado `{tenant_id, phone_number_id, access_token, respostas
-do SOUL}`, faz via SSH no servidor: cria o profile, grava SOUL gerado
-(Fase 2), grava `.env` do profile, `gateway start`, valida `/health`.
-Colapsa em um comando o que hoje é um processo manual de várias etapas
-(como foi feita a troca Yogart→AC Soluções). Ainda operado pela Ac
-Soluções, não pelo cliente — é o degrau antes do self-service real.
+Um script/gerador que, dado `{tenant_id, phone_number_id, access_token,
+respostas do SOUL}`, produz e aplica (`kubectl apply`) os manifests do
+padrão validado na Fase 1 (Secret + PVC + Deployment + Service +
+Ingress), gera o `SOUL.md` (Fase 2), e valida `/health` do pod novo.
+Colapsa em um comando o que hoje é um processo manual de várias etapas.
+Ainda operado pela Ac Soluções, não pelo cliente — é o degrau antes do
+self-service real. Também precisa criar o registro DNS (A record) do
+subdomínio do tenant na Cloudflare — via API da Cloudflare, não manual —
+antes de aplicar o Ingress.
 
 ### Fase 4 — Onboarding self-service (Embedded Signup + formulário)
 Primeira peça de software de verdade: um serviço web novo (namespace
@@ -112,14 +143,15 @@ que:
 ### Fase 5 — Painel de conversas e intervenção manual
 **Tem uma incógnita técnica a resolver antes de desenhar isso em
 detalhe:** onde e em que formato o Hermes guarda o histórico de conversa
-por profile dentro de `/opt/data/profiles/<tenant>/` (SQLite? JSON?) —
-isso não foi confirmado ainda, precisa de uma sessão de investigação no
-servidor (`kubectl exec` + inspecionar o diretório de um profile) antes
-de decidir se o painel lê direto esse storage ou se precisa de uma API
-intermediária. Uma vez resolvido isso, o painel é: lista de conversas por
-tenant, thread de mensagens, botão "assumir conversa" (seta
-`atendente_humano`/equivalente e permite enviar mensagem livre via Graph
-API diretamente).
+dentro de `/opt/data/` de cada pod de tenant (SQLite? JSON?) — isso não
+foi confirmado ainda, precisa de uma sessão de investigação no cluster
+novo (`kubectl exec` num pod de tenant + inspecionar `/opt/data/`) antes
+de decidir se o painel lê direto esse storage (um PVC por tenant torna
+isso mais simples de isolar que o cenário de profile-compartilhado) ou se
+precisa de uma API intermediária. Uma vez resolvido isso, o painel é:
+lista de conversas por tenant, thread de mensagens, botão "assumir
+conversa" (seta `atendente_humano`/equivalente e permite enviar mensagem
+livre via Graph API diretamente).
 
 ### Fase 6 — Cobrança
 Assinatura por tenant (Stripe ou similar). V1 simples: checagem periódica
@@ -131,33 +163,39 @@ em vez de destruir o tenant.
 
 ## Riscos / decisões a revisitar cedo
 
-- **Capacidade da CPX22**: cada profile ativo é mais um processo no
-  mesmo pod de 4GB. Definir, já na Fase 1, quantos tenants cabem antes de
-  precisar de upgrade Hetzner ou de distribuir profiles entre mais de um
-  pod/nó — isso muda o modelo de deploy (hoje `replicas:1` +
-  `strategy:Recreate`, que assume single-instance).
-- **Roteamento de webhook por tenant**: se cada `phone_number_id` exigir
-  webhook/Ingress próprio, a Fase 3/4 de automação precisa também
-  automatizar manifests K8s (Ingress/Secret) por tenant, não só o profile
-  do Hermes — isso é mais trabalho do que só rodar `hermes profile
-  create`.
+- **Capacidade do cluster novo**: 8.2GB livres / 8 vCPU hoje, mas o
+  namespace `consultor` já compartilha a máquina. Definir, já na Fase 1,
+  o footprint real de um pod `hermes-agent` (idle e sob carga) pra
+  projetar quantos tenants cabem antes de precisar de outro nó — o
+  `consultor` não deve sofrer contenção de recursos por causa do
+  AtendAgente (considerar `ResourceQuota` no namespace `atendagente` cedo).
+- **Automação de DNS**: cada tenant novo precisa de um registro A na
+  Cloudflare antes do Ingress — se isso ficar manual demais, vira gargalo
+  do self-service (Fase 4). A Fase 3 já assume automação via API da
+  Cloudflare; validar credenciais/token de API cedo.
 - **Formato do histórico de conversa** (bloqueador da Fase 5) — não
   investigado ainda.
+- **Migração `consultor` → `re-colocar-me`**: adiada, não bloqueia este
+  roadmap, mas fica pendente como dívida separada (não documentar aqui os
+  detalhes — é um projeto à parte, envolve dados reais em produção).
 
 ## Primeiro passo recomendado
 
-Executar a **Fase 1** isolada: criar um profile de teste com
-`whatsapp_cloud` habilitado, usando um número de teste da Meta (grátis),
-confirmar que roda em paralelo ao `default` sem conflito, e documentar o
-resultado (webhook por profile ou compartilhado) como uma nova entrada de
-memória (`infra_hermes_profiles` ou uma nova `roadmap_multitenant_fase1`)
-antes de prosseguir para qualquer automação.
+Executar a **Fase 1** isolada: um Deployment/Service/Ingress de teste no
+namespace `atendagente`, usando um número de teste grátis da Meta,
+confirmar handshake do webhook (`hub.challenge`) e uma mensagem real
+recebida/respondida, sem tocar no namespace `consultor`. Documentar o
+resultado (footprint de recursos observado, qualquer ajuste no template)
+como uma nova entrada de memória (`infra_k3s` ganha uma seção pro cluster
+novo, ou uma `infra_atendagente_k3s` dedicada) antes de prosseguir pra
+Fase 2/3.
 
 ## Verificação
 
-- Fase 1: mensagem real recebida/respondida no número de teste enquanto
-  o profile `default` (WhatsApp da AC Soluções) continua respondendo
-  normalmente — prova de isolamento.
+- Fase 1: mensagem real recebida/respondida no número de teste, pod
+  isolado no namespace `atendagente`, sem qualquer efeito nos pods do
+  namespace `consultor` no mesmo cluster — prova de isolamento por
+  namespace + Deployment dedicado.
 - Fase 2: gerar 2 SOULs diferentes a partir do mesmo template com inputs
   diferentes, revisar manualmente se ficam coerentes com a estrutura hoje
   usada nos SOUL-*.md existentes.
