@@ -5,3 +5,5 @@ hermes-k3s/hermes/02-secret.yaml
 *.pem
 id_rsa
 id_ed25519
+__pycache__/
+*.pyc

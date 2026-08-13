@@ -125,16 +125,24 @@ tenant" de "editar markdown". Detalhes/schema em
 `tools/soul-generator/README.md` — inclui uma limitação conhecida de
 fraseado quando o nome de escalação já vem com artigo definido embutido.
 
-### Fase 3 — Automação do provisionamento (CLI interno, sem UI ainda)
-Um script/gerador que, dado `{tenant_id, phone_number_id, access_token,
-respostas do SOUL}`, produz e aplica (`kubectl apply`) os manifests do
-padrão validado na Fase 1 (Secret + PVC + Deployment + Service +
-Ingress), gera o `SOUL.md` (Fase 2), e valida `/health` do pod novo.
+### Fase 3 — Script pronto e validado em dry-run (2026-08-12); execução real pendente
+`tools/provision-tenant/provision_tenant.py`: dado um YAML de tenant
+(infra + schema de SOUL da Fase 2), cria o registro DNS via API da
+Cloudflare, aplica o Secret (já com `GATEWAY_ALLOW_ALL_USERS=true` e a
+chave de LLM embutidos — as duas pegadinhas da Fase 1), aplica
+PVC/Deployment/Service/Ingress no padrão validado, espera o pod ficar
+pronto, gera e publica o `SOUL.md` (reaproveitando o gerador da Fase 2),
+e reinicia. Credenciais só por variável de ambiente, nunca no YAML nem
+em argv. Roda no servidor, onde `kubectl` já aponta pro cluster certo.
+
+Validado com `--dry-run` (gera SOUL + manifests, mostra o que seria
+feito, sem chamar `kubectl`/Cloudflare de verdade) — **uma execução real
+ponta a ponta contra o cluster ainda não foi feita**: exigiria um
+segundo número de teste da Meta ou reaproveitar o tenant de teste da
+Fase 1, decisão de negócio a fazer antes, não bloqueio técnico.
 Colapsa em um comando o que hoje é um processo manual de várias etapas.
 Ainda operado pela Ac Soluções, não pelo cliente — é o degrau antes do
-self-service real. Também precisa criar o registro DNS (A record) do
-subdomínio do tenant na Cloudflare — via API da Cloudflare, não manual —
-antes de aplicar o Ingress.
+self-service real (Fase 4).
 
 ### Fase 4 — Onboarding self-service (Embedded Signup + formulário)
 Primeira peça de software de verdade: um serviço web novo (namespace
