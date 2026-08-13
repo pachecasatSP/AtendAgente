@@ -198,11 +198,26 @@ startup, código via `hostPath`).
 - Ainda sem cobrança de verdade — todo tenant novo nasce
   `plano: trial` (Fase 6 decide o que fazer com isso).
 
-**Validação end-to-end contra o cluster real ainda não foi feita** —
-falta rodar `setup_onboarding_service.py` no servidor (precisa do
-Secret `onboarding-service-env` criado manualmente primeiro) e testar o
-fluxo completo com o WABA/número de teste já em uso nas fases
-anteriores.
+**Infra do onboarding-service validada contra o cluster real
+(2026-08-13/14)**: `onboarding-service-env` criado via SSH interativo
+(`--from-env-file`), `setup_onboarding_service.py` rodado com sucesso —
+namespace, RBAC, kubeconfig namespace-scoped, cópia do Mongo, DNS,
+cert TLS, Deployment/Service/Ingress todos no ar. Isolamento RBAC
+testado na prática (`kubectl -n consultor get pods` de dentro do pod
+→ `Forbidden`; `-n atendagente` → permitido). `/signup` responde 200
+com App ID/Config ID reais da Meta embutidos.
+
+Dois bugs corrigidos nessa primeira execução real:
+1. Aspas duplas aninhadas no comando de instalação do `kubectl` dentro
+   de um YAML já delimitado por aspas — quebrava o parser.
+2. `ONBOARDING_HOST` apontava pra `atendpragente.com.br` (ainda sem
+   propagação) — trocado pra `onboarding.colocar-me.com.br`, mesmo
+   domínio usado pelo resto do projeto.
+
+**Ainda falta**: o passeio real pelo fluxo Embedded Signup → formulário
+→ provisionamento → `subscribe_app_to_waba` num navegador, contra o
+WABA/número de teste — esse é o teste crítico que prova que o webhook
+override realmente funciona ponta a ponta.
 
 ### Fase 5 — Espelho de conversas em MongoDB (dados) + painel por tenant (CONCLUÍDA, 2026-08-13)
 
