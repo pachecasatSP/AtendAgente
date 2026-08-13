@@ -18,11 +18,25 @@
     .empty { padding: 1rem; color: #888; font-size: 0.9rem; }
     .main { flex: 1; display: flex; flex-direction: column; background: #f7f7f7; }
     .main-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: #999; }
-    .thread { flex: 1; overflow-y: auto; padding: 0.6rem 0.75rem; }
-    .msg { margin: 0.2rem 0; padding: 0.3rem 0.55rem; border-radius: 7px; max-width: 65%; white-space: pre-wrap; word-wrap: break-word; font-size: 0.82rem; line-height: 1.3; }
-    .msg.user { background: #fff; border: 1px solid #eee; margin-right: auto; }
-    .msg.assistant { background: #dcf8c6; margin-left: auto; }
-    .meta { font-size: 0.62rem; color: #999; margin-top: 0.1rem; }
+    .thread { flex: 1; overflow-y: auto; padding: 0.6rem 0.75rem; background: #efeae2; }
+    .msg-row { display: flex; margin: 2px 0; }
+    .msg-row.user { justify-content: flex-start; }
+    .msg-row.assistant { justify-content: flex-end; }
+    .msg {
+      position: relative;
+      display: inline-block;
+      max-width: 65%;
+      padding: 5px 46px 8px 8px;
+      border-radius: 7.5px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      font-size: 0.82rem;
+      line-height: 1.3;
+      box-shadow: 0 1px 0.5px rgba(0, 0, 0, .13);
+    }
+    .msg.user { background: #fff; border-top-left-radius: 0; }
+    .msg.assistant { background: #d9fdd3; border-top-right-radius: 0; }
+    .meta { position: absolute; right: 8px; bottom: 4px; font-size: 0.62rem; color: rgba(0, 0, 0, .45); white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -87,13 +101,16 @@
 
       threadAreaEl.className = 'thread';
       threadAreaEl.innerHTML = messages
-        .map(
-          (m) => `
-        <div class="msg ${m.role === 'assistant' ? 'assistant' : 'user'}">
-          <div>${escapeHtml(m.content)}</div>
-          <div class="meta">${escapeHtml(m.role)} — ${escapeHtml(m.timestamp_fmt)}</div>
-        </div>`
-        )
+        .map((m) => {
+          const kind = m.role === 'assistant' ? 'assistant' : 'user';
+          return `
+        <div class="msg-row ${kind}">
+          <div class="msg ${kind}">
+            ${escapeHtml(m.content)}
+            <span class="meta">${escapeHtml(m.timestamp_fmt)}</span>
+          </div>
+        </div>`;
+        })
         .join('');
       threadAreaEl.scrollTop = threadAreaEl.scrollHeight;
 
