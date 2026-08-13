@@ -77,8 +77,21 @@ python3 setup_mongo.py --dry-run  # só mostra o que seria aplicado
 Rodar de novo é seguro (idempotente) — não recria credenciais se o
 Secret já existir.
 
-## Próximo passo (Fase 4)
+## Painel por tenant (Fase 4)
 
-Este script vira o backend de um formulário de onboarding self-service
-(Embedded Signup + formulário de SOUL) — a Fase 4 chama a função
-`provision()` daqui via API interna em vez de linha de comando.
+Desde a Fase 4, `build_infra_manifest` também gera um Deployment/Service
+próprios pro painel de conversas daquele tenant (`tools/tenant-panel/`,
+lê o Mongo compartilhado filtrado por `tenant_id`, protegido por HTTP
+Basic Auth) — servido em `https://<tenant>.../painel` na mesma Ingress
+do webhook. `build_secret_manifest` gera `PANEL_USER`/`PANEL_PASSWORD`
+junto do `verify_token`, e `provision()` agora **retorna** um dict com
+as três credenciais em vez de só imprimir (usado pelo
+`tools/onboarding-service/` pra mostrar a senha do painel na página de
+confirmação do cliente novo).
+
+## Onboarding self-service (Fase 4)
+
+`tools/onboarding-service/` importa `provision()` e a nova
+`subscribe_app_to_waba()` diretamente deste módulo — é o backend real do
+formulário de Embedded Signup, chamado como função Python (não CLI/
+subprocess). Ver `tools/onboarding-service/README.md`.

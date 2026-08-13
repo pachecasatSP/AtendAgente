@@ -168,18 +168,53 @@ existente, sem nunca expor nenhum valor sensível em texto. Ver
 no chat durante essa validação foi identificado e o usuário revogou/
 recriou antes do reprovisionamento funcionar.
 
-### Fase 4 — Onboarding self-service (Embedded Signup + formulário)
-Primeira peça de software de verdade: um serviço web novo (namespace
-próprio no K3s, seguindo o padrão "um namespace por projeto" já em uso)
-que:
-- Implementa o fluxo Embedded Signup (JS SDK da Meta) para o cliente
-  conectar seu número.
-- Coleta as respostas do formulário de SOUL (Fase 2).
-- Chama a automação da Fase 3 (via API interna, não mais SSH manual).
-- Fica no ar como cadastro pausado/pendente até confirmação de pagamento
-  (depende da Fase 6, mas pode nascer com um "trial" sem cobrança).
+### Fase 4 — CONCLUÍDA (implementação, 2026-08-13): Onboarding self-service
+Primeira peça de software de verdade do produto:
+`tools/onboarding-service/` (FastAPI, namespace próprio
+`atendagente-onboarding`, kubeconfig namespace-scoped restrito a
+`atendagente` — nunca o kubeconfig admin do cluster, que também
+alcançaria `consultor`). Sem Docker/registry: mesmo padrão sem-build já
+validado no sidecar `mongo-sync` (`python:3.12-slim` + `pip install` no
+startup, código via `hostPath`).
 
-### Fase 5 — Espelho de conversas em MongoDB (dados) + painel (UI, pendente)
+- Implementa o fluxo Embedded Signup (JS SDK da Meta): `code` de
+  autorização trocado por access token server-side
+  (`app/meta_client.py`), `waba_id`/`phone_number_id` capturados do
+  evento `WA_EMBEDDED_SIGNUP`.
+- Formulário de SOUL server-rendered (Jinja2, `POST` tradicional, sem
+  SPA) mapeando pro schema da Fase 2.
+- Chama `provision_tenant.provision()` **por import direto** (não
+  subprocess/SSH) — `provision()` agora retorna um dict de credenciais
+  em vez de só imprimir.
+- **Descoberta que mudou o escopo**: a console da Meta não tem UI pra
+  rotear webhook por WABA em contas Tech Provider — só via API. Nova
+  função `subscribe_app_to_waba()` (`POST /{waba_id}/subscribed_apps`)
+  chamada logo depois de `provision()`, fora dela (mantém `provision()`
+  utilizável standalone pelos fluxos manuais como
+  `reprovision-teste-atendagente.sh`).
+- Estado do cadastro (`code_exchanged`→`provisioning`→`live`/`failed`)
+  numa coleção `signups` no MongoDB compartilhado da Fase 5 — sem
+  datastore novo.
+- Ainda sem cobrança de verdade — todo tenant novo nasce
+  `plano: trial` (Fase 6 decide o que fazer com isso).
+
+**Validação end-to-end contra o cluster real ainda não foi feita** —
+falta rodar `setup_onboarding_service.py` no servidor (precisa do
+Secret `onboarding-service-env` criado manualmente primeiro) e testar o
+fluxo completo com o WABA/número de teste já em uso nas fases
+anteriores.
+
+### Fase 5 — Espelho de conversas em MongoDB (dados) + painel por tenant (CONCLUÍDA, 2026-08-13)
+
+**Mudança de escopo decidida nesta sessão**: o painel deixou de ser um
+painel central multi-tenant e passou a ser **por tenant**, provisionado
+junto com o resto (`build_infra_manifest`) em vez de construído depois
+como peça separada — ver `tools/tenant-panel/`. Cada tenant tem seu
+próprio painel em `https://<tenant>.../painel` (mesma Ingress do
+webhook, path separado), protegido por HTTP Basic Auth
+(`PANEL_USER`/`PANEL_PASSWORD` gerados no provisionamento, junto do
+`verify_token`).
+
 **Incógnita resolvida (2026-08-13):** inspeção ao vivo do pod de teste
 (`kubectl exec` + `sqlite3` em `/opt/data/state.db`) confirmou que o
 hermes-agent guarda sessões e mensagens em SQLite, tabelas `sessions` e
@@ -200,9 +235,13 @@ tempo real", sem exigir tail de WAL). O cursor de sincronização
 sidecar é stateless/restart-safe. Credenciais do Mongo são um Secret
 único compartilhado (`mongo-credentials`), não duplicado por tenant.
 
-Isso resolve o pipeline de dados da Fase 5. **A UI do painel em si
-(lista de conversas, thread, botão "assumir conversa") ainda não foi
-construída** — fica pra uma etapa seguinte, agora desbloqueada.
+**UI do painel**: lista de conversas + thread (`tools/tenant-panel/app.py`,
+FastAPI + Jinja2) implementada e gerada automaticamente por
+`build_infra_manifest`. Ainda não tem botão "assumir conversa" (enviar
+mensagem livre via Graph API silenciando o bot) — fica pra depois,
+mas a base de leitura já está no ar. Validação end-to-end contra o
+cluster real ainda pendente (junto com a da Fase 4, mesmo lote de
+testes).
 
 ### Fase 6 — Cobrança
 Assinatura por tenant (Stripe ou similar). V1 simples: checagem periódica
@@ -253,17 +292,25 @@ logs` vs. os arquivos de log em disco) na memória `infra_atendagente_k3s`.
 
 ## Próximo passo
 
-Com Fases 1, 2 e 3 provadas de ponta a ponta (incluindo execução real,
-não só dry-run) e o pipeline de dados da Fase 5 implementado (MongoDB
-compartilhado + sidecar `mongo-sync`), falta: (a) rodar
-`setup_mongo.py` no cluster e retroaplicar o tenant de teste
-(`reprovision-teste-atendagente.sh`) pra validar a sincronização de
-verdade contra uma mensagem real, e (b) seguir para a **Fase 4**
-(onboarding self-service via Embedded Signup + formulário) — o
-`provision()` do `provision_tenant.py` já pode virar o backend de uma
-API interna chamada por esse serviço web, como descrito na seção da
-Fase 4 acima. A UI do painel (parte pendente da Fase 5) pode ser
-construída em paralelo, já com os dados disponíveis no Mongo.
+Fases 1, 2, 3 e o pipeline de dados da Fase 5 (Mongo + `mongo-sync`)
+estão provadas de ponta a ponta contra o cluster real. O painel por
+tenant (Fase 5 UI) e o onboarding self-service (Fase 4) foram
+**implementados** nesta sessão, mas ainda **não validados contra o
+cluster** — falta:
+1. Rodar `tools/provision-tenant/setup_mongo.py` de novo se ainda não
+   estiver com a versão mais recente, e reaplicar o tenant de teste
+   (`reprovision-teste-atendagente.sh`) pra ele ganhar o painel também.
+2. Criar manualmente o Secret `onboarding-service-env` no servidor (App
+   Secret/ID da Meta, Config ID, credenciais compartilhadas — ver
+   `tools/onboarding-service/README.md`) e rodar
+   `setup_onboarding_service.py`.
+3. Rodar o fluxo completo (Embedded Signup real com o WABA/número de
+   teste já usado nas fases anteriores → formulário → tenant novo no
+   ar) e confirmar o `subscribe_app_to_waba()` realmente roteou o
+   webhook — esse é o teste crítico desta fase.
+
+Depois disso, falta só a **Fase 6** (cobrança) pra fechar o roadmap
+técnico — hoje todo tenant novo nasce `plano: trial` sem cobrança.
 
 ## Verificação
 
@@ -281,7 +328,15 @@ construída em paralelo, já com os dados disponíveis no Mongo.
   mesmo conteúdo/`session_id` que aparece no `state.db` via `sqlite3`
   dentro do pod; reiniciar o pod do tenant e confirmar que a sincronização
   retoma do cursor salvo sem duplicar nem perder mensagens.
-- Fase 4/5 (UI)/6: cada uma testável isoladamente antes de integrar
-  (signup sem painel, painel com dados mockados antes de plugar no
-  storage real, etc.) — não faz sentido testar a jornada completa antes
-  das peças isoladas funcionarem.
+- Fase 5 (painel): aplicar no tenant de teste, confirmar Basic Auth e
+  lista de conversas batendo com o Mongo, confirmar que o webhook
+  continua respondendo na mesma Ingress (path novo não quebrou o path
+  existente).
+- Fase 4: preencher o form isolado (comparar YAML gerado com
+  `exemplo-tenant.yaml`), testar troca `code`→token e
+  `subscribed_apps` isoladamente antes do fluxo completo, depois rodar
+  ponta a ponta criando um tenant novo de fato com o WABA de teste —
+  `kubectl get pods` `Running`, webhook responde, mensagem real
+  chega/é respondida. Testar negativo do RBAC (`kubectl --kubeconfig
+  <gerado> -n consultor get pods` deve dar `Forbidden`).
+- Fase 6: ainda não implementada.

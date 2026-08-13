@@ -121,6 +121,42 @@ def create_dns_record(subdomain_host: str, ip: str, token: str, zone_id: str) ->
     print(f"  DNS criado: {subdomain_host} -> {ip}")
 
 
+def subscribe_app_to_waba(waba_id: str, access_token: str, verify_token: str, callback_uri: str) -> None:
+    """Registra o webhook do tenant pra essa WABA específica (Fase 4).
+
+    A console da Meta não tem UI pra isso em contas Tech Provider — sem
+    essa chamada, o tráfego da WABA do cliente cai no webhook padrão do
+    App em vez de chegar no pod do tenant. Fica fora de provision() de
+    propósito: os fluxos manuais (reprovision-teste-atendagente.sh) não
+    têm um access_token de WABA recém-obtido via Embedded Signup à mão.
+    """
+    url = f"https://graph.facebook.com/v21.0/{waba_id}/subscribed_apps"
+    payload = json.dumps(
+        {"override_callback_uri": callback_uri, "verify_token": verify_token}
+    ).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise ProvisionError(
+            f"Falha ao registrar webhook override na WABA {waba_id}: "
+            f"HTTP {e.code}: {e.read().decode()}"
+        ) from e
+
+    if not body.get("success"):
+        raise ProvisionError(f"Meta rejeitou o override de webhook: {body}")
+    print(f"  Webhook override registrado pra WABA {waba_id} -> {callback_uri}")
+
+
 def build_infra_manifest(tenant_id: str, host: str) -> str:
     """PVC + Deployment + Service + Ingress — mesmo padrão validado na Fase 1."""
     prefix = f"{tenant_id}-hermes"
@@ -218,6 +254,59 @@ spec:
       port: 80
       targetPort: 8090
 ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {prefix}-panel
+  namespace: {NAMESPACE}
+  labels: {{app: {prefix}-panel, tenant: {tenant_id}}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{app: {prefix}-panel}}
+  template:
+    metadata:
+      labels: {{app: {prefix}-panel, tenant: {tenant_id}}}
+    spec:
+      containers:
+        - name: panel
+          image: python:3.12-slim
+          command: ["sh", "-c", "pip install --quiet --no-cache-dir -r /app/requirements.txt && python -m uvicorn app:app --host 0.0.0.0 --port 8000 --app-dir /app"]
+          env:
+            - name: TENANT_ID
+              value: "{tenant_id}"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          envFrom:
+            - secretRef:
+                name: mongo-credentials
+            - secretRef:
+                name: {prefix}-env
+          volumeMounts:
+            - name: panel-code
+              mountPath: /app
+              readOnly: true
+          resources:
+            requests: {{cpu: "50m", memory: "128Mi"}}
+            limits: {{cpu: "200m", memory: "256Mi"}}
+      volumes:
+        - name: panel-code
+          hostPath:
+            path: /root/atendagente-tools/tenant-panel
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {prefix}-panel
+  namespace: {NAMESPACE}
+spec:
+  selector: {{app: {prefix}-panel}}
+  ports:
+    - name: painel
+      port: 8000
+      targetPort: 8000
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -231,6 +320,13 @@ spec:
     - host: {host}
       http:
         paths:
+          - path: /painel
+            pathType: Prefix
+            backend:
+              service:
+                name: {prefix}-panel
+                port:
+                  number: 8000
           - path: /
             pathType: Prefix
             backend:
@@ -244,10 +340,12 @@ spec:
 """
 
 
-def build_secret_manifest(tenant_id: str, phone_number_id: str, waba_id: str, env: dict) -> str:
+def build_secret_manifest(tenant_id: str, phone_number_id: str, waba_id: str, env: dict) -> tuple[str, dict]:
     prefix = f"{tenant_id}-hermes"
     verify_token = secrets.token_urlsafe(24)
-    return f"""\
+    panel_user = f"{tenant_id}-admin"
+    panel_password = secrets.token_urlsafe(18)
+    manifest = f"""\
 apiVersion: v1
 kind: Secret
 metadata:
@@ -263,7 +361,15 @@ stringData:
   WHATSAPP_CLOUD_APP_SECRET: "{env['WHATSAPP_APP_SECRET']}"
   OPENROUTER_API_KEY: "{env['OPENROUTER_API_KEY']}"
   GATEWAY_ALLOW_ALL_USERS: "true"
-""", verify_token
+  PANEL_USER: "{panel_user}"
+  PANEL_PASSWORD: "{panel_password}"
+"""
+    credentials = {
+        "verify_token": verify_token,
+        "panel_user": panel_user,
+        "panel_password": panel_password,
+    }
+    return manifest, credentials
 
 
 def wait_for_health(deployment: str, timeout_s: int = 120) -> bool:
@@ -280,7 +386,7 @@ def wait_for_health(deployment: str, timeout_s: int = 120) -> bool:
     return True
 
 
-def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> None:
+def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dict | None:
     config = yaml.safe_load(tenant_config_path.read_text(encoding="utf-8"))
 
     tenant_id = config["tenant_id"]
@@ -291,25 +397,25 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> Non
 
     print(f"== Provisionando tenant '{tenant_id}' ({host}) {'[DRY RUN]' if dry_run else ''} ==")
 
-    secret_yaml, verify_token = build_secret_manifest(tenant_id, phone_number_id, waba_id, env)
+    secret_yaml, credentials = build_secret_manifest(tenant_id, phone_number_id, waba_id, env)
     infra_yaml = build_infra_manifest(tenant_id, host)
     soul_text = render_soul(config)
 
     if dry_run:
         print("--- Secret (valores sensíveis mascarados) ---")
         for line in secret_yaml.splitlines():
-            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "VERIFY_TOKEN")):
+            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "VERIFY_TOKEN", "PANEL_PASSWORD")):
                 key = line.split(":", 1)[0]
                 print(f"{key}: <mascarado>")
             else:
                 print(line)
-        print("--- Manifests de infra (PVC/Deployment/Service/Ingress) ---")
+        print("--- Manifests de infra (PVC/Deployment/Service/Ingress + painel) ---")
         print(infra_yaml)
         print("--- SOUL.md gerado ---")
         print(soul_text)
         print(f"(dry-run: nenhuma chamada real a kubectl/Cloudflare foi feita; "
               f"registro DNS seria {host} -> {env.get('SERVER_IP') or '<SERVER_IP não setado>'})")
-        return
+        return None
 
     print("1/5 Registro DNS...")
     create_dns_record(host, env["SERVER_IP"], env["CLOUDFLARE_API_TOKEN"], env["CLOUDFLARE_ZONE_ID"])
@@ -317,7 +423,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> Non
     print("2/5 Secret (credenciais)...")
     kubectl_apply(secret_yaml)
 
-    print("3/5 PVC + Deployment + Service + Ingress...")
+    print("3/5 PVC + Deployment + Service + Ingress + painel...")
     kubectl_apply(infra_yaml)
 
     print("4/5 Aguardando pod ficar pronto...")
@@ -328,6 +434,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> Non
             f"/opt/data/logs/ dentro do pod (kubectl logs pode atrasar, ver "
             f"memória infra_atendagente_k3s)."
         )
+    wait_for_health(f"{prefix}-panel")
 
     print("5/5 Gerando e publicando SOUL.md...")
     kubectl_exec_stdin(prefix, ["sh", "-c", "cat > /opt/data/SOUL.md"], soul_text)
@@ -335,11 +442,13 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> Non
     wait_for_health(prefix)
 
     print(f"\n✓ Tenant '{tenant_id}' no ar em https://{host}/whatsapp/webhook")
-    print(f"  Verify token pro cadastro do webhook na Meta: {verify_token}")
+    print(f"  Verify token pro cadastro do webhook na Meta: {credentials['verify_token']}")
+    print(f"  Painel: https://{host}/painel  (usuário: {credentials['panel_user']})")
     print(
-        "  (não fica salvo em lugar nenhum além do Secret do cluster — "
-        "anote agora se for configurar o webhook na Meta.)"
+        "  (credenciais não ficam salvas em lugar nenhum além do Secret do "
+        "cluster — anote agora.)"
     )
+    return credentials
 
 
 def main() -> None:

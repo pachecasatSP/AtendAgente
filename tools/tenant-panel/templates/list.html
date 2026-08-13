@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <title>Painel — {{ tenant_id }}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { font-size: 1.25rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #ddd; }
+    a { color: #1a5fb4; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .empty { color: #666; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Conversas — {{ tenant_id }}</h1>
+  {% if sessions %}
+  <table>
+    <tr><th>Contato</th><th>Última atividade</th><th>Mensagens</th></tr>
+    {% for s in sessions %}
+    <tr>
+      <td><a href="/painel/{{ s.session_id }}">{{ s.display_name or s.chat_id or s.session_id }}</a></td>
+      <td>{{ s.last_activity_fmt }}</td>
+      <td>{{ s.message_count or 0 }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="empty">Nenhuma conversa ainda.</p>
+  {% endif %}
+</body>
+</html>

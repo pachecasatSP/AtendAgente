@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <title>Configurar seu atendimento — AtendAgente</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    label { display: block; margin-top: 1rem; font-weight: 600; }
+    small { display: block; color: #666; font-weight: normal; margin-top: 0.15rem; }
+    input[type=text], textarea { width: 100%; padding: 0.5rem; margin-top: 0.3rem; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; font-family: inherit; }
+    textarea { min-height: 4rem; }
+    button { margin-top: 1.5rem; font-size: 1rem; padding: 0.6rem 1.4rem; background: #1a5fb4; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+    .erro { background: #fdecea; color: #a33; padding: 0.75rem; border-radius: 6px; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Configure seu atendimento</h1>
+  {% if erro %}<p class="erro">{{ erro }}</p>{% endif %}
+  <form method="post" action="/signup/{{ signup_id }}/form">
+    <label>Identificador (slug) do seu negócio
+      <small>Só letras minúsculas, números e hífen — vira seu subdomínio, ex: minha-loja.atendpragente.com.br</small>
+      <input type="text" name="tenant_id" required pattern="[a-z][a-z0-9-]{1,30}[a-z0-9]">
+    </label>
+
+    <label>Nome do negócio<input type="text" name="nome_negocio" required></label>
+    <label>Artigo (a/o)<input type="text" name="artigo_negocio" value="a"></label>
+    <label>Descrição do negócio<textarea name="descricao_negocio" required></textarea></label>
+    <label>Quem costuma escrever / o que costuma pedir<textarea name="descricao_publico"></textarea></label>
+    <label>Tom de voz<textarea name="tom_descricao"></textarea></label>
+    <label>Uso de emoji<input type="text" name="tom_emoji" placeholder="ex: moderado"></label>
+
+    <label>Serviços <small>um por linha: Nome | Descrição | Público-alvo</small>
+      <textarea name="servicos" required placeholder="Corte de cabelo | Corte masculino e feminino | Quem quer se cuidar"></textarea>
+    </label>
+
+    <label>Como vocês trabalham <small>um por linha: Rótulo: valor</small>
+      <textarea name="como_trabalhamos" placeholder="Horário de atendimento: seg a sáb, 9h às 19h"></textarea>
+    </label>
+
+    <label>O que o bot ainda não sabe <small>um item por linha</small>
+      <textarea name="lacunas_conhecidas"></textarea>
+    </label>
+
+    <label>Nome de quem recebe o encaminhamento<input type="text" name="escalacao_nome" required></label>
+    <label>Telefone de encaminhamento<input type="text" name="escalacao_telefone" required></label>
+    <label>Pronome de quem recebe (ele/ela)<input type="text" name="escalacao_pronome" value="ele"></label>
+
+    <label>Exemplos de pergunta/resposta <small>um por linha: Pergunta | Resposta</small>
+      <textarea name="exemplos"></textarea>
+    </label>
+
+    <button type="submit">Ativar meu atendimento</button>
+  </form>
+</body>
+</html>
