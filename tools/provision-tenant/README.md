@@ -33,11 +33,11 @@ python3 provision_tenant.py tenants/exemplo-tenant.yaml --dry-run
 ```
 
 Gera e mostra o SOUL.md e os manifests (Secret com valores sensíveis
-mascarados), sem chamar `kubectl` nem a API da Cloudflare — é assim que
-foi validado até aqui. **Uma execução real ponta a ponta contra o
-cluster ainda não foi feita** (exigiria um segundo número de teste da
-Meta, ou reaproveitar o tenant de teste da Fase 1 — decisão de negócio,
-não técnica, então ficou pra quando fizer sentido).
+mascarados), sem chamar `kubectl` nem a API da Cloudflare.
+
+**Já validado com execução real (não só dry-run)** em 2026-08-13,
+reaproveitando o tenant de teste da Fase 1 — ver
+`reprovision-teste-atendagente.sh` e a memória `roadmap_multitenant`.
 
 ## Schema do YAML do tenant
 
@@ -57,6 +57,25 @@ Veja `tenants/exemplo-tenant.yaml`.
 O Secret gerado sempre inclui `GATEWAY_ALLOW_ALL_USERS=true` e a chave
 do provedor de LLM — as duas coisas que faltaram na primeira tentativa
 manual da Fase 1 (ver memória `infra_atendagente_k3s`).
+
+## Pré-requisito: MongoDB compartilhado (Fase 5)
+
+Desde a Fase 5, todo pod de tenant gerado por `build_infra_manifest` traz
+um segundo container (`mongo-sync`) que espelha `sessions`/`messages` do
+`state.db` do hermes-agent pro MongoDB compartilhado do namespace
+`atendagente`. Isso significa que **`setup_mongo.py` precisa rodar pelo
+menos uma vez antes de provisionar qualquer tenant** — ele cria o Secret
+`mongo-credentials`, o Deployment/Service `mongo`, e o ConfigMap
+`mongo-sync-script` que o sidecar consome. Ver `mongo_sync/` pro código
+do sidecar e a explicação completa no roadmap (`specs/roadmap-multi-tenant.md`).
+
+```bash
+python3 setup_mongo.py            # uma vez, no servidor
+python3 setup_mongo.py --dry-run  # só mostra o que seria aplicado
+```
+
+Rodar de novo é seguro (idempotente) — não recria credenciais se o
+Secret já existir.
 
 ## Próximo passo (Fase 4)
 

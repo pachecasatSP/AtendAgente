@@ -179,18 +179,30 @@ que:
 - Fica no ar como cadastro pausado/pendente até confirmação de pagamento
   (depende da Fase 6, mas pode nascer com um "trial" sem cobrança).
 
-### Fase 5 — Painel de conversas e intervenção manual
-**Tem uma incógnita técnica a resolver antes de desenhar isso em
-detalhe:** onde e em que formato o Hermes guarda o histórico de conversa
-dentro de `/opt/data/` de cada pod de tenant (SQLite? JSON?) — isso não
-foi confirmado ainda, precisa de uma sessão de investigação no cluster
-novo (`kubectl exec` num pod de tenant + inspecionar `/opt/data/`) antes
-de decidir se o painel lê direto esse storage (um PVC por tenant torna
-isso mais simples de isolar que o cenário de profile-compartilhado) ou se
-precisa de uma API intermediária. Uma vez resolvido isso, o painel é:
-lista de conversas por tenant, thread de mensagens, botão "assumir
-conversa" (seta `atendente_humano`/equivalente e permite enviar mensagem
-livre via Graph API diretamente).
+### Fase 5 — Espelho de conversas em MongoDB (dados) + painel (UI, pendente)
+**Incógnita resolvida (2026-08-13):** inspeção ao vivo do pod de teste
+(`kubectl exec` + `sqlite3` em `/opt/data/state.db`) confirmou que o
+hermes-agent guarda sessões e mensagens em SQLite, tabelas `sessions` e
+`messages` (WAL mode), sem nenhum hook de config pra outro backend —
+`response_store.db` é só cache de respostas, não o log real.
+
+**Decisão:** em vez de o painel ler direto o SQLite de cada pod (exigiria
+`kubectl exec` por tenant a cada consulta, ou uma API intermediária por
+tenant), sobe um **MongoDB compartilhado** no namespace `atendagente`
+(`tools/provision-tenant/setup_mongo.py`, recurso único do cluster, não
+por tenant), com as conversas de todos os tenants nele, particionadas por
+`tenant_id`. Um **sidecar** (`mongo-sync`, adicionado em
+`build_infra_manifest` de `provision_tenant.py`) roda no mesmo pod de
+cada tenant, monta o mesmo PVC como `readOnly: true`, e sincroniza
+`sessions`/`messages` pro Mongo a cada ~15s (polling curto — "quase em
+tempo real", sem exigir tail de WAL). O cursor de sincronização
+(`sync_state`) fica no próprio Mongo, não no PVC do tenant, então o
+sidecar é stateless/restart-safe. Credenciais do Mongo são um Secret
+único compartilhado (`mongo-credentials`), não duplicado por tenant.
+
+Isso resolve o pipeline de dados da Fase 5. **A UI do painel em si
+(lista de conversas, thread, botão "assumir conversa") ainda não foi
+construída** — fica pra uma etapa seguinte, agora desbloqueada.
 
 ### Fase 6 — Cobrança
 Assinatura por tenant (Stripe ou similar). V1 simples: checagem periódica
@@ -212,8 +224,6 @@ em vez de destruir o tenant.
   Cloudflare antes do Ingress — se isso ficar manual demais, vira gargalo
   do self-service (Fase 4). A Fase 3 já assume automação via API da
   Cloudflare; validar credenciais/token de API cedo.
-- **Formato do histórico de conversa** (bloqueador da Fase 5) — não
-  investigado ainda.
 - **Migração `consultor` → `re-colocar-me`**: adiada, não bloqueia este
   roadmap, mas fica pendente como dívida separada (não documentar aqui os
   detalhes — é um projeto à parte, envolve dados reais em produção).
@@ -244,12 +254,16 @@ logs` vs. os arquivos de log em disco) na memória `infra_atendagente_k3s`.
 ## Próximo passo
 
 Com Fases 1, 2 e 3 provadas de ponta a ponta (incluindo execução real,
-não só dry-run), seguir para a **Fase 4** (onboarding self-service via
-Embedded Signup + formulário) — o `provision()` do `provision_tenant.py`
-já pode virar o backend de uma API interna chamada por esse serviço web,
-como descrito na seção da Fase 4 acima. Em paralelo, vale investigar o
-bloqueio conhecido da Fase 5 (formato do histórico de conversa em
-`/opt/data/`).
+não só dry-run) e o pipeline de dados da Fase 5 implementado (MongoDB
+compartilhado + sidecar `mongo-sync`), falta: (a) rodar
+`setup_mongo.py` no cluster e retroaplicar o tenant de teste
+(`reprovision-teste-atendagente.sh`) pra validar a sincronização de
+verdade contra uma mensagem real, e (b) seguir para a **Fase 4**
+(onboarding self-service via Embedded Signup + formulário) — o
+`provision()` do `provision_tenant.py` já pode virar o backend de uma
+API interna chamada por esse serviço web, como descrito na seção da
+Fase 4 acima. A UI do painel (parte pendente da Fase 5) pode ser
+construída em paralelo, já com os dados disponíveis no Mongo.
 
 ## Verificação
 
@@ -262,7 +276,12 @@ bloqueio conhecido da Fase 5 (formato do histórico de conversa em
   usada nos SOUL-*.md existentes.
 - Fase 3: rodar o script de ponta a ponta para um tenant fictício e medir
   quanto tempo leva vs. o processo manual documentado em `infra_k3s`.
-- Fase 4/5/6: cada uma testável isoladamente antes de integrar (signup
-  sem painel, painel com dados mockados antes de plugar no storage real,
-  etc.) — não faz sentido testar a jornada completa antes das peças
-  isoladas funcionarem.
+- Fase 5 (pipeline de dados): mandar mensagem real pro número de teste,
+  confirmar em até ~30s que ela aparece em `db.messages` no Mongo com o
+  mesmo conteúdo/`session_id` que aparece no `state.db` via `sqlite3`
+  dentro do pod; reiniciar o pod do tenant e confirmar que a sincronização
+  retoma do cursor salvo sem duplicar nem perder mensagens.
+- Fase 4/5 (UI)/6: cada uma testável isoladamente antes de integrar
+  (signup sem painel, painel com dados mockados antes de plugar no
+  storage real, etc.) — não faz sentido testar a jornada completa antes
+  das peças isoladas funcionarem.

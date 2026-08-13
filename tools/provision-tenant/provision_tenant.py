@@ -176,10 +176,35 @@ spec:
             httpGet: {{path: /health, port: 8090}}
             initialDelaySeconds: 30
             periodSeconds: 20
+        - name: mongo-sync
+          image: python:3.12-slim
+          command: ["sh", "-c", "pip install --quiet --no-cache-dir pymongo && python /scripts/sync_conversations.py"]
+          env:
+            - name: TENANT_ID
+              value: "{tenant_id}"
+            - name: SYNC_INTERVAL_SECONDS
+              value: "15"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          envFrom:
+            - secretRef:
+                name: mongo-credentials
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+              readOnly: true
+            - name: sync-script
+              mountPath: /scripts
+          resources:
+            requests: {{cpu: "50m", memory: "128Mi"}}
+            limits: {{cpu: "200m", memory: "256Mi"}}
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: {prefix}-data
+        - name: sync-script
+          configMap:
+            name: mongo-sync-script
 ---
 apiVersion: v1
 kind: Service
