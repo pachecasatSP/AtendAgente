@@ -179,20 +179,39 @@ em vez de destruir o tenant.
   roadmap, mas fica pendente como dívida separada (não documentar aqui os
   detalhes — é um projeto à parte, envolve dados reais em produção).
 
-## Primeiro passo recomendado
+## Fase 1 — CONCLUÍDA (2026-08-12)
 
-Executar a **Fase 1** isolada: um Deployment/Service/Ingress de teste no
-namespace `atendagente`, usando um número de teste grátis da Meta,
-confirmar handshake do webhook (`hub.challenge`) e uma mensagem real
-recebida/respondida, sem tocar no namespace `consultor`. Documentar o
-resultado (footprint de recursos observado, qualquer ajuste no template)
-como uma nova entrada de memória (`infra_k3s` ganha uma seção pro cluster
-novo, ou uma `infra_atendagente_k3s` dedicada) antes de prosseguir pra
-Fase 2/3.
+Deployment de teste (`teste-atendagente`) criado no namespace
+`atendagente`, DNS (`teste-atendagente.colocar-me.com.br`, via API da
+Cloudflare — `atendpragente.com.br` ainda propagando) e certificado
+(staging → prod) confirmados, handshake do webhook (`hub.challenge`)
+respondido corretamente. Mensagem real enviada ao número de teste foi
+recebida e respondida pelo bot (`response ready: time=20.5s
+response=89 chars`) — round-trip completo validado, isolado do namespace
+`consultor` no mesmo cluster.
+
+**Duas pegadinhas descobertas que a automação da Fase 3 precisa cobrir**
+(um `hermes-agent` só com credenciais de WhatsApp não funciona sozinho):
+1. `GATEWAY_ALLOW_ALL_USERS=true` é obrigatório no Secret de cada
+   tenant — sem isso o gateway nega remetentes desconhecidos
+   silenciosamente (sem erro visível pro remetente).
+2. Cada tenant precisa da própria chave de provedor de LLM
+   (`OPENROUTER_API_KEY` ou equivalente) no Secret — não herda nada do
+   cluster de produção da AC Soluções (são clusters diferentes).
+
+Detalhes completos (incluindo a pegadinha de depuração com `kubectl
+logs` vs. os arquivos de log em disco) na memória `infra_atendagente_k3s`.
+
+## Próximo passo
+
+Com a Fase 1 provada, seguir para a **Fase 2** (SOUL como template) — o
+gerador de manifests da Fase 3 já pode reaproveitar o padrão de
+Secret/PVC/Deployment/Service/Ingress usado no teste, incluindo as duas
+variáveis descobertas acima.
 
 ## Verificação
 
-- Fase 1: mensagem real recebida/respondida no número de teste, pod
+- Fase 1 ✓: mensagem real recebida/respondida no número de teste, pod
   isolado no namespace `atendagente`, sem qualquer efeito nos pods do
   namespace `consultor` no mesmo cluster — prova de isolamento por
   namespace + Deployment dedicado.
