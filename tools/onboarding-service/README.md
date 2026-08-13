@@ -25,29 +25,34 @@ em vez de chegar no pod certo.
 
 ## Setup (uma vez, no servidor)
 
-1. Criar o Secret de credenciais compartilhadas (App Secret/ID da Meta,
-   Config ID do Embedded Signup, OpenRouter, Cloudflare, SERVER_IP) —
-   digitado direto no servidor, nunca colado no chat:
+1. Criar o Secret de credenciais compartilhadas — via SSH interativo
+   direto no servidor, **nunca colado no chat do agente**:
 
    ```bash
-   kubectl create namespace atendagente-onboarding
+   kubectl create namespace atendagente-onboarding 2>/dev/null
+
+   umask 077 && cat > /root/.onboarding-service-env <<'EOF'
+   WHATSAPP_CLOUD_APP_ID=...
+   WHATSAPP_CLOUD_APP_SECRET=...
+   META_CONFIG_ID=...
+   OPENROUTER_API_KEY=...
+   CLOUDFLARE_API_TOKEN=...
+   CLOUDFLARE_ZONE_ID=5435cf54669fa51f002f1e2a8b59ae61
+   SERVER_IP=62.238.103.17
+   EOF
+
    kubectl -n atendagente-onboarding create secret generic onboarding-service-env \
-     --from-literal=WHATSAPP_CLOUD_APP_ID=... \
-     --from-literal=WHATSAPP_CLOUD_APP_SECRET=... \
-     --from-literal=META_CONFIG_ID=... \
-     --from-literal=OPENROUTER_API_KEY=... \
-     --from-literal=CLOUDFLARE_API_TOKEN=... \
-     --from-literal=CLOUDFLARE_ZONE_ID=... \
-     --from-literal=SERVER_IP=62.238.103.17
+     --from-env-file=/root/.onboarding-service-env
+   shred -u /root/.onboarding-service-env
    ```
 
 2. Rodar o bootstrap (namespace, RBAC, kubeconfig namespace-scoped,
-   cópia do Mongo, DNS, Deployment/Service/Ingress):
+   cópia do Mongo, DNS, Deployment/Service/Ingress). O token da
+   Cloudflare é lido de `/root/.cloudflare_api_token` (mesmo arquivo já
+   usado por `reprovision-teste-atendagente.sh`) — zone ID e SERVER_IP
+   já têm default pro cluster atual:
 
    ```bash
-   export SERVER_IP=62.238.103.17
-   export CLOUDFLARE_API_TOKEN=...
-   export CLOUDFLARE_ZONE_ID=...
    python3 setup_onboarding_service.py
    python3 setup_onboarding_service.py --dry-run   # só mostra os manifests
    ```

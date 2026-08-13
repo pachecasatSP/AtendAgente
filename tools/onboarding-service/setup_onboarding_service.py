@@ -16,9 +16,10 @@ interativo — nunca colado no chat do agente. Este script imprime o
 comando exato se o Secret não existir.
 
 Uso:
-    export CLOUDFLARE_API_TOKEN=...
-    export CLOUDFLARE_ZONE_ID=...
-    export SERVER_IP=62.238.103.17
+    # token da Cloudflare lido de /root/.cloudflare_api_token (mesmo
+    # arquivo já usado por reprovision-teste-atendagente.sh); zone ID e
+    # SERVER_IP já têm default pro cluster atual, só exporte se for
+    # diferente.
     python3 setup_onboarding_service.py
     python3 setup_onboarding_service.py --dry-run
 """
@@ -39,7 +40,7 @@ SA_NAME = "onboarding-service"
 TOKEN_SECRET_NAME = "onboarding-service-token"
 KUBECONFIG_SECRET_NAME = "onboarding-service-kubeconfig"
 ENV_SECRET_NAME = "onboarding-service-env"
-ONBOARDING_HOST = "onboarding.atendpragente.com.br"
+ONBOARDING_HOST = "onboarding.colocar-me.com.br"
 
 REQUIRED_ENV_SECRET_KEYS = [
     "WHATSAPP_CLOUD_APP_ID",
@@ -223,22 +224,30 @@ data:
 def check_env_secret() -> None:
     if resource_exists("secret", ENV_SECRET_NAME, ONBOARDING_NAMESPACE):
         return
-    example_literals = " \\\n    ".join(f"--from-literal={k}=<{k.lower()}>" for k in REQUIRED_ENV_SECRET_KEYS)
+    example_lines = "\n".join(f"{k}=..." for k in REQUIRED_ENV_SECRET_KEYS)
     raise SetupError(
         f"Secret '{ENV_SECRET_NAME}' não existe em {ONBOARDING_NAMESPACE}. "
-        "Crie primeiro, digitando os valores direto no servidor (nunca no "
-        "chat do agente):\n\n"
-        f"  kubectl -n {ONBOARDING_NAMESPACE} create namespace {ONBOARDING_NAMESPACE} 2>/dev/null; "
-        f"kubectl -n {ONBOARDING_NAMESPACE} create secret generic {ENV_SECRET_NAME} \\\n    {example_literals}\n\n"
+        "Crie primeiro, digitando os valores direto no servidor via SSH "
+        "interativo (nunca colado no chat do agente):\n\n"
+        f"  kubectl create namespace {ONBOARDING_NAMESPACE} 2>/dev/null\n"
+        "  umask 077 && cat > /root/.onboarding-service-env <<'EOF'\n"
+        f"{example_lines}\n"
+        "EOF\n"
+        f"  kubectl -n {ONBOARDING_NAMESPACE} create secret generic {ENV_SECRET_NAME} "
+        "--from-env-file=/root/.onboarding-service-env\n"
+        "  shred -u /root/.onboarding-service-env\n\n"
         "Rode este script de novo depois."
     )
 
 
 def build_service_manifest() -> str:
+    # Sem aspas ao redor da URL: o comando inteiro já vai entre aspas
+    # duplas no YAML (["sh", "-c", "..."]), aspas duplas aninhadas
+    # quebrariam o parser. A URL não tem espaço, não precisa de quoting.
     kubectl_install = (
         "apt-get update -qq && apt-get install -y -qq curl > /dev/null && "
-        'curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/'
-        '$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && '
+        "curl -Lo /usr/local/bin/kubectl "
+        "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl && "
         "chmod +x /usr/local/bin/kubectl"
     )
     start_cmd = (
@@ -361,12 +370,19 @@ def main() -> None:
             print(build_service_manifest())
             return
 
-        server_ip = os.environ.get("SERVER_IP")
+        server_ip = os.environ.get("SERVER_IP", "62.238.103.17")
+        cf_zone = os.environ.get("CLOUDFLARE_ZONE_ID", "5435cf54669fa51f002f1e2a8b59ae61")
+
         cf_token = os.environ.get("CLOUDFLARE_API_TOKEN")
-        cf_zone = os.environ.get("CLOUDFLARE_ZONE_ID")
-        if not (server_ip and cf_token and cf_zone):
+        if not cf_token:
+            token_file = Path(os.environ.get("CLOUDFLARE_TOKEN_FILE", "/root/.cloudflare_api_token"))
+            if token_file.exists():
+                cf_token = token_file.read_text(encoding="utf-8").strip()
+        if not cf_token:
             raise SetupError(
-                "Exporte SERVER_IP, CLOUDFLARE_API_TOKEN e CLOUDFLARE_ZONE_ID antes de rodar sem --dry-run."
+                f"Token da Cloudflare não encontrado — crie {token_file} "
+                "(umask 077 && cat > ... , cola o token, Ctrl-D) ou exporte "
+                "CLOUDFLARE_API_TOKEN."
             )
 
         print("1/6 Namespace + ServiceAccount + RBAC...")
