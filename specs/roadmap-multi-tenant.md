@@ -110,13 +110,20 @@ de tenant de teste:
 automação em cima dela** — inclusive serve de molde (YAML) que a Fase 3
 vai aprender a gerar automaticamente.
 
-### Fase 2 — SOUL como template, não arquivo à mão
-Criar um template de SOUL (baseado na estrutura já validada: Quem eu sou
-/ Como eu falo / serviços / regras / O que eu NÃO faço / Quando
-encaminhar / Memória / Exemplos) com variáveis. Escrever um pequeno
-gerador (script, não precisa de UI ainda) que recebe um JSON/YAML com as
-respostas do formulário de onboarding e produz o `SOUL.md` final. Isso
-desacopla "configurar um tenant" de "editar markdown".
+### Fase 2 — CONCLUÍDA (2026-08-12): SOUL como template, não arquivo à mão
+Template de SOUL (`tools/soul-generator/SOUL.template.md`) baseado na
+estrutura já validada (Quem eu sou / Como eu falo / serviços / Como a
+gente trabalha / O que eu ainda não sei / O que eu NÃO faço / Quando
+encaminhar / Memória / Exemplos), com um gerador
+(`tools/soul-generator/generate_soul.py`, só stdlib + PyYAML, sem
+dependência de motor de template) que recebe um YAML com as respostas do
+onboarding e produz o `SOUL.md` final. Validado com dois YAMLs de
+exemplo: uma reconstrução do SOUL real da AC Soluções (prova que
+reproduz a estrutura existente) e um negócio bem diferente — clínica
+odontológica fictícia (prova que generaliza). Desacopla "configurar um
+tenant" de "editar markdown". Detalhes/schema em
+`tools/soul-generator/README.md` — inclui uma limitação conhecida de
+fraseado quando o nome de escalação já vem com artigo definido embutido.
 
 ### Fase 3 — Automação do provisionamento (CLI interno, sem UI ainda)
 Um script/gerador que, dado `{tenant_id, phone_number_id, access_token,
