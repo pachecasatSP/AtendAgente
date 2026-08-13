@@ -125,7 +125,7 @@ tenant" de "editar markdown". Detalhes/schema em
 `tools/soul-generator/README.md` — inclui uma limitação conhecida de
 fraseado quando o nome de escalação já vem com artigo definido embutido.
 
-### Fase 3 — Script pronto e validado em dry-run (2026-08-12); execução real pendente
+### Fase 3 — CONCLUÍDA (2026-08-13): execução real ponta a ponta validada
 `tools/provision-tenant/provision_tenant.py`: dado um YAML de tenant
 (infra + schema de SOUL da Fase 2), cria o registro DNS via API da
 Cloudflare, aplica o Secret (já com `GATEWAY_ALLOW_ALL_USERS=true` e a
@@ -135,14 +135,38 @@ pronto, gera e publica o `SOUL.md` (reaproveitando o gerador da Fase 2),
 e reinicia. Credenciais só por variável de ambiente, nunca no YAML nem
 em argv. Roda no servidor, onde `kubectl` já aponta pro cluster certo.
 
-Validado com `--dry-run` (gera SOUL + manifests, mostra o que seria
-feito, sem chamar `kubectl`/Cloudflare de verdade) — **uma execução real
-ponta a ponta contra o cluster ainda não foi feita**: exigiria um
-segundo número de teste da Meta ou reaproveitar o tenant de teste da
-Fase 1, decisão de negócio a fazer antes, não bloqueio técnico.
-Colapsa em um comando o que hoje é um processo manual de várias etapas.
-Ainda operado pela Ac Soluções, não pelo cliente — é o degrau antes do
-self-service real (Fase 4).
+Rodado de verdade (sem `--dry-run`) reaproveitando o tenant de teste da
+Fase 1 (`teste-atendagente-hermes`): DNS (idempotente, registro já
+existia), Secret, PVC/Deployment/Service/Ingress reaplicados, SOUL de
+teste gerado e publicado, pod reiniciado, e o handshake do webhook
+(`hub.challenge`) confirmado funcionando pelo pod atualizado. Dois bugs
+reais encontrados e corrigidos nessa primeira execução real (não
+apareciam em dry-run):
+1. A checagem de "registro DNS já existe" só cobria o código de erro
+   `81057` da Cloudflare — a API retornou `81058`
+   ("An identical record already exists") pra um registro A idêntico,
+   que não estava coberto.
+2. Mais grave: como a Cloudflare responde HTTP 400 pra esse caso, o
+   `urllib.request.urlopen` lança `HTTPError` **antes** do código
+   chegar a olhar o corpo JSON pra checar o código do erro — a lógica de
+   "não é fatal" nunca era executada pra respostas não-2xx. Corrigido
+   fazendo o parse do corpo de erro dentro do próprio bloco `except
+   HTTPError`.
+
+Colapsa em um comando o que antes era um processo manual de várias
+etapas. Ainda operado pela Ac Soluções, não pelo cliente — é o degrau
+antes do self-service real (Fase 4).
+
+**Nota de segurança do processo:** o token da API da Cloudflare nunca é
+passado por variável de ambiente/argv em comando remoto nem colado no
+chat — fica em `/root/.cloudflare_api_token` (chmod 600), criado
+manualmente via SSH interativo direto pelo operador. Um wrapper
+(`tools/provision-tenant/reprovision-teste-atendagente.sh`) lê esse
+arquivo e as credenciais do WhatsApp/OpenRouter direto do Secret k8s já
+existente, sem nunca expor nenhum valor sensível em texto. Ver
+`security_cloudflare_token_leak` na memória: um token colado por engano
+no chat durante essa validação foi identificado e o usuário revogou/
+recriou antes do reprovisionamento funcionar.
 
 ### Fase 4 — Onboarding self-service (Embedded Signup + formulário)
 Primeira peça de software de verdade: um serviço web novo (namespace
@@ -219,10 +243,13 @@ logs` vs. os arquivos de log em disco) na memória `infra_atendagente_k3s`.
 
 ## Próximo passo
 
-Com a Fase 1 provada, seguir para a **Fase 2** (SOUL como template) — o
-gerador de manifests da Fase 3 já pode reaproveitar o padrão de
-Secret/PVC/Deployment/Service/Ingress usado no teste, incluindo as duas
-variáveis descobertas acima.
+Com Fases 1, 2 e 3 provadas de ponta a ponta (incluindo execução real,
+não só dry-run), seguir para a **Fase 4** (onboarding self-service via
+Embedded Signup + formulário) — o `provision()` do `provision_tenant.py`
+já pode virar o backend de uma API interna chamada por esse serviço web,
+como descrito na seção da Fase 4 acima. Em paralelo, vale investigar o
+bloqueio conhecido da Fase 5 (formato do histórico de conversa em
+`/opt/data/`).
 
 ## Verificação
 

@@ -104,11 +104,17 @@ def create_dns_record(subdomain_host: str, ip: str, token: str, zone_id: str) ->
         with urllib.request.urlopen(req) as resp:
             body = json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        raise ProvisionError(f"Cloudflare API HTTP {e.code}: {e.read().decode()}") from e
+        body = json.loads(e.read().decode())
+        # Já existe o registro? Cloudflare retorna 81057 ("record already exists")
+        # ou 81058 ("identical record already exists") nesse caso — não é fatal,
+        # mesmo vindo como HTTP 400/HTTPError em vez de um success:false em 200.
+        if any(err.get("code") in (81057, 81058) for err in body.get("errors", [])):
+            print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
+            return
+        raise ProvisionError(f"Cloudflare API HTTP {e.code}: {body}") from e
 
     if not body.get("success"):
-        # Já existe o registro? Cloudflare retorna erro 81057 nesse caso — não é fatal.
-        if any(err.get("code") == 81057 for err in body.get("errors", [])):
+        if any(err.get("code") in (81057, 81058) for err in body.get("errors", [])):
             print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
             return
         raise ProvisionError(f"Cloudflare API rejeitou o registro: {body['errors']}")
