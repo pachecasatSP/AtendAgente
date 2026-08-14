@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="AtendPraGente">
+  <rect x="0" y="0" width="512" height="512" rx="124" fill="#1FAE5C"/>
+  <circle cx="246" cy="225" r="80" fill="none" stroke="#FFFCF5" stroke-width="44"/>
+  <path d="M 166 210 C 180 120, 312 120, 330 215" fill="none" stroke="#FFFCF5" stroke-width="34" stroke-linecap="round"/>
+  <circle cx="166" cy="215" r="34" fill="#FFFCF5"/>
+  <circle cx="330" cy="215" r="34" fill="#FFFCF5"/>
+  <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="#FFFCF5" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="270" cy="365" r="24" fill="#FFC93C"/>
+</svg>
