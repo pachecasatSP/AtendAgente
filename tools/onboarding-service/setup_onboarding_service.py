@@ -40,7 +40,7 @@ SA_NAME = "onboarding-service"
 TOKEN_SECRET_NAME = "onboarding-service-token"
 KUBECONFIG_SECRET_NAME = "onboarding-service-kubeconfig"
 ENV_SECRET_NAME = "onboarding-service-env"
-ONBOARDING_HOST = "onboarding.colocar-me.com.br"
+ONBOARDING_HOST = "onboarding.atendpragente.com.br"
 
 REQUIRED_ENV_SECRET_KEYS = [
     "WHATSAPP_CLOUD_APP_ID",
@@ -371,7 +371,7 @@ def main() -> None:
             return
 
         server_ip = os.environ.get("SERVER_IP", "62.238.103.17")
-        cf_zone = os.environ.get("CLOUDFLARE_ZONE_ID", "5435cf54669fa51f002f1e2a8b59ae61")
+        cf_zone = os.environ.get("CLOUDFLARE_ZONE_ID", "eff07b89ce80fc01d01533b3327b209a")
 
         cf_token = os.environ.get("CLOUDFLARE_API_TOKEN")
         if not cf_token:
