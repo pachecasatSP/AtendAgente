@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ac Soluções em Software — Atendimento por WhatsApp que conversa de verdade</title>
+<meta name="description" content="Plataforma de atendimento automatizado no WhatsApp para pequenos negócios. Responde clientes na hora, lembra de cada conversa e passa para uma pessoa quando precisa.">
+<style>
+  :root {
+    --ink: #14201c;
+    --ink-soft: #3d4d47;
+    --paper: #f6f4ee;
+    --paper-warm: #efece2;
+    --line: #d9d5c8;
+    --leaf: #1f6f52;
+    --leaf-deep: #12452f;
+    --signal: #e8b04b;
+    --white: #fefdfb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Georgia", "Times New Roman", serif;
+    color: var(--ink);
+    background: var(--paper);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  .sans {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+  }
+
+  /* ---------- Layout shell ---------- */
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 28px; }
+
+  /* ---------- Top bar ---------- */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(246,244,238,0.86);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+  .brand {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-weight: 700; font-size: 1.05rem; letter-spacing: -0.02em;
+    display: flex; align-items: center; gap: 10px; color: var(--ink);
+    text-decoration: none;
+  }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--leaf); position: relative; flex: none;
+  }
+  .brand .mark::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 30% 30%, var(--signal) 0 3px, transparent 4px),
+      linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.18) 41% 46%, transparent 47%);
+  }
+  .navlinks { display: flex; gap: 30px; align-items: center; }
+  .navlinks a {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.86rem; color: var(--ink-soft); text-decoration: none;
+    letter-spacing: 0.01em;
+  }
+  .navlinks a:hover { color: var(--leaf); }
+  .navlinks a.cta {
+    background: var(--leaf); color: var(--white);
+    padding: 9px 18px; border-radius: 999px; font-weight: 600;
+  }
+  .navlinks a.cta:hover { background: var(--leaf-deep); color: var(--white); }
+  @media (max-width: 720px) { .navlinks a:not(.cta) { display: none; } }
+
+  /* ---------- Hero: a live-feeling chat ---------- */
+  .hero { padding: 74px 0 40px; position: relative; }
+  .hero-grid {
+    display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center;
+  }
+  @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; gap: 40px; } }
+
+  .eyebrow {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.74rem; font-weight: 700; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--leaf);
+    display: inline-flex; align-items: center; gap: 9px; margin-bottom: 22px;
+  }
+  .eyebrow::before {
+    content: ""; width: 26px; height: 1px; background: var(--leaf); display: inline-block;
+  }
+  h1 {
+    font-size: clamp(2.5rem, 5.2vw, 4rem);
+    line-height: 1.04; letter-spacing: -0.02em; font-weight: 400;
+    margin-bottom: 24px;
+  }
+  h1 em {
+    font-style: italic; color: var(--leaf);
+  }
+  .lede {
+    font-size: 1.16rem; color: var(--ink-soft); max-width: 30em; margin-bottom: 32px;
+  }
+  .hero-actions { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+  .btn-primary {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    background: var(--leaf); color: var(--white); text-decoration: none;
+    padding: 14px 28px; border-radius: 999px; font-weight: 600; font-size: 0.95rem;
+    transition: background 0.2s, transform 0.2s;
+    display: inline-block;
+  }
+  .btn-primary:hover { background: var(--leaf-deep); transform: translateY(-1px); }
+  .btn-ghost {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink); text-decoration: none; font-size: 0.95rem; font-weight: 600;
+    padding: 14px 6px; border-bottom: 2px solid var(--signal);
+  }
+  .btn-ghost:hover { color: var(--leaf); }
+
+  /* Chat mock */
+  .phone {
+    background: var(--white);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    padding: 20px 18px 16px;
+    box-shadow: 0 30px 60px -30px rgba(18,69,47,0.35), 0 2px 0 var(--paper-warm);
+    position: relative;
+  }
+  .phone-head {
+    display: flex; align-items: center; gap: 11px;
+    padding-bottom: 14px; margin-bottom: 16px; border-bottom: 1px solid var(--paper-warm);
+  }
+  .avatar {
+    width: 38px; height: 38px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 35% 30%, var(--leaf) 0 60%, var(--leaf-deep));
+    display: grid; place-items: center; color: var(--white);
+    font-family: "Helvetica Neue", Arial, sans-serif; font-weight: 700; font-size: 0.9rem;
+  }
+  .phone-head .who { font-family: "Helvetica Neue", Arial, sans-serif; }
+  .phone-head .who b { font-size: 0.92rem; display: block; letter-spacing: -0.01em; }
+  .phone-head .who span { font-size: 0.72rem; color: var(--leaf); }
+  .chat { display: flex; flex-direction: column; gap: 10px; }
+  .bubble {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.9rem; line-height: 1.45; padding: 10px 14px; border-radius: 16px;
+    max-width: 82%; opacity: 0; transform: translateY(8px);
+    animation: rise 0.5s forwards;
+  }
+  .bubble.them { background: var(--paper-warm); border-bottom-left-radius: 5px; align-self: flex-start; }
+  .bubble.me {
+    background: var(--leaf); color: var(--white);
+    border-bottom-right-radius: 5px; align-self: flex-end;
+  }
+  .bubble:nth-child(1) { animation-delay: 0.3s; }
+  .bubble:nth-child(2) { animation-delay: 1.1s; }
+  .bubble:nth-child(3) { animation-delay: 2.0s; }
+  .bubble:nth-child(4) { animation-delay: 2.9s; }
+  .tag {
+    align-self: center; font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.68rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-soft); background: var(--paper); border: 1px solid var(--line);
+    padding: 4px 11px; border-radius: 999px; margin-top: 4px;
+    opacity: 0; animation: rise 0.5s forwards; animation-delay: 3.7s;
+  }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) {
+    .bubble, .tag { opacity: 1; transform: none; animation: none; }
+  }
+
+  /* ---------- Trust strip ---------- */
+  .strip {
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    background: var(--paper-warm); margin-top: 30px;
+  }
+  .strip-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    divide: var(--line);
+  }
+  .stat { padding: 30px 26px; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: none; }
+  .stat b {
+    font-size: 2rem; font-weight: 400; letter-spacing: -0.02em; color: var(--leaf-deep);
+    display: block; line-height: 1;
+  }
+  .stat span {
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.82rem;
+    color: var(--ink-soft); margin-top: 8px; display: block;
+  }
+  @media (max-width: 680px) {
+    .strip-grid { grid-template-columns: 1fr; }
+    .stat { border-right: none; border-bottom: 1px solid var(--line); }
+    .stat:last-child { border-bottom: none; }
+  }
+
+  /* ---------- Section scaffolding ---------- */
+  section.block { padding: 84px 0; }
+  .sec-eyebrow {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 0.74rem; font-weight: 700; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--leaf); margin-bottom: 16px;
+  }
+  h2 {
+    font-size: clamp(1.8rem, 3.6vw, 2.6rem); font-weight: 400;
+    letter-spacing: -0.02em; line-height: 1.1; margin-bottom: 18px; max-width: 20em;
+  }
+  .sec-lede { font-size: 1.08rem; color: var(--ink-soft); max-width: 34em; }
+
+  /* ---------- How it works: a real sequence ---------- */
+  .steps { margin-top: 52px; display: flex; flex-direction: column; }
+  .step {
+    display: grid; grid-template-columns: 90px 1fr; gap: 30px;
+    padding: 30px 0; border-top: 1px solid var(--line); align-items: baseline;
+  }
+  .step:last-child { border-bottom: 1px solid var(--line); }
+  .step .n {
+    font-size: 2.2rem; color: var(--leaf); font-style: italic; line-height: 1;
+  }
+  .step h3 {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 8px;
+  }
+  .step p { color: var(--ink-soft); font-size: 1rem; max-width: 40em; }
+  @media (max-width: 560px) {
+    .step { grid-template-columns: 1fr; gap: 8px; }
+    .step .n { font-size: 1.8rem; }
+  }
+
+  /* ---------- Features ---------- */
+  .feat-band { background: var(--leaf-deep); color: var(--paper); }
+  .feat-band .sec-eyebrow { color: var(--signal); }
+  .feat-band h2 { color: var(--white); }
+  .feat-band .sec-lede { color: rgba(246,244,238,0.75); }
+  .cards {
+    margin-top: 50px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+    background: rgba(246,244,238,0.16); border: 1px solid rgba(246,244,238,0.16);
+  }
+  @media (max-width: 780px) { .cards { grid-template-columns: 1fr; } }
+  .card { background: var(--leaf-deep); padding: 32px 26px; }
+  .card .ico {
+    width: 34px; height: 34px; margin-bottom: 18px; color: var(--signal);
+  }
+  .card h3 {
+    font-family: "Helvetica Neue", Arial, sans-serif; color: var(--white);
+    font-size: 1.08rem; font-weight: 600; margin-bottom: 10px; letter-spacing: -0.01em;
+  }
+  .card p { color: rgba(246,244,238,0.72); font-size: 0.96rem; }
+
+  /* ---------- Trust / privacy ---------- */
+  .trust-grid {
+    margin-top: 48px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 26px;
+  }
+  @media (max-width: 680px) { .trust-grid { grid-template-columns: 1fr; } }
+  .trust-item {
+    background: var(--white); border: 1px solid var(--line); border-radius: 14px;
+    padding: 26px 24px;
+  }
+  .trust-item h3 {
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 1.02rem;
+    font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 10px;
+  }
+  .trust-item h3 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--leaf); flex: none; }
+  .trust-item p { color: var(--ink-soft); font-size: 0.96rem; }
+
+  /* ---------- CTA ---------- */
+  .cta-band { text-align: center; padding: 96px 0; }
+  .cta-band h2 { margin: 0 auto 20px; }
+  .cta-band .sec-lede { margin: 0 auto 32px; }
+
+  /* ---------- Footer ---------- */
+  footer {
+    border-top: 1px solid var(--line); background: var(--paper-warm);
+    padding: 50px 0 40px;
+  }
+  .foot-grid {
+    display: flex; justify-content: space-between; gap: 30px; flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .foot-brand { max-width: 26em; }
+  .foot-brand p {
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.88rem;
+    color: var(--ink-soft); margin-top: 12px;
+  }
+  .foot-links { display: flex; gap: 60px; flex-wrap: wrap; }
+  .foot-col h4 {
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.72rem;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); margin-bottom: 14px;
+  }
+  .foot-col a {
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.9rem;
+    color: var(--ink-soft); text-decoration: none; display: block; margin-bottom: 9px;
+  }
+  .foot-col a:hover { color: var(--leaf); }
+  .foot-legal {
+    margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line);
+    font-family: "Helvetica Neue", Arial, sans-serif; font-size: 0.8rem; color: var(--ink-soft);
+    display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <a href="#" class="brand"><span class="mark"></span> Ac Soluções</a>
+    <nav class="navlinks">
+      <a href="#como">Como funciona</a>
+      <a href="#recursos">Recursos</a>
+      <a href="#confianca">Privacidade</a>
+      <a href="https://wa.me/5511920081743?text=Quero%20informa%C3%A7%C3%B5es%20sobre%20bots%20de%20atendimento" target="_blank" rel="noopener" class="cta">Falar com a gente</a>
+    </nav>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow">Atendimento no WhatsApp</span>
+      <h1>Seu cliente manda mensagem. <em>Alguém responde na hora.</em></h1>
+      <p class="lede">Construímos assistentes de atendimento que vivem no WhatsApp do seu negócio: respondem dúvidas de sempre, lembram de cada cliente e chamam uma pessoa quando o assunto pede. Sem app novo, sem robô sem graça.</p>
+      <div class="hero-actions">
+        <a href="https://wa.me/5511920081743?text=Quero%20informa%C3%A7%C3%B5es%20sobre%20bots%20de%20atendimento" target="_blank" rel="noopener" class="btn-primary">Quero para o meu negócio</a>
+        <a href="#como" class="btn-ghost">Ver como funciona</a>
+      </div>
+    </div>
+
+    <div class="phone" aria-hidden="true">
+      <div class="phone-head">
+        <div class="avatar">A</div>
+        <div class="who">
+          <b>Atendimento</b>
+          <span>● online agora</span>
+        </div>
+      </div>
+      <div class="chat">
+        <div class="bubble them">oi, vcs atendem sábado de manhã?</div>
+        <div class="bubble me">Oi! Atendemos sim, das 8h30 às 12h. Quer que eu já reserve um horário pra você? 🙂</div>
+        <div class="bubble them">e consigo pagar no pix?</div>
+        <div class="bubble me">Consegue! Vou te passar pra Maria confirmar o valor certinho e o pix — só um instante.</div>
+        <div class="tag">↳ passou para uma pessoa</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRUST STRIP -->
+  <div class="strip">
+    <div class="wrap strip-grid">
+      <div class="stat"><b>24h</b><span>Responde a qualquer hora, inclusive fora do expediente</span></div>
+      <div class="stat"><b>0</b><span>Aplicativos para o cliente instalar — é o WhatsApp que ele já usa</span></div>
+      <div class="stat"><b>1 pessoa</b><span>Assume quando a conversa precisa de gente de verdade</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="block" id="como">
+  <div class="wrap">
+    <div class="sec-eyebrow">Como funciona</div>
+    <h2>Da primeira mensagem ao cliente atendido, sem você no meio o tempo todo.</h2>
+    <p class="sec-lede">A gente configura o assistente com as informações do seu negócio. Ele cuida do que se repete e sabe a hora de sair de cena.</p>
+
+    <div class="steps">
+      <div class="step">
+        <div class="n">i</div>
+        <div>
+          <h3>A gente ensina o seu negócio ao assistente</h3>
+          <p>Horários, serviços, valores, endereço, o jeito de falar com o seu cliente. Ele responde com a voz do seu negócio, não com um script genérico de robô.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">ii</div>
+        <div>
+          <h3>Ele atende no seu número de WhatsApp</h3>
+          <p>O cliente manda mensagem como sempre mandou. O assistente responde na hora, lembra de conversas anteriores e não deixa ninguém no vácuo às três da manhã.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="n">iii</div>
+        <div>
+          <h3>Quando precisa de gente, ele chama gente</h3>
+          <p>Dúvida de saúde, reclamação, fechar pagamento: o assistente reconhece o limite e passa para uma pessoa da sua equipe, com o contexto já explicado.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="block feat-band" id="recursos">
+  <div class="wrap">
+    <div class="sec-eyebrow">O que ele faz bem</div>
+    <h2>Feito para atender, não para impressionar.</h2>
+    <p class="sec-lede">Cada escolha é para o cliente sair da conversa resolvido — e para o seu negócio não perder ninguém no caminho.</p>
+
+    <div class="cards">
+      <div class="card">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        <h3>Responde na hora</h3>
+        <p>Sem fila, sem “aguarde, já vamos te atender”. A resposta chega no segundo em que a pergunta chega.</p>
+      </div>
+      <div class="card">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+        <h3>Lembra de cada cliente</h3>
+        <p>Quem já falou que é iniciante, quem prefere de manhã: o assistente considera o histórico sem obrigar ninguém a repetir tudo.</p>
+      </div>
+      <div class="card">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <h3>Sabe a hora de chamar você</h3>
+        <p>Assuntos sensíveis e decisões de verdade vão para uma pessoa. O assistente nunca finge saber o que não sabe.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TRUST / PRIVACY (importante para o requisito da Meta e para o cliente) -->
+<section class="block" id="confianca">
+  <div class="wrap">
+    <div class="sec-eyebrow">Confiança e privacidade</div>
+    <h2>Os dados dos seus clientes são levados a sério.</h2>
+    <p class="sec-lede">Operamos sobre a plataforma oficial do WhatsApp Business e tratamos as conversas com o cuidado que a lei — e o bom senso — pedem.</p>
+
+    <div class="trust-grid">
+      <div class="trust-item">
+        <h3><span class="dot"></span> Plataforma oficial da Meta</h3>
+        <p>O atendimento roda sobre a API oficial do WhatsApp Business, não por atalhos que colocam o número do seu negócio em risco.</p>
+      </div>
+      <div class="trust-item">
+        <h3><span class="dot"></span> Conforme a LGPD</h3>
+        <p>As mensagens são usadas apenas para atender o seu cliente. Nada de venda de dados, nada de publicidade de terceiros.</p>
+      </div>
+      <div class="trust-item">
+        <h3><span class="dot"></span> Transparente com quem conversa</h3>
+        <p>O assistente assume que é um atendimento automático quando perguntado, e sempre oferece falar com uma pessoa.</p>
+      </div>
+      <div class="trust-item">
+        <h3><span class="dot"></span> Você no controle</h3>
+        <p>Os dados podem ser consultados ou apagados a pedido. Detalhes na nossa <a href="privacidade.html" style="color:var(--leaf);">Política de Privacidade</a>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="block cta-band" id="contato">
+  <div class="wrap">
+    <div class="sec-eyebrow" style="text-align:center;">Vamos conversar</div>
+    <h2>Quer ver o seu atendimento respondendo sozinho?</h2>
+    <p class="sec-lede">Conte o que o seu negócio faz e como você atende hoje. A gente mostra como ficaria com um assistente no seu WhatsApp.</p>
+    <a href="https://wa.me/5511920081743?text=Quero%20informa%C3%A7%C3%B5es%20sobre%20bots%20de%20atendimento" target="_blank" rel="noopener" class="btn-primary">Falar no WhatsApp</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a href="#" class="brand"><span class="mark"></span> Ac Soluções em Software</a>
+        <p>Assistentes de atendimento no WhatsApp para negócios que não querem deixar ninguém sem resposta.</p>
+      </div>
+      <div class="foot-links">
+        <div class="foot-col">
+          <h4>Produto</h4>
+          <a href="#como">Como funciona</a>
+          <a href="#recursos">Recursos</a>
+          <a href="#confianca">Privacidade</a>
+        </div>
+        <div class="foot-col">
+          <h4>Empresa</h4>
+          <a href="https://wa.me/5511920081743?text=Quero%20informa%C3%A7%C3%B5es%20sobre%20bots%20de%20atendimento" target="_blank" rel="noopener">Contato (WhatsApp)</a>
+          <a href="privacidade.html">Política de Privacidade</a>
+        </div>
+      </div>
+    </div>
+    <div class="foot-legal">
+      <span>© 2026 Ac Soluções em Software Ltda. Todos os direitos reservados.</span>
+      <span>colocar-me.com.br</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
