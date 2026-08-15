@@ -100,7 +100,7 @@ code { background: var(--leaf-pale); color: var(--leaf-deep); padding: 0.1rem 0.
     <div class="fail-icon" aria-hidden="true">!</div>
     <h1>Deu ruim no provisionamento</h1>
     <p>O pagamento foi confirmado, mas travou na hora de ativar seu atendimento.{% if erro %} Detalhe técnico: <code>{{ erro }}</code>{% endif %}</p>
-    <p class="support">Chama a gente em <a href="mailto:contato@atendpragente.com.br">contato@atendpragente.com.br</a> que resolvemos rapidinho — já temos seu pagamento confirmado.</p>
+    <p class="support">Chama a Duda no WhatsApp <a href="https://wa.me/5511920081743?text={{ ('Oi Duda, meu pagamento foi confirmado mas o atendimento travou na hora de ativar. Detalhe técnico: ' + erro) | urlencode if erro else 'Oi Duda, meu pagamento foi confirmado mas o atendimento travou na hora de ativar.' | urlencode }}" target="_blank" rel="noopener">clicando aqui</a> que resolvemos rapidinho — já temos seu pagamento confirmado.</p>
   {% else %}
     <div class="phases">
       <div class="phase {{ 'done' if status == 'provisioning' else 'current' }}">

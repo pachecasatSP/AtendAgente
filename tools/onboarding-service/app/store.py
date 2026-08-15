@@ -75,6 +75,12 @@ def list_usage_alerts() -> list[dict]:
     return list(_signups.find({"status": "live", "usage_status": {"$in": ["warning", "over"]}}))
 
 
+def list_failed_signups() -> list[dict]:
+    """Cadastros com pagamento confirmado que travaram no provisionamento
+    (status='failed') — candidatos a retry manual via admin-mcp."""
+    return list(_signups.find({"status": "failed"}).sort("criado_em", -1))
+
+
 # ── Tokens de gratuidade (cadastro sem cobrança, uso único) ────────────
 #
 # Gerados pela Duda (via MCP, ver tools/admin-mcp/) mediante PIN de admin

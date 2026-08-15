@@ -344,14 +344,61 @@ a ordem correta (quem compromete menos paga mais por conversa):
 Entrada (0,170) > Começando (0,158) > Crescendo (0,144). Começando e
 Crescendo não mudaram de valor.
 
+**Rollout Asaas pra produção — CONCLUÍDA (2026-08-15):** `ASAAS_BASE_URL`
+trocado de `api-sandbox.asaas.com` pra `api.asaas.com`, `ASAAS_API_KEY`
+de produção e `ASAAS_WEBHOOK_TOKEN` novo (nunca reaproveitar o de
+sandbox) no Secret `onboarding-service-env`.
+
+Duas pegadinhas reais encontradas ao validar com um checkout de R$5 de
+verdade (ver [[feedback_asaas_producao]] pra detalhe completo):
+1. O webhook cadastrado no painel da Asaas estava com
+   `"interrupted": true` — a Asaas pausa a entrega automaticamente após
+   falhas repetidas (bem provável pela instabilidade durante o troca-e-
+   testa da chave). Reativar via `PUT /v3/webhooks/{id}` com
+   `interrupted: false` fez a fila de eventos pendentes ser reenviada —
+   o provisionamento aconteceu sozinho segundos depois, sem eu precisar
+   simular o webhook manualmente.
+2. `GET /v3/payments/{id}` mostra `externalReference: null` mesmo tendo
+   sido enviado na criação do `/checkouts` — o campo não propaga pro
+   objeto de pagamento gerado pela assinatura. Não é bug nosso: o evento
+   `CHECKOUT_PAID` (que É o que a gente escuta primeiro) carrega
+   `externalReference` corretamente dentro de `payload.checkout`, é só
+   o objeto `payment` isolado que não tem. `main.py` já cobria os dois
+   caminhos (`payload.payment.externalReference or
+   payload.checkout.externalReference`), então isso não afetou nada na
+   prática — só registrar pra não gerar pânico à toa numa próxima
+   depuração.
+
+Teste real de ponta a ponta confirmado: checkout de R$5 (plano fictício,
+fora do catálogo normal) → pagamento confirmado → webhook →
+`_run_provisioning` rodou sozinho (DNS, Secret, Deployment, painel, SOUL
+publicado). Assinatura de teste cancelada via API
+(`DELETE /v3/subscriptions/{id}`) logo depois pra não cobrar de novo no
+mês seguinte; infra e dados de teste limpos (mesmo ritual de sempre).
+
 ### Fase 7 — Ferramentas administrativas via MCP (CONCLUÍDA, 2026-08-15)
 
 A Duda (bot da AC Soluções, `hermes-duda`, cluster `2.28.15.6`,
-namespace `hermes` — cluster diferente do `atendagente`) ganhou 4
+namespace `hermes` — cluster diferente do `atendagente`) ganhou
 ferramentas de administração: `convite` (gera token de gratuidade),
-`listar` (tenants ativos), `uso` (sessões/mensagens de um tenant),
-`ativar` (liga/desliga o WhatsApp de um tenant — ver
-`set_tenant_enabled` em `provision_tenant.py`).
+`listar` (tenants ativos), `alertas` (tenants perto/acima do limite do
+plano, ver Fase 8), `uso` (sessões/mensagens de um tenant), `ativar`
+(liga/desliga o WhatsApp de um tenant — ver `set_tenant_enabled` em
+`provision_tenant.py`), e, adicionadas em 2026-08-15, `pendentes`
+(lista cadastros com pagamento confirmado que travaram no
+provisionamento — `status="failed"`, o mesmo estado que aparece pro
+cliente na tela `aguardando.html`) e `provisionar` (reprocessa o
+provisionamento de um desses sem exigir novo pagamento, chamando a
+mesma `_run_provisioning` que o webhook do Asaas usa —
+`POST /api/admin/signups/{signup_id}/retry-provisioning`). Total: 7
+ferramentas.
+
+**Ao mesmo tempo, `aguardando.html`** (tela mostrada ao cliente entre o
+pagamento e o provisionamento) teve o link de contato do estado `failed`
+trocado de `mailto:` para um link do WhatsApp da Duda
+(`wa.me/5511920081743`) com a descrição técnica do erro pré-preenchida
+na mensagem — fecha o loop: cliente manda o erro pra Duda, Duda usa
+`pendentes`/`provisionar` pra resolver sem precisar do Adolfo.
 
 **Arquitetura:** `tools/admin-mcp/server.py` — servidor MCP standalone
 (`mcp` SDK 2.0, `MCPServer` + `streamable_http_app`), deployado em

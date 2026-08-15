@@ -488,6 +488,45 @@ def admin_usage_alerts(request: Request):
     ]
 
 
+@app.get("/api/admin/signups/failed")
+def admin_list_failed_signups(request: Request):
+    """Pagamentos confirmados que travaram no provisionamento (status
+    'failed') — o que aparece pro cliente na tela de aguardando quando
+    dá erro. Candidatos a retry via admin_retry_provisioning."""
+    require_admin(request)
+    signups = store.list_failed_signups()
+    return [
+        {
+            "signup_id": s["_id"],
+            "tenant_id": s.get("tenant_id"),
+            "plano": s.get("plano"),
+            "criado_em": s.get("criado_em"),
+            "erro": s.get("erro"),
+        }
+        for s in signups
+    ]
+
+
+@app.post("/api/admin/signups/{signup_id}/retry-provisioning")
+def admin_retry_provisioning(signup_id: str, request: Request):
+    """Reprocessa o provisionamento de um cadastro travado em 'failed'
+    sem exigir um novo pagamento — mesma rotina (_run_provisioning) que
+    o webhook do Asaas chama, só que disparada manualmente pela Duda
+    depois que o problema técnico foi corrigido."""
+    require_admin(request)
+    signup = store.get_signup(signup_id)
+    if not signup:
+        raise HTTPException(404, "Cadastro não encontrado")
+    if signup.get("status") != "failed":
+        raise HTTPException(409, f"Cadastro não está em 'failed' (status atual: {signup.get('status')})")
+    try:
+        _run_provisioning(signup_id, signup)
+    except ProvisionError as e:
+        store.update_signup(signup_id, status="failed", erro=str(e))
+        raise HTTPException(500, f"Provisionamento falhou de novo: {e}")
+    return {"ok": True, "signup_id": signup_id, "tenant_id": signup["tenant_id"]}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

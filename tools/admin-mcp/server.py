@@ -2,7 +2,8 @@
 conecta nele, via `hermes mcp add` com `--auth header` (Bearer
 MCP_AUTH_TOKEN). Expõe: criar token de gratuidade, listar tenants, medir
 recursos de um tenant, pausar/reativar um tenant, alertar sobre tenants
-perto do limite do plano.
+perto do limite do plano, listar cadastros travados no provisionamento e
+refazer o provisionamento de um deles.
 
 Segurança em duas camadas independentes, nenhuma delas decidida pela IA:
 1. MCP_AUTH_TOKEN — Bearer estático checado por middleware antes de
@@ -106,6 +107,30 @@ def ativar(pin: str, tenant_id: str, ativo: bool) -> dict:
     return _admin_request(
         "POST", f"/api/admin/tenants/{tenant_id}/enabled", json={"enabled": ativo}
     )
+
+
+@mcp.tool()
+def pendentes(pin: str) -> dict:
+    """Lista cadastros com pagamento confirmado que travaram no
+    provisionamento (ex: erro técnico na hora de criar o tenant) — é o
+    que o cliente vê na tela de aguardando quando dá erro. Cada item tem
+    o signup_id pra usar em `provisionar`."""
+    erro = _check_pin(pin)
+    if erro:
+        return {"erro": erro}
+    return {"pendentes": _admin_request("GET", "/api/admin/signups/failed")}
+
+
+@mcp.tool()
+def provisionar(pin: str, signup_id: str) -> dict:
+    """Refaz o provisionamento de um cadastro travado em 'failed' (veja
+    `pendentes`), sem exigir um novo pagamento — usa o mesmo pagamento já
+    confirmado. Só usar depois de entender/corrigir a causa do erro
+    técnico original, senão vai falhar de novo do mesmo jeito."""
+    erro = _check_pin(pin)
+    if erro:
+        return {"erro": erro}
+    return _admin_request("POST", f"/api/admin/signups/{signup_id}/retry-provisioning")
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
