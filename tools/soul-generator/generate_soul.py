@@ -76,8 +76,11 @@ def render(config: dict) -> str:
 
     escalation = config["escalacao"]
     tone = config.get("tom", {})
+    assistant_name = (config.get("nome_atendente") or "").strip()
 
     values = {
+        "assistant_intro": f"Meu nome é **{assistant_name}**. " if assistant_name else "",
+        "assistant_label": f"{assistant_name}, " if assistant_name else "",
         "business_name": config["nome_negocio"],
         "business_article": config.get("artigo_negocio", "a"),
         "business_description": config["descricao_negocio"].strip(),

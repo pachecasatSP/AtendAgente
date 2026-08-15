@@ -219,6 +219,22 @@ Dois bugs corrigidos nessa primeira execução real:
 WABA/número de teste — esse é o teste crítico que prova que o webhook
 override realmente funciona ponta a ponta.
 
+**Nome do atendente virtual + EULA + consentimento (2026-08-15):**
+- Campo opcional `nome_atendente` no passo 1 do wizard — se
+  preenchido, `SOUL.template.md`/`generate_soul.py` fazem o assistente
+  se apresentar com nome (mesmo padrão da Duda: "Meu nome é **X**...
+  sou X, o atendimento automático d[negócio]"); sem nome, comportamento
+  igual a antes (fala em nome do negócio, "a gente").
+- `poc/landing-page/eula.html` — Termos de Uso (EULA), mesmo
+  layout/branding de `privacidade.html`, 10 seções (serviço, cadastro,
+  planos/cobrança/trial, cancelamento/suspensão, responsabilidades,
+  limitação de responsabilidade, dados, contato, alterações). Rascunho
+  funcional pra v1, ainda sem revisão jurídica formal.
+- Checkbox obrigatório de aceite do EULA no último passo do wizard
+  (`required` client-side + validado no servidor,
+  `eula_aceito_em` gravado no signup) e checkbox opcional de
+  consentimento de comunicações (`comunicacoes_aceito`, bool).
+
 ### Fase 5 — Espelho de conversas em MongoDB (dados) + painel por tenant (CONCLUÍDA, 2026-08-13)
 
 **Mudança de escopo decidida nesta sessão**: o painel deixou de ser um

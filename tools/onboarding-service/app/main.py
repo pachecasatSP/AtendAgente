@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -178,6 +179,7 @@ def submit_form(
     request: Request,
     tenant_id: str = Form(...),
     nome_negocio: str = Form(...),
+    nome_atendente: str = Form(""),
     artigo_negocio: str = Form("a"),
     descricao_negocio: str = Form(...),
     descricao_publico: str = Form(""),
@@ -198,6 +200,8 @@ def submit_form(
     endereco_numero: str = Form(...),
     cep: str = Form(...),
     bairro: str = Form(...),
+    eula_aceito: str = Form(""),
+    comunicacoes_aceito: str = Form(""),
 ):
     signup = store.get_signup(signup_id)
     if not signup:
@@ -223,6 +227,8 @@ def submit_form(
         )
     if plano not in PLANOS:
         return erro_de_volta("Plano inválido — escolhe um dos planos disponíveis.")
+    if eula_aceito not in ("on", "true", "1"):
+        return erro_de_volta("Precisa aceitar os Termos de Uso (EULA) pra continuar.")
 
     dominio = f"{tenant_id}.{BASE_DOMAIN}"
     config = {
@@ -233,6 +239,7 @@ def submit_form(
             "waba_id": signup["waba_id"],
         },
         "nome_negocio": nome_negocio,
+        "nome_atendente": nome_atendente,
         "artigo_negocio": artigo_negocio,
         "descricao_negocio": descricao_negocio,
         "descricao_publico": descricao_publico,
@@ -255,6 +262,9 @@ def submit_form(
     except Exception as e:
         return erro_de_volta(f"Erro no formulário de SOUL: {e}")
 
+    eula_aceito_em = datetime.now(timezone.utc)
+    comunicacoes_ok = comunicacoes_aceito in ("on", "true", "1")
+
     invite_token = signup.get("invite_token")
     if invite_token:
         # Cadastro gratuito (token gerado pela Duda) — pula a Asaas
@@ -272,6 +282,8 @@ def submit_form(
             endereco_numero=endereco_numero,
             cep=cep,
             bairro=bairro,
+            eula_aceito_em=eula_aceito_em,
+            comunicacoes_aceito=comunicacoes_ok,
         )
         store.mark_free_token_used(invite_token, signup_id)
         signup = store.get_signup(signup_id)
@@ -317,6 +329,8 @@ def submit_form(
         cep=cep,
         bairro=bairro,
         checkout_id=checkout["id"],
+        eula_aceito_em=eula_aceito_em,
+        comunicacoes_aceito=comunicacoes_ok,
     )
 
     return RedirectResponse(checkout["link"], status_code=303)
