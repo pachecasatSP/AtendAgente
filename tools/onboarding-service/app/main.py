@@ -40,6 +40,12 @@ PLANOS = {
     "entrada": {"nome": "Entrada", "valor": 84.90, "valor_de": 105.90, "limite": 500},
     "comecando": {"nome": "Começando", "valor": 157.90, "valor_de": 197.00, "limite": 1000},
     "crescendo": {"nome": "Crescendo", "valor": 717.90, "valor_de": 897.00, "limite": 5000},
+    # Não aparece no wizard nem em nenhuma peça pública — só existe pra
+    # marcar corretamente um cadastro por convite (ver invite_token em
+    # submit_form) como gratuito de verdade, em vez de gravar um plano
+    # pago falso (ex: "entrada") só pra passar na validação. Mesmo
+    # limite de conversas do Entrada.
+    "gratuito": {"nome": "Gratuito (convite)", "valor": 0.0, "valor_de": 0.0, "limite": 500},
 }
 TRIAL_DIAS = 7
 CONFIRM_EVENTS = {"CHECKOUT_PAID", "PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"}
@@ -215,6 +221,12 @@ def submit_form(
             {"signup_id": signup_id, "erro": msg, "gratuito": bool(signup.get("invite_token"))},
             status_code=400,
         )
+
+    if signup.get("invite_token"):
+        # Cadastro por convite não escolhe plano no wizard (passo fica
+        # oculto) — grava como "gratuito" de verdade, nunca um plano
+        # pago fake só pra passar na validação abaixo.
+        plano = "gratuito"
 
     tenant_id = tenant_id.strip().lower()
     if not TENANT_ID_RE.match(tenant_id):

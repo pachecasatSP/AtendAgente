@@ -31,6 +31,7 @@ LIMITES = {
     "entrada": 500,
     "comecando": 1000,
     "crescendo": 5000,
+    "gratuito": 500,  # cadastro por convite, mesmo limite do Entrada
 }
 WARNING_PCT = 0.8
 
