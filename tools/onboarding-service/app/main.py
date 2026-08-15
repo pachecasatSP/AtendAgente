@@ -212,7 +212,7 @@ def submit_form(
         return templates.TemplateResponse(
             request,
             "form.html",
-            {"signup_id": signup_id, "erro": msg},
+            {"signup_id": signup_id, "erro": msg, "gratuito": bool(signup.get("invite_token"))},
             status_code=400,
         )
 

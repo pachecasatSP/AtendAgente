@@ -223,12 +223,12 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
       <div class="dot" data-i="3"></div>
       <div class="dot" data-i="4"></div>
       <div class="dot" data-i="5"></div>
-      <div class="dot" data-i="6"></div>
+      <div class="dot" data-i="6"{% if gratuito %} style="display:none"{% endif %}></div>
       <div class="dot" data-i="7"></div>
     </div>
 
     <div class="card">
-      <form method="post" action="/signup/{{ signup_id }}/form" id="onboarding-form" novalidate>
+      <form method="post" action="/signup/{{ signup_id }}/form" id="onboarding-form" data-gratuito="{{ 'true' if gratuito else 'false' }}" novalidate>
 
         <div class="step active" data-step="1">
           <div class="step-eyebrow">Vamos começar</div>
@@ -327,14 +327,14 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
           </label>
         </div>
 
-        <div class="step" data-step="6">
+        <div class="step" data-step="6"{% if gratuito %} data-skip-if-gratuito{% endif %}>
           <div class="step-eyebrow">Quase lá</div>
           <h2>Escolha seu plano</h2>
           <p class="lead">7 dias grátis em qualquer um, sem compromisso.</p>
 
           <div class="plan-grid">
             <label class="plan-card">
-              <input type="radio" name="plano" value="entrada" required>
+              <input type="radio" name="plano" value="entrada" required{% if gratuito %} checked{% endif %}>
               <span class="plan-name">Entrada</span>
               <span class="plan-volume">até 500 conversas/mês</span>
               <span class="plan-price-de">de R$ 105,90</span>
@@ -414,28 +414,38 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
   </div>
 
   <script>
+    const gratuito = document.getElementById('onboarding-form').dataset.gratuito === 'true';
     const steps = Array.from(document.querySelectorAll('.step'));
     const dots = Array.from(document.querySelectorAll('.progress .dot'));
     const progressLabel = document.getElementById('progress-label');
     const btnBack = document.getElementById('btn-back');
     const btnNext = document.getElementById('btn-next');
     const btnSubmit = document.getElementById('btn-submit');
-    let current = 1;
-    const total = steps.length;
+
+    // Passo do convite gratuito não escolhe plano — pula o data-step
+    // marcado com data-skip-if-gratuito. `current` é a posição dentro
+    // dessa lista visível, não o data-step bruto.
+    const visibleStepNumbers = steps
+      .filter((s) => !(gratuito && s.hasAttribute('data-skip-if-gratuito')))
+      .map((s) => Number(s.dataset.step));
+    let current = 1; // posição em visibleStepNumbers, 1-based
+    const total = visibleStepNumbers.length;
 
     function render() {
-      steps.forEach((s) => s.classList.toggle('active', Number(s.dataset.step) === current));
+      const activeStepNumber = visibleStepNumbers[current - 1];
+      steps.forEach((s) => s.classList.toggle('active', Number(s.dataset.step) === activeStepNumber));
       dots.forEach((d) => {
         const i = Number(d.dataset.i);
-        d.classList.toggle('done', i < current);
-        d.classList.toggle('current', i === current);
+        const pos = visibleStepNumbers.indexOf(i) + 1; // posição visível desse dot, ou 0 se oculto
+        d.classList.toggle('done', pos > 0 && pos < current);
+        d.classList.toggle('current', pos === current);
       });
       progressLabel.textContent = `Passo ${current} de ${total}`;
       btnBack.disabled = current === 1;
       const isLast = current === total;
       btnNext.style.display = isLast ? 'none' : '';
       btnSubmit.style.display = isLast ? '' : 'none';
-      steps[current - 1].querySelector('input, textarea')?.focus({ preventScroll: true });
+      steps[activeStepNumber - 1].querySelector('input, textarea')?.focus({ preventScroll: true });
       window.scrollTo({ top: document.querySelector('.card').offsetTop - 20, behavior: 'smooth' });
     }
 
@@ -476,7 +486,8 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
     }
 
     function currentStepValid() {
-      const fields = steps[current - 1].querySelectorAll('input, textarea');
+      const activeStepNumber = visibleStepNumbers[current - 1];
+      const fields = steps[activeStepNumber - 1].querySelectorAll('input, textarea');
       for (const f of fields) {
         if (!f.reportValidity()) return false;
       }
@@ -603,6 +614,16 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
     btnBack.addEventListener('click', () => {
       current = Math.max(1, current - 1);
       render();
+    });
+
+    // Ativar o atendimento provisiona um pod/DNS/certificado de verdade —
+    // isso demora (até ~1-2min), e sem isso o botão parecia não fazer
+    // nada. O submit continua nativo (sem preventDefault), só dá feedback
+    // visual imediato enquanto o servidor processa.
+    document.getElementById('onboarding-form').addEventListener('submit', () => {
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Ativando seu atendimento...';
+      btnBack.disabled = true;
     });
 
     render();
