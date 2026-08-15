@@ -305,6 +305,17 @@ sincronamente, sem esperar webhook de pagamento). Cliente ainda passa
 pelo formulário de billing (CPF/CNPJ, endereço etc.) mesmo em cadastro
 gratuito — simplificação aceita por ora, nunca é cobrado.
 
+**Preço "de/por" (2026-08-15):** valores revisados pra terminar em
+`,90` e mostrar desconto simulado (~20% sobre o preço anterior, que
+virou o "de" riscado). `Começando`: de R$ 197,00 por **R$ 157,90**.
+`Crescendo`: de R$ 897,00 por **R$ 717,90**. `PLANOS` em
+`onboarding-service/app/main.py` ganhou a chave `valor_de` (só
+exibição — `valor` continua sendo o preço real cobrado na Asaas).
+Aplicado também no wizard (`form.html`), na landing page (cards +
+JSON-LD) e no SOUL da Duda. O link "precisa de mais volume" no wizard
+e na landing deixou de ser `mailto:` e virou o WhatsApp da Duda
+(`wa.me/5511920081743`).
+
 ### Fase 7 — Ferramentas administrativas via MCP (CONCLUÍDA, 2026-08-15)
 
 A Duda (bot da AC Soluções, `hermes-duda`, cluster `2.28.15.6`,

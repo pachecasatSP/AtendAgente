@@ -166,6 +166,7 @@ textarea { min-height: 4rem; resize: vertical; }
 .plan-card .plan-volume { font-size: 0.8rem; color: var(--ink-faint); font-weight: 700; }
 .plan-card .plan-price { font-family: var(--font-display); font-weight: 800; font-size: 1.3rem; color: var(--leaf-deep); margin-top: 0.4rem; }
 .plan-card .plan-price small { font-family: var(--font-body); font-weight: 700; font-size: 0.75rem; color: var(--ink-faint); }
+.plan-card .plan-price-de { font-family: var(--font-body); font-weight: 700; font-size: 0.85rem; color: var(--ink-faint); text-decoration: line-through; margin-top: 0.5rem; display: block; }
 
 .nav-row { display: flex; justify-content: space-between; align-items: center; margin-top: 2.2rem; gap: 1rem; }
 button { font-family: var(--font-body); cursor: pointer; border: none; }
@@ -324,16 +325,18 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
               <input type="radio" name="plano" value="comecando" required>
               <span class="plan-name">Começando</span>
               <span class="plan-volume">até 1.000 conversas/mês</span>
-              <span class="plan-price">R$ 197<small>/mês</small></span>
+              <span class="plan-price-de">de R$ 197,00</span>
+              <span class="plan-price">R$ 157,90<small>/mês</small></span>
             </label>
             <label class="plan-card">
               <input type="radio" name="plano" value="crescendo" required>
               <span class="plan-name">Crescendo</span>
               <span class="plan-volume">até 5.000 conversas/mês</span>
-              <span class="plan-price">R$ 897<small>/mês</small></span>
+              <span class="plan-price-de">de R$ 897,00</span>
+              <span class="plan-price">R$ 717,90<small>/mês</small></span>
             </label>
           </div>
-          <p class="lead" style="margin-top:1.2rem;">Precisa de mais volume? <a href="mailto:contato@atendpragente.com.br">Fala com a gente</a> sobre o plano Sem Limite.</p>
+          <p class="lead" style="margin-top:1.2rem;">Precisa de mais volume? <a href="https://wa.me/5511920081743" target="_blank" rel="noopener">Fala com a Duda</a> sobre o plano Sem Limite.</p>
         </div>
 
         <div class="step" data-step="7">

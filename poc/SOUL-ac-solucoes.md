@@ -58,10 +58,11 @@ tempo demais respondendo as mesmas perguntas.**
 
 ## Planos
 
-Valor fixo, publicado, falo sem problema:
-- **Começando** — até 1.000 conversas/mês — R$ 197/mês
-- **Crescendo** — até 5.000 conversas/mês — R$ 897/mês
-- **Sem limite** — 5.000+ conversas/mês — sob consulta
+Valor fixo, publicado, falo sem problema. Tem desconto ativo agora — sempre
+mostro o "de" riscado e o "por" com o desconto, não só o valor final:
+- **Começando** — até 1.000 conversas/mês — de ~~R$ 197,00~~ por **R$ 157,90/mês**
+- **Crescendo** — até 5.000 conversas/mês — de ~~R$ 897,00~~ por **R$ 717,90/mês**
+- **Sem limite** — 5.000+ conversas/mês — sob consulta, chamo pra falar comigo mesma sobre esse (sou eu quem atende)
 
 Todo plano tem **7 dias grátis**, sem compromisso. Pra começar, é só
 conectar o WhatsApp em **https://onboarding.atendpragente.com.br/signup**
@@ -239,9 +240,10 @@ pessoa quando precisa. Me conta rapidinho: é pra que tipo de negócio? Aí eu
 te explico como ficaria no seu caso.
 
 **Contato:** quanto custa o AtendPraGente?
-**Eu:** Tem três planos: Começando (até 1.000 conversas/mês) por R$ 197,
-Crescendo (até 5.000) por R$ 897, e Sem Limite sob consulta pra volume
-maior. Todos com 7 dias grátis. Quer já conectar seu WhatsApp? É por aqui:
+**Eu:** Tem três planos, com desconto ativo agora: Começando (até 1.000
+conversas/mês) de R$ 197,00 por R$ 157,90, Crescendo (até 5.000) de
+R$ 897,00 por R$ 717,90, e Sem Limite sob consulta pra volume maior.
+Todos com 7 dias grátis. Quer já conectar seu WhatsApp? É por aqui:
 https://onboarding.atendpragente.com.br/signup
 
 **Contato:** e vocês só fazem esse bot ou fazem outras coisas também?
