@@ -3,7 +3,46 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>AtendPraGente</title>
+<title>AtendPraGente — Atendimento no WhatsApp com IA</title>
+<meta name="description" content="Conecte o WhatsApp do seu negócio a uma IA treinada no seu jeito de atender. Responde na hora, 24h, e chama você só quando precisa. 7 dias grátis." />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://atendpragente.com.br/" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="AtendPraGente" />
+<meta property="og:url" content="https://atendpragente.com.br/" />
+<meta property="og:title" content="AtendPraGente — Atendimento no WhatsApp com IA" />
+<meta property="og:description" content="Conecte o WhatsApp do seu negócio a uma IA treinada no seu jeito de atender. Responde na hora, 24h, e chama você só quando precisa. 7 dias grátis." />
+<meta property="og:image" content="https://atendpragente.com.br/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:locale" content="pt_BR" />
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="AtendPraGente — Atendimento no WhatsApp com IA" />
+<meta name="twitter:description" content="Conecte o WhatsApp do seu negócio a uma IA treinada no seu jeito de atender. Responde na hora, 24h, e chama você só quando precisa." />
+<meta name="twitter:image" content="https://atendpragente.com.br/og-image.png" />
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "AtendPraGente",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web",
+  "url": "https://atendpragente.com.br/",
+  "description": "Atendimento no WhatsApp com IA treinada no negócio de cada cliente — responde na hora, 24h, e escala pra um humano quando precisa.",
+  "offers": [
+    { "@type": "Offer", "name": "Começando", "price": "197.00", "priceCurrency": "BRL", "url": "https://atendpragente.com.br/#planos" },
+    { "@type": "Offer", "name": "Crescendo", "price": "897.00", "priceCurrency": "BRL", "url": "https://atendpragente.com.br/#planos" }
+  ],
+  "provider": {
+    "@type": "Organization",
+    "name": "Ac Soluções em Software",
+    "url": "https://atendpragente.com.br/"
+  }
+}
+</script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20512%20512%22%20width%3D%22512%22%20height%3D%22512%22%20role%3D%22img%22%20aria-label%3D%22AtendPraGente%22%3E%20%3Crect%20x%3D%220%22%20y%3D%220%22%20width%3D%22512%22%20height%3D%22512%22%20rx%3D%22124%22%20fill%3D%22%231FAE5C%22/%3E%20%3Ccircle%20cx%3D%22246%22%20cy%3D%22225%22%20r%3D%2280%22%20fill%3D%22none%22%20stroke%3D%22%23FFFCF5%22%20stroke-width%3D%2244%22/%3E%20%3Cpath%20d%3D%22M%20166%20210%20C%20180%20120%2C%20312%20120%2C%20330%20215%22%20fill%3D%22none%22%20stroke%3D%22%23FFFCF5%22%20stroke-width%3D%2234%22%20stroke-linecap%3D%22round%22/%3E%20%3Ccircle%20cx%3D%22166%22%20cy%3D%22215%22%20r%3D%2234%22%20fill%3D%22%23FFFCF5%22/%3E%20%3Ccircle%20cx%3D%22330%22%20cy%3D%22215%22%20r%3D%2234%22%20fill%3D%22%23FFFCF5%22/%3E%20%3Cpath%20d%3D%22M%20330%20215%20C%20400%20235%2C%20400%20320%2C%20270%20365%22%20fill%3D%22none%22%20stroke%3D%22%23FFFCF5%22%20stroke-width%3D%2228%22%20stroke-linecap%3D%22round%22/%3E%20%3Ccircle%20cx%3D%22270%22%20cy%3D%22365%22%20r%3D%2224%22%20fill%3D%22%23FFC93C%22/%3E%20%3C/svg%3E" />
 <style>
 @font-face {
@@ -566,6 +605,45 @@ footer {
 .footer-links { display: flex; gap: 1.3rem; font-size: 0.85rem; color: var(--ink-soft); }
 .footer-links a { text-decoration: none; }
 .footer-links a:hover { color: var(--leaf-deep); }
+
+/* ---------- Cookie banner ---------- */
+.cookie-banner {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 50;
+  background: var(--paper-card);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -12px 30px -18px rgba(23,35,29,0.25);
+  padding: 1.1rem 0;
+}
+.cookie-inner {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+.cookie-text { flex: 1; min-width: 240px; font-size: 0.88rem; color: var(--ink-soft); margin: 0; }
+.cookie-text a { color: var(--leaf-deep); font-weight: 700; }
+.cookie-actions { display: flex; gap: 0.7rem; flex-shrink: 0; }
+.cookie-btn {
+  font-family: var(--font-body);
+  font-weight: 800;
+  font-size: 0.88rem;
+  padding: 0.6rem 1.2rem;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.15s ease;
+}
+.cookie-btn:hover { transform: translateY(-1px); }
+.cookie-btn-ghost { background: transparent; border: 2px solid var(--line); color: var(--ink); }
+.cookie-btn-ghost:hover { border-color: var(--leaf); }
+.cookie-btn-accept { background: var(--leaf); border: none; color: #fff; box-shadow: 0 10px 22px -10px color-mix(in srgb, var(--leaf) 70%, transparent); }
+@media (max-width: 640px) {
+  .cookie-inner { flex-direction: column; align-items: stretch; }
+  .cookie-actions { justify-content: stretch; }
+  .cookie-btn { flex: 1; }
+}
 </style>
 </head>
 <body>
@@ -763,9 +841,38 @@ footer {
     <div class="footer-links">
       <a href="https://onboarding.atendpragente.com.br/signup">Testar grátis</a>
       <a href="mailto:contato@atendpragente.com.br">Falar com a gente</a>
+      <a href="/privacidade.html">Privacidade</a>
     </div>
   </div>
 </footer>
+
+<div class="cookie-banner" id="cookie-banner" role="dialog" aria-label="Aviso de cookies" hidden>
+  <div class="wrap cookie-inner">
+    <p class="cookie-text">
+      A gente usa cookies essenciais pro site funcionar e, quando você ativa, pra entender como as pessoas usam a página. Nada é vendido nem compartilhado com anunciantes. Detalhes na <a href="/privacidade.html">política de privacidade</a>.
+    </p>
+    <div class="cookie-actions">
+      <button type="button" class="cookie-btn cookie-btn-ghost" id="cookie-reject">Só o essencial</button>
+      <button type="button" class="cookie-btn cookie-btn-accept" id="cookie-accept">Aceitar cookies</button>
+    </div>
+  </div>
+</div>
+<script>
+  (function () {
+    var KEY = 'atendpragente-cookie-consent';
+    var banner = document.getElementById('cookie-banner');
+    var stored = localStorage.getItem(KEY);
+    if (!stored) {
+      banner.hidden = false;
+    }
+    function decide(value) {
+      localStorage.setItem(KEY, value);
+      banner.hidden = true;
+    }
+    document.getElementById('cookie-accept').addEventListener('click', function () { decide('accepted'); });
+    document.getElementById('cookie-reject').addEventListener('click', function () { decide('essential-only'); });
+  })();
+</script>
 
 </body>
 </html>
