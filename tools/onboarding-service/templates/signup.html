@@ -28,6 +28,7 @@
   --ink-faint: #8A9690;
   --leaf: #1FAE5C;
   --leaf-deep: #0E7A3D;
+  --leaf-pale: #E3F7EA;
   --spark: #FFC93C;
   --line: #E4E0D0;
   --font-display: 'Baloo 2', ui-rounded, 'Segoe UI Rounded', sans-serif;
@@ -36,12 +37,12 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper: #0F1B15; --paper-card: #182920; --ink: #F3F6F1; --ink-soft: #C9D6CC;
-    --ink-faint: #7C8B81; --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
+    --ink-faint: #7C8B81; --leaf: #35C878; --leaf-deep: #7EE3AC; --leaf-pale: #1A3324; --spark: #FFD666; --line: #24352B;
   }
 }
 :root[data-theme="dark"] {
   --paper: #0F1B15; --paper-card: #182920; --ink: #F3F6F1; --ink-soft: #C9D6CC;
-  --ink-faint: #7C8B81; --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
+  --ink-faint: #7C8B81; --leaf: #35C878; --leaf-deep: #7EE3AC; --leaf-pale: #1A3324; --spark: #FFD666; --line: #24352B;
 }
 * { box-sizing: border-box; }
 body {
@@ -67,12 +68,86 @@ body {
   border: 1px solid var(--line);
   border-radius: 24px;
   padding: 2.2rem 2rem;
-  max-width: 420px;
+  max-width: 460px;
   width: 100%;
   box-shadow: 0 20px 50px -24px rgba(23,35,29,0.2);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "eyebrow" "intro" "chat" "benefits" "cta";
+  row-gap: 0;
 }
-h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.5rem; margin: 0 0 0.6rem; }
+.card > * { min-width: 0; }
+.g-eyebrow { grid-area: eyebrow; }
+.g-intro { grid-area: intro; }
+.g-chat { grid-area: chat; }
+.g-benefits { grid-area: benefits; }
+.g-cta { grid-area: cta; }
+
+/* Acima de ~900px a página usa a largura toda — abaixo disso, o
+   comportamento (card único, empilhado) fica intocado. */
+@media (min-width: 900px) {
+  body { padding-left: 3.5rem; padding-right: 3.5rem; }
+  .brand { align-self: flex-start; margin-left: 0.5rem; }
+  .card {
+    max-width: 1080px;
+    padding: 3rem 3.2rem;
+    text-align: left;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    grid-template-rows: auto auto 1fr auto;
+    column-gap: 3rem;
+    grid-template-areas:
+      "eyebrow chat"
+      "intro   chat"
+      "benefits chat"
+      "cta     chat";
+    align-items: start;
+  }
+  .g-chat { align-self: stretch; display: flex; flex-direction: column; justify-content: center; }
+  .benefits, .reassure { text-align: left; }
+}
+.eyebrow {
+  font-weight: 800;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--leaf-deep);
+  display: block;
+  margin-bottom: 0.7rem;
+}
+h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.6rem; margin: 0 0 0.6rem; text-wrap: balance; }
 p { color: var(--ink-soft); margin: 0 0 1.6rem; font-size: 1.02rem; }
+
+.mini-chat {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 0.9rem;
+  margin-bottom: 1.4rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.mini-bubble {
+  max-width: 82%;
+  padding: 0.5rem 0.75rem;
+  border-radius: 14px;
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+.mini-bubble.in { align-self: flex-start; background: var(--paper-card); border: 1px solid var(--line); border-bottom-left-radius: 3px; }
+.mini-bubble.out { align-self: flex-end; background: var(--leaf-pale); color: var(--ink); border-bottom-right-radius: 3px; }
+
+.benefits { list-style: none; margin: 0 0 1.6rem; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 0.55rem; }
+.benefits li { display: flex; align-items: flex-start; gap: 0.55rem; font-size: 0.92rem; color: var(--ink-soft); font-weight: 600; }
+.benefits li::before {
+  content: "";
+  width: 18px; height: 18px; flex-shrink: 0; margin-top: 0.1rem;
+  border-radius: 50%;
+  background: var(--leaf-pale);
+  box-shadow: inset 0 0 0 1px var(--leaf);
+}
+.reassure { color: var(--ink-faint); font-size: 0.8rem; font-weight: 600; margin: 0.9rem 0 0; }
 button {
   font-family: var(--font-body);
   font-weight: 800;
@@ -105,10 +180,29 @@ button:hover { transform: translateY(-2px); }
   </div>
 
   <div class="card">
-    <h1>Conecta seu WhatsApp</h1>
-    <p>Dois cliques com o login oficial da Meta e seu atendimento já começa a rodar.</p>
-    <button id="signup-btn">Conectar WhatsApp</button>
-    <p id="status"></p>
+    <span class="eyebrow g-eyebrow">atendimento no zap</span>
+
+    <div class="g-intro">
+      <h1>Enquanto você dorme, seu zap continua respondendo</h1>
+      <p>Conecta seu WhatsApp e sai com um assistente treinado no seu negócio — pronto pra atender em minutos.</p>
+    </div>
+
+    <div class="mini-chat g-chat" aria-hidden="true">
+      <div class="mini-bubble in">Oi! Vocês ainda atendem hoje?</div>
+      <div class="mini-bubble out">Atendemos até às 19h! Quer marcar um horário? 😊</div>
+    </div>
+
+    <ul class="benefits g-benefits">
+      <li>Responde na hora, mesmo de madrugada</li>
+      <li>Continua sendo o seu número de sempre</li>
+      <li>7 dias grátis, sem compromisso</li>
+    </ul>
+
+    <div class="g-cta">
+      <button id="signup-btn">Conectar meu WhatsApp →</button>
+      <p id="status"></p>
+      <p class="reassure">Login oficial da Meta — a gente nunca vê sua senha.</p>
+    </div>
   </div>
 
   <script>
@@ -138,6 +232,7 @@ button:hover { transform: translateY(-2px); }
       FB.login((response) => {
         if (response.authResponse && response.authResponse.code) {
           statusEl.textContent = 'Conectando...';
+          const invite = new URLSearchParams(window.location.search).get('invite') || '';
           fetch('/api/signup/callback', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -145,6 +240,7 @@ button:hover { transform: translateY(-2px); }
               code: response.authResponse.code,
               waba_id: wabaId,
               phone_number_id: phoneNumberId,
+              invite: invite,
             }),
           })
             .then((r) => { if (!r.ok) throw new Error('callback falhou'); return r.json(); })

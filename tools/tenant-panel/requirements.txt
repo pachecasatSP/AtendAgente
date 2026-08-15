@@ -2,3 +2,6 @@ fastapi
 uvicorn[standard]
 pymongo
 jinja2
+itsdangerous
+python-multipart
+tzdata

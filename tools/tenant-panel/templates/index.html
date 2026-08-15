@@ -67,9 +67,14 @@
     }
     .brand-mark { width: 30px; height: 30px; flex-shrink: 0; }
     .sidebar-header-text { min-width: 0; }
-    .brand-word { font-family: var(--font-display); font-weight: 800; font-size: 0.98rem; color: var(--ink); line-height: 1.15; }
-    .brand-word .pra { color: var(--leaf-deep); }
-    .tenant-name { font-size: 0.72rem; color: var(--ink-faint); font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .brand-word {
+      font-family: var(--font-display); font-weight: 800; font-size: 1.5rem; line-height: 1.1;
+      color: var(--leaf); -webkit-text-stroke: 1.2px #17231D; paint-order: stroke fill;
+      overflow-wrap: break-word;
+    }
+    .tenant-name { font-size: 0.62rem; color: var(--ink-faint); font-weight: 700; text-transform: lowercase; letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .logout-link { font-size: 0.78rem; font-weight: 800; color: var(--ink-faint); text-decoration: none; flex-shrink: 0; margin-left: auto; }
+    .logout-link:hover { color: var(--leaf-deep); }
     .conv-item { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; padding: 0.75rem 1rem; cursor: pointer; border-bottom: 1px solid var(--line); }
     .conv-item:hover { background: var(--leaf-pale); }
     .conv-item.active { background: var(--leaf-pale); }
@@ -79,7 +84,28 @@
     .empty { padding: 1rem; color: var(--ink-faint); font-size: 0.9rem; }
     .main { flex: 1; display: flex; flex-direction: column; background: var(--thread-bg); }
     .main-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--ink-faint); font-weight: 700; }
+    .thread-header {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+      padding: 0.7rem 1rem; background: var(--paper-card); border-bottom: 1px solid var(--line); flex-shrink: 0;
+    }
+    .thread-title { font-weight: 800; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .handoff-btn {
+      font-family: var(--font-body); font-weight: 800; font-size: 0.78rem; border: none; border-radius: 999px;
+      padding: 0.4rem 0.85rem; cursor: pointer; flex-shrink: 0; white-space: nowrap;
+    }
+    .handoff-btn.bot { background: var(--leaf-pale); color: var(--leaf-deep); }
+    .handoff-btn.manual { background: var(--spark); color: #4a3300; }
     .thread { flex: 1; overflow-y: auto; padding: 0.5rem 0.6rem; background: var(--thread-bg); }
+    .compose { display: flex; gap: 0.5rem; padding: 0.7rem 1rem; background: var(--paper-card); border-top: 1px solid var(--line); flex-shrink: 0; }
+    .compose input {
+      flex: 1; font-family: var(--font-body); font-size: 0.9rem; padding: 0.55rem 0.8rem; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+    }
+    .compose button {
+      font-family: var(--font-body); font-weight: 800; font-size: 0.85rem; border: none; border-radius: 999px;
+      padding: 0.55rem 1.1rem; background: var(--leaf); color: #fff; cursor: pointer; flex-shrink: 0;
+    }
+    .compose button:disabled { opacity: 0.6; cursor: default; }
     .msg-row { display: flex; margin: 2px 0; }
     .msg-row.user { justify-content: flex-start; }
     .msg-row.assistant { justify-content: flex-end; }
@@ -87,16 +113,31 @@
       position: relative;
       display: inline-block;
       max-width: 68%;
-      padding: 5px 46px 8px 8px;
+      padding: 4px 38px 5px 7px;
       border-radius: 7.5px;
       white-space: pre-wrap;
       word-wrap: break-word;
-      font-size: 0.82rem;
+      font-size: 0.97rem;
+      font-weight: 700;
       line-height: 1.3;
       box-shadow: 0 1px 0.5px rgba(0, 0, 0, .13);
     }
     .msg.user { background: var(--bubble-in); color: var(--ink); border-top-left-radius: 0; text-align: left; }
     .msg.assistant { background: var(--bubble-out); color: var(--ink); border-top-right-radius: 0; text-align: right; }
+    .msg.operator { background: var(--spark); color: #4a3300; border-top-right-radius: 0; text-align: right; }
+    .msg-row.operator { justify-content: flex-end; }
+    .msg.user::before {
+      content: ""; position: absolute; top: 0; left: -8px; width: 8px; height: 13px;
+      background: var(--bubble-in); clip-path: polygon(100% 0, 100% 100%, 0 0);
+    }
+    .msg.assistant::before {
+      content: ""; position: absolute; top: 0; right: -8px; width: 8px; height: 13px;
+      background: var(--bubble-out); clip-path: polygon(0 0, 0 100%, 100% 0);
+    }
+    .msg.operator::before {
+      content: ""; position: absolute; top: 0; right: -8px; width: 8px; height: 13px;
+      background: var(--spark); clip-path: polygon(0 0, 0 100%, 100% 0);
+    }
     .meta { position: absolute; right: 8px; bottom: 4px; font-size: 0.62rem; color: var(--ink-faint); white-space: nowrap; }
   </style>
 </head>
@@ -114,14 +155,23 @@
           <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
         </svg>
         <div class="sidebar-header-text">
-          <div class="brand-word">Atend<span class="pra">Pra</span>Gente</div>
-          <div class="tenant-name">{{ tenant_id }}</div>
+          <div class="brand-word">{{ tenant_id }}</div>
+          <div class="tenant-name">by AtendPraGente</div>
         </div>
+        <a href="/painel/logout" class="logout-link" title="Sair">Sair</a>
       </div>
       <div id="conv-list"></div>
     </div>
     <div class="main">
+      <div id="thread-header" class="thread-header" style="display:none">
+        <div id="thread-title" class="thread-title"></div>
+        <button id="handoff-btn" class="handoff-btn bot" type="button"></button>
+      </div>
       <div id="thread-area" class="main-empty">Selecione uma conversa</div>
+      <form id="compose-form" class="compose" style="display:none">
+        <input id="compose-input" type="text" placeholder="Escreva uma mensagem…" autocomplete="off" maxlength="4000">
+        <button type="submit">Enviar</button>
+      </form>
     </div>
   </div>
 
@@ -129,8 +179,14 @@
     const POLL_MS = 5000;
     const convListEl = document.getElementById('conv-list');
     const threadAreaEl = document.getElementById('thread-area');
+    const threadHeaderEl = document.getElementById('thread-header');
+    const threadTitleEl = document.getElementById('thread-title');
+    const handoffBtnEl = document.getElementById('handoff-btn');
+    const composeFormEl = document.getElementById('compose-form');
+    const composeInputEl = document.getElementById('compose-input');
     let activeSessionId = null;
     let lastMessagesSignature = null;
+    let sessionsById = {};
 
     function seenKey(sessionId) { return 'painel-seen-' + sessionId; }
 
@@ -142,14 +198,16 @@
 
     async function loadSessions() {
       const resp = await fetch('/painel/api/sessions');
+      if (resp.status === 401) { window.location.href = '/painel/login'; return; }
       if (!resp.ok) return;
       const sessions = await resp.json();
+      sessionsById = {};
       convListEl.innerHTML = '';
       if (sessions.length === 0) {
         convListEl.innerHTML = '<div class="empty">Nenhuma conversa ainda.</div>';
-        return;
       }
       sessions.forEach((s) => {
+        sessionsById[s.session_id] = s;
         const seenCount = parseInt(localStorage.getItem(seenKey(s.session_id)) || '0', 10);
         const unread = Math.max(0, (s.message_count || 0) - seenCount);
         const item = document.createElement('div');
@@ -164,6 +222,23 @@
         item.addEventListener('click', () => openThread(s.session_id, s.message_count));
         convListEl.appendChild(item);
       });
+      if (activeSessionId) updateHeader(activeSessionId);
+    }
+
+    function updateHeader(sessionId) {
+      const s = sessionsById[sessionId];
+      if (!s) return;
+      threadHeaderEl.style.display = 'flex';
+      threadTitleEl.textContent = s.display_name || s.chat_id || s.session_id;
+      if (s.handoff) {
+        handoffBtnEl.textContent = 'Atendimento manual — devolver pro bot';
+        handoffBtnEl.className = 'handoff-btn manual';
+        composeFormEl.style.display = 'flex';
+      } else {
+        handoffBtnEl.textContent = 'Bot respondendo — assumir conversa';
+        handoffBtnEl.className = 'handoff-btn bot';
+        composeFormEl.style.display = 'none';
+      }
     }
 
     async function renderThread(sessionId, { silent } = {}) {
@@ -177,7 +252,7 @@
       threadAreaEl.className = 'thread';
       threadAreaEl.innerHTML = messages
         .map((m) => {
-          const kind = m.role === 'assistant' ? 'assistant' : 'user';
+          const kind = m.role === 'assistant' ? 'assistant' : (m.role === 'operator' ? 'operator' : 'user');
           return `
         <div class="msg-row ${kind}">
           <div class="msg ${kind}">
@@ -196,9 +271,59 @@
       activeSessionId = sessionId;
       lastMessagesSignature = null;
       localStorage.setItem(seenKey(sessionId), String(messageCount || 0));
+      updateHeader(sessionId);
       await renderThread(sessionId);
       await loadSessions(); // atualiza destaque/badge da conversa selecionada
     }
+
+    handoffBtnEl.addEventListener('click', async () => {
+      if (!activeSessionId) return;
+      const s = sessionsById[activeSessionId];
+      const nextActive = !(s && s.handoff);
+      handoffBtnEl.disabled = true;
+      try {
+        const resp = await fetch(`/painel/api/sessions/${encodeURIComponent(activeSessionId)}/handoff`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active: nextActive }),
+        });
+        if (resp.status === 401) { window.location.href = '/painel/login'; return; }
+        await loadSessions();
+      } finally {
+        handoffBtnEl.disabled = false;
+      }
+    });
+
+    composeFormEl.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      if (!activeSessionId) return;
+      const content = composeInputEl.value.trim();
+      if (!content) return;
+      const submitBtn = composeFormEl.querySelector('button');
+      composeInputEl.disabled = true;
+      submitBtn.disabled = true;
+      try {
+        const resp = await fetch(`/painel/api/messages/${encodeURIComponent(activeSessionId)}/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        });
+        if (resp.status === 401) { window.location.href = '/painel/login'; return; }
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          alert(err.detail || 'Não foi possível enviar a mensagem.');
+          return;
+        }
+        composeInputEl.value = '';
+        lastMessagesSignature = null;
+        await renderThread(activeSessionId);
+        await loadSessions();
+      } finally {
+        composeInputEl.disabled = false;
+        submitBtn.disabled = false;
+        composeInputEl.focus();
+      }
+    });
 
     async function poll() {
       await loadSessions();

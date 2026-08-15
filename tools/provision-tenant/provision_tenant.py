@@ -26,6 +26,7 @@ template de manifests abaixo: GATEWAY_ALLOW_ALL_USERS=true e a chave do
 provedor de LLM são sempre incluídas no Secret do tenant.
 """
 import argparse
+import base64
 import json
 import secrets
 import subprocess
@@ -61,6 +62,35 @@ def require_env(env: dict) -> None:
         raise ProvisionError(
             "Faltam variáveis de ambiente obrigatórias: " + ", ".join(missing)
         )
+
+
+def tenant_exists(tenant_id: str) -> bool:
+    """Fonte da verdade pra disponibilidade de slug: existe Deployment
+    <tenant_id>-hermes no namespace do tenant? (Mongo pode estar
+    desatualizado; isso não pode)."""
+    result = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "get", "deploy", f"{tenant_id}-hermes"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def set_tenant_enabled(tenant_id: str, enabled: bool) -> None:
+    """Liga/desliga o WhatsApp de um tenant já provisionado sem apagar
+    nada — pra `/api/admin/tenants/{id}/enabled` (ferramenta de
+    pausar/reativar da Duda). Reversível: só troca o valor no Secret e
+    reinicia o Deployment."""
+    prefix = f"{tenant_id}-hermes"
+    value_b64 = base64.b64encode(str(enabled).lower().encode()).decode()
+    patch = json.dumps([{"op": "replace", "path": "/data/WHATSAPP_CLOUD_ENABLED", "value": value_b64}])
+    result = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "patch", "secret", f"{prefix}-env", "--type=json", "-p", patch],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise ProvisionError(f"kubectl patch (enabled={enabled}) falhou:\n{result.stderr}")
+    subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
 
 
 def kubectl_apply(manifest_yaml: str) -> None:
@@ -201,6 +231,9 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
+            - name: whatsapp-cloud-patch
+              mountPath: /opt/hermes/gateway/platforms/whatsapp_cloud.py
+              subPath: whatsapp_cloud.py
           resources:
             requests: {{cpu: "250m", memory: "512Mi"}}
             limits: {{cpu: "1000m", memory: "1Gi"}}
@@ -241,6 +274,9 @@ spec:
         - name: sync-script
           configMap:
             name: mongo-sync-script
+        - name: whatsapp-cloud-patch
+          configMap:
+            name: whatsapp-cloud-patch
 ---
 apiVersion: v1
 kind: Service
@@ -340,11 +376,28 @@ spec:
 """
 
 
-def build_secret_manifest(tenant_id: str, phone_number_id: str, waba_id: str, env: dict) -> tuple[str, dict]:
+def normalize_br_phone(raw: str) -> str:
+    """Telefone digitado tipo '(11) 90000-0000' vira '5511900000000' —
+    formato bare E.164 (sem +) que o WHATSAPP_HOME_CHANNEL espera como
+    chat_id. Assume DDD+número brasileiro se não vier com o 55 já."""
+    digits = "".join(c for c in raw if c.isdigit())
+    if digits.startswith("55") and len(digits) >= 12:
+        return digits
+    return f"55{digits}"
+
+
+def build_secret_manifest(
+    tenant_id: str, phone_number_id: str, waba_id: str, env: dict, escalacao: dict
+) -> tuple[str, dict]:
     prefix = f"{tenant_id}-hermes"
     verify_token = secrets.token_urlsafe(24)
-    panel_user = f"{tenant_id}-admin"
-    panel_password = secrets.token_urlsafe(18)
+    home_channel = normalize_br_phone(escalacao["telefone"])
+    home_channel_name = escalacao["nome"]
+    # O cliente cadastra o próprio usuário/senha do painel na primeira
+    # visita (ver tenant-panel/app.py) — a gente só gera um token de
+    # configuração de uso único, nunca uma senha pronta.
+    panel_setup_token = secrets.token_urlsafe(24)
+    panel_session_secret = secrets.token_urlsafe(32)
     manifest = f"""\
 apiVersion: v1
 kind: Secret
@@ -361,13 +414,14 @@ stringData:
   WHATSAPP_CLOUD_APP_SECRET: "{env['WHATSAPP_APP_SECRET']}"
   OPENROUTER_API_KEY: "{env['OPENROUTER_API_KEY']}"
   GATEWAY_ALLOW_ALL_USERS: "true"
-  PANEL_USER: "{panel_user}"
-  PANEL_PASSWORD: "{panel_password}"
+  WHATSAPP_HOME_CHANNEL: "{home_channel}"
+  WHATSAPP_HOME_CHANNEL_NAME: "{home_channel_name}"
+  PANEL_SETUP_TOKEN: "{panel_setup_token}"
+  PANEL_SESSION_SECRET: "{panel_session_secret}"
 """
     credentials = {
         "verify_token": verify_token,
-        "panel_user": panel_user,
-        "panel_password": panel_password,
+        "panel_setup_token": panel_setup_token,
     }
     return manifest, credentials
 
@@ -397,14 +451,16 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
 
     print(f"== Provisionando tenant '{tenant_id}' ({host}) {'[DRY RUN]' if dry_run else ''} ==")
 
-    secret_yaml, credentials = build_secret_manifest(tenant_id, phone_number_id, waba_id, env)
+    secret_yaml, credentials = build_secret_manifest(
+        tenant_id, phone_number_id, waba_id, env, config["escalacao"]
+    )
     infra_yaml = build_infra_manifest(tenant_id, host)
     soul_text = render_soul(config)
 
     if dry_run:
         print("--- Secret (valores sensíveis mascarados) ---")
         for line in secret_yaml.splitlines():
-            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "VERIFY_TOKEN", "PANEL_PASSWORD")):
+            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "VERIFY_TOKEN", "PANEL_SETUP_TOKEN", "PANEL_SESSION_SECRET")):
                 key = line.split(":", 1)[0]
                 print(f"{key}: <mascarado>")
             else:
@@ -443,9 +499,9 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
 
     print(f"\n✓ Tenant '{tenant_id}' no ar em https://{host}/whatsapp/webhook")
     print(f"  Verify token pro cadastro do webhook na Meta: {credentials['verify_token']}")
-    print(f"  Painel: https://{host}/painel  (usuário: {credentials['panel_user']})")
+    print(f"  Link de configuração do painel (uso único): https://{host}/painel/setup?token={credentials['panel_setup_token']}")
     print(
-        "  (credenciais não ficam salvas em lugar nenhum além do Secret do "
+        "  (o token não fica salvo em lugar nenhum além do Secret do "
         "cluster — anote agora.)"
     )
     return credentials

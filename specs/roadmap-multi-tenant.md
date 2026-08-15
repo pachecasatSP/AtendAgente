@@ -226,9 +226,11 @@ painel central multi-tenant e passou a ser **por tenant**, provisionado
 junto com o resto (`build_infra_manifest`) em vez de construído depois
 como peça separada — ver `tools/tenant-panel/`. Cada tenant tem seu
 próprio painel em `https://<tenant>.../painel` (mesma Ingress do
-webhook, path separado), protegido por HTTP Basic Auth
-(`PANEL_USER`/`PANEL_PASSWORD` gerados no provisionamento, junto do
-`verify_token`).
+webhook, path separado). Autenticação (revisada em 2026-08-15): não é
+mais HTTP Basic com senha pré-gerada — o cliente cadastra o próprio
+usuário/senha na primeira visita via link de configuração de uso único
+(`PANEL_SETUP_TOKEN` no Secret), depois é login por formulário com
+sessão em cookie assinado (`PANEL_SESSION_SECRET`).
 
 **Incógnita resolvida (2026-08-13):** inspeção ao vivo do pod de teste
 (`kubectl exec` + `sqlite3` em `/opt/data/state.db`) confirmou que o
@@ -252,17 +254,105 @@ sidecar é stateless/restart-safe. Credenciais do Mongo são um Secret
 
 **UI do painel**: lista de conversas + thread (`tools/tenant-panel/app.py`,
 FastAPI + Jinja2) implementada e gerada automaticamente por
-`build_infra_manifest`. Ainda não tem botão "assumir conversa" (enviar
-mensagem livre via Graph API silenciando o bot) — fica pra depois,
-mas a base de leitura já está no ar. Validação end-to-end contra o
-cluster real ainda pendente (junto com a da Fase 4, mesmo lote de
-testes).
+`build_infra_manifest`.
+
+**Handoff manual — CONCLUÍDA (2026-08-15), Fase A+B:** operador
+consegue assumir uma conversa pelo painel (mandar mensagem direto via
+Graph API, silenciando o bot naquele contato), como previsto na seção
+"Jornada do cliente" acima.
+
+- *Fase A (painel):* campo `handoff` (bool) na collection `sessions`;
+  `POST /painel/api/sessions/{id}/handoff` liga/desliga; `POST
+  /painel/api/messages/{id}/send` manda mensagem via Cloud API
+  (`WHATSAPP_CLOUD_ACCESS_TOKEN`/`WHATSAPP_CLOUD_PHONE_NUMBER_ID`, já
+  disponíveis no container do painel via o mesmo Secret `{tenant}-env`
+  do Hermes) e liga `handoff` automaticamente ao enviar.
+- *Fase B (bot realmente silencia):* como o container do Hermes não
+  fala com o Mongo (só o sidecar `mongo-sync` fala), e
+  `gateway/platforms/whatsapp_cloud.py` (onde `send()` faz a chamada
+  real à Graph API) vem embutido na imagem vendorizada
+  `nousresearch/hermes-agent` (não é hostPath-mountável como o resto),
+  a solução foi: (1) `mongo_sync/sync_conversations.py` ganhou um
+  servidor HTTP local (`127.0.0.1:8091/handoff?chat_id=...`, mesmo pod,
+  cache em memória atualizado a cada ciclo de sync) e (2) um patch em
+  `whatsapp_cloud.py` (`_is_handoff_active`, chamado no início de
+  `send()`) consulta esse endpoint e suprime o envio se `handoff:
+  true`. O patch é aplicado via **ConfigMap overlay** (`kubectl create
+  configmap whatsapp-cloud-patch` a partir de
+  `tools/provision-tenant/whatsapp_cloud_patched.py`, montado por cima
+  do arquivo original via `subPath` — nunca editando a imagem em si),
+  gerado/reaplicado por `setup_mongo.py` e montado automaticamente pra
+  todo tenant novo em `build_infra_manifest`. Falha aberta: se o
+  endpoint de handoff não responder, o bot responde normal (nunca
+  trava o atendimento por causa disso).
+- Tenant pausado (`WHATSAPP_CLOUD_ENABLED=false`, ver Fase 7) mostra um
+  "tapume" (`tools/tenant-panel/templates/tapume.html`) no lugar do
+  painel normal, em vez de tela em branco/quebrada.
 
 ### Fase 6 — Cobrança
-Assinatura por tenant (Stripe ou similar). V1 simples: checagem periódica
-de status de pagamento que, se inadimplente, seta
-`platforms.whatsapp_cloud.enabled: false` no profile (sem apagar dados)
-em vez de destruir o tenant.
+Assinatura por tenant (Asaas — ver Fase 4). V1 simples: checagem
+periódica de status de pagamento que, se inadimplente, desativa o
+tenant (ver `set_tenant_enabled` na Fase 7) em vez de destruir.
+
+**Tokens de gratuidade — CONCLUÍDA (2026-08-15):** collection
+`free_tokens` no Mongo (`store.create_free_token`/`get_free_token`/
+`mark_free_token_used`, uso único). Fluxo: `/signup?invite=<token>` →
+`signup.html` repassa `invite` no POST de `/api/signup/callback` →
+`signup_callback` valida e grava `invite_token` no doc do signup →
+`submit_form` detecta `invite_token` e pula o checkout da Asaas
+inteiro, provisionando na hora (`_run_provisioning` chamado
+sincronamente, sem esperar webhook de pagamento). Cliente ainda passa
+pelo formulário de billing (CPF/CNPJ, endereço etc.) mesmo em cadastro
+gratuito — simplificação aceita por ora, nunca é cobrado.
+
+### Fase 7 — Ferramentas administrativas via MCP (CONCLUÍDA, 2026-08-15)
+
+A Duda (bot da AC Soluções, `hermes-duda`, cluster `2.28.15.6`,
+namespace `hermes` — cluster diferente do `atendagente`) ganhou 4
+ferramentas de administração: `convite` (gera token de gratuidade),
+`listar` (tenants ativos), `uso` (sessões/mensagens de um tenant),
+`ativar` (liga/desliga o WhatsApp de um tenant — ver
+`set_tenant_enabled` em `provision_tenant.py`).
+
+**Arquitetura:** `tools/admin-mcp/server.py` — servidor MCP standalone
+(`mcp` SDK 2.0, `MCPServer` + `streamable_http_app`), deployado em
+`atendagente` (`admin-mcp.atendpragente.com.br`), que a Duda consome
+via `hermes mcp add` (transporte HTTP, mesmo mecanismo suportado
+nativamente pelo framework — não precisa de patch vendorizado). Ele não
+fala com kubectl/Mongo diretamente: delega tudo pro onboarding-service
+(`/api/admin/*`), que já tem RBAC/kubeconfig restrito ao namespace
+`atendagente`.
+
+**Segurança em duas camadas, nenhuma decidida pela IA:**
+1. `MCP_AUTH_TOKEN` — Bearer estático, checado por middleware Starlette
+   antes de qualquer chamada chegar nas tools (protege o endpoint MCP
+   em si; a Duda está em `GATEWAY_ALLOW_ALL_USERS=true`, pública).
+2. `ADMIN_PIN` — cada tool exige esse PIN como argumento, comparado no
+   servidor (`secrets.compare_digest`). A Duda nunca "decide" quem é
+   confiável — o SOUL dela (seção "Ferramentas administrativas") proíbe
+   explicitamente presumir identidade, revelar o PIN, ou tentar de
+   novo sem um PIN novo depois de um erro.
+3. `ONBOARDING_ADMIN_KEY` — autenticação servidor-a-servidor entre o
+   admin-mcp e o onboarding-service (`x-admin-api-key`), também nunca
+   visto pela IA.
+
+**Pegadinha descoberta (custou duas iterações):** o modelo padrão da
+Duda (`meta-llama/llama-3.3-70b-instruct`, o mesmo usado no WhatsApp de
+todo tenant) não conseguia invocar as ferramentas vindas de MCP de
+forma confiável — alucinava uma tag pseudo-function-call auto-fechada
+(`<function name="tool_call" parameters="..." />`) que o próprio
+mecanismo de limpeza do Hermes (`agent_runtime_helpers.py`,
+`_NAMED_FUNCTION_BLOCK_PATTERN`) não reconhece (só cobre a variante com
+abre/fecha `<function name="...">...</function>`, não a auto-fechada),
+então vazava como texto cru pro WhatsApp. Ferramentas nativas do Hermes
+(ex: `memory`) não tinham esse problema. Encurtar os nomes das tools
+(`atendpragente-admin`/`listar_tenants` → `admin`/`listar`) não
+resolveu. Fix real: trocar o modelo **só do profile da Duda** (pod
+dedicado, não afeta outros tenants) pra `openai/gpt-5.6-luna` em
+`/opt/data/config.yaml` — mesmo modelo já validado no profile de visão
+do `/agent-api` (ver `infra_hermes_profiles`). É modelo pago (não é SKU
+`:free`), gera custo real por mensagem — trade-off aceito em troca de
+tool-calling confiável.
 
 ---
 

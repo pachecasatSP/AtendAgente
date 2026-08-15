@@ -10,6 +10,7 @@ dentro do namespace protegido. Não normalizar esse padrão pra outros
 segredos.
 """
 import os
+import secrets
 import uuid
 from datetime import datetime, timezone
 
@@ -19,6 +20,7 @@ MONGO_URI = os.environ["MONGO_URI"]
 _client = MongoClient(MONGO_URI)
 _db = _client.get_default_database()
 _signups = _db["signups"]
+_free_tokens = _db["free_tokens"]
 
 
 def create_signup(waba_id: str, phone_number_id: str, access_token: str) -> str:
@@ -48,3 +50,71 @@ def get_signup(signup_id: str) -> dict | None:
 def update_signup(signup_id: str, **fields) -> None:
     fields["atualizado_em"] = datetime.now(timezone.utc)
     _signups.update_one({"_id": signup_id}, {"$set": fields})
+
+
+def tenant_id_taken(tenant_id: str) -> bool:
+    """Um tenant_id conta como ocupado se já tem signup provisionando ou
+    ao vivo com ele — um `failed` libera o slug de novo pra tentativa."""
+    return (
+        _signups.find_one({"tenant_id": tenant_id, "status": {"$ne": "failed"}})
+        is not None
+    )
+
+
+def list_live_signups() -> list[dict]:
+    return list(_signups.find({"status": "live"}).sort("criado_em", -1))
+
+
+def get_signup_by_tenant_id(tenant_id: str) -> dict | None:
+    return _signups.find_one({"tenant_id": tenant_id, "status": "live"})
+
+
+# ── Tokens de gratuidade (cadastro sem cobrança, uso único) ────────────
+#
+# Gerados pela Duda (via MCP, ver tools/admin-mcp/) mediante PIN de admin
+# verificado no lado do servidor — nunca a IA decidindo quem tem
+# permissão. Consumidos em submit_form via ?invite=<token> no link de
+# cadastro, pulando o checkout da Asaas e provisionando na hora.
+
+def create_free_token(nota: str = "", criado_por: str = "duda") -> str:
+    token = secrets.token_urlsafe(16)
+    _free_tokens.insert_one(
+        {
+            "_id": token,
+            "nota": nota,
+            "criado_por": criado_por,
+            "criado_em": datetime.now(timezone.utc),
+            "usado": False,
+            "usado_em": None,
+            "signup_id": None,
+        }
+    )
+    return token
+
+
+def get_free_token(token: str) -> dict | None:
+    return _free_tokens.find_one({"_id": token})
+
+
+def mark_free_token_used(token: str, signup_id: str) -> None:
+    _free_tokens.update_one(
+        {"_id": token},
+        {"$set": {"usado": True, "usado_em": datetime.now(timezone.utc), "signup_id": signup_id}},
+    )
+
+
+def tenant_usage(tenant_id: str) -> dict:
+    """Contagem de sessões/mensagens sincronizadas pelo mongo-sync do
+    tenant (mesmas collections que o tenant-panel lê)."""
+    sessions_coll = _db["sessions"]
+    messages_coll = _db["messages"]
+    session_count = sessions_coll.count_documents({"tenant_id": tenant_id})
+    message_count = messages_coll.count_documents({"tenant_id": tenant_id})
+    last_session = sessions_coll.find_one(
+        {"tenant_id": tenant_id}, sort=[("last_activity_at", -1)]
+    )
+    return {
+        "sessoes": session_count,
+        "mensagens": message_count,
+        "ultima_atividade": (last_session or {}).get("last_activity_at"),
+    }

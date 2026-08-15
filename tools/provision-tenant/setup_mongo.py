@@ -160,6 +160,27 @@ data:
 """
 
 
+def build_whatsapp_patch_configmap(patch_path: Path) -> str:
+    """ConfigMap com o whatsapp_cloud.py patchado (handoff manual — ver
+    tenant-panel), montado por cima do arquivo original dentro da imagem
+    vendorizada nousresearch/hermes-agent em cada tenant (provision_tenant.py).
+    """
+    script_content = patch_path.read_text(encoding="utf-8")
+    indented = "\n".join(
+        "    " + line if line else "" for line in script_content.splitlines()
+    )
+    return f"""\
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: whatsapp-cloud-patch
+  namespace: {NAMESPACE}
+data:
+  whatsapp_cloud.py: |
+{indented}
+"""
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
@@ -173,9 +194,15 @@ def main() -> None:
         print(f"ERRO: não encontrei {sync_script_path}", file=sys.stderr)
         sys.exit(1)
 
+    patch_path = Path(__file__).parent / "whatsapp_cloud_patched.py"
+    if not patch_path.exists():
+        print(f"ERRO: não encontrei {patch_path}", file=sys.stderr)
+        sys.exit(1)
+
     secret_yaml, reused = build_secret_manifest()
     infra_yaml = build_infra_manifest()
     configmap_yaml = build_configmap_manifest(sync_script_path)
+    whatsapp_patch_yaml = build_whatsapp_patch_configmap(patch_path)
 
     if args.dry_run:
         print("--- Secret (mongo-credentials) ---")
@@ -193,19 +220,24 @@ def main() -> None:
         print(infra_yaml)
         print("--- ConfigMap (mongo-sync-script) ---")
         print(f"(script de {sync_script_path}, {len(configmap_yaml)} bytes de manifest)")
+        print("--- ConfigMap (whatsapp-cloud-patch) ---")
+        print(f"(patch de {patch_path}, {len(whatsapp_patch_yaml)} bytes de manifest)")
         return
 
-    print("1/3 Secret (credenciais)...")
+    print("1/4 Secret (credenciais)...")
     if reused:
         print("  (mongo-credentials já existe, reaproveitando)")
     else:
         kubectl_apply(secret_yaml)
 
-    print("2/3 PVC + Deployment + Service...")
+    print("2/4 PVC + Deployment + Service...")
     kubectl_apply(infra_yaml)
 
-    print("3/3 ConfigMap (script de sincronização)...")
+    print("3/4 ConfigMap (script de sincronização)...")
     kubectl_apply(configmap_yaml)
+
+    print("4/4 ConfigMap (patch whatsapp_cloud.py — handoff manual)...")
+    kubectl_apply(whatsapp_patch_yaml)
 
     print("\n✓ MongoDB compartilhado provisionado no namespace atendagente.")
     print("  Rode 'kubectl -n atendagente rollout status deploy/mongo' pra acompanhar.")

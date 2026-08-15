@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel pausado — {{ tenant_id }}</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='124' fill='%231FAE5C'/%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%23FFFCF5' stroke-width='44'/%3E%3Cpath d='M 166 210 C 180 120, 312 120, 330 215' fill='none' stroke='%23FFFCF5' stroke-width='34' stroke-linecap='round'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%23FFFCF5'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%23FFFCF5'/%3E%3Cpath d='M 330 215 C 400 235, 400 320, 270 365' fill='none' stroke='%23FFFCF5' stroke-width='28' stroke-linecap='round'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%23FFC93C'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --paper: #FFFCF5; --paper-card: #FFFFFF; --ink: #17231D; --ink-soft: #4A5A50; --ink-faint: #8A9690;
+    --leaf: #1FAE5C; --leaf-deep: #0E7A3D; --line: #E4E0D0; --spark: #FFC93C;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0F1B15; --paper-card: #182920; --ink: #F3F6F1; --ink-soft: #C9D6CC;
+      --ink-faint: #7C8B81; --leaf: #35C878; --leaf-deep: #7EE3AC; --line: #24352B; --spark: #FFD666;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0F1B15; --paper-card: #182920; --ink: #F3F6F1; --ink-soft: #C9D6CC;
+    --ink-faint: #7C8B81; --leaf: #35C878; --leaf-deep: #7EE3AC; --line: #24352B; --spark: #FFD666;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background:
+      repeating-linear-gradient(135deg, var(--spark) 0 22px, #17231D 22px 44px) top / 100% 14px no-repeat,
+      repeating-linear-gradient(135deg, var(--spark) 0 22px, #17231D 22px 44px) bottom / 100% 14px no-repeat,
+      var(--paper);
+    color: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; padding: 3rem 1.25rem;
+  }
+  .card {
+    background: var(--paper-card); border: 1px solid var(--line); border-radius: 24px;
+    padding: 2.4rem 2.2rem; max-width: 420px; width: 100%; text-align: center;
+    box-shadow: 0 20px 50px -24px rgba(23,35,29,0.25);
+  }
+  .icon { font-size: 2.4rem; margin-bottom: 0.6rem; }
+  h1 { font-size: 1.3rem; margin: 0 0 0.7rem; }
+  p { color: var(--ink-soft); margin: 0 0 0.4rem; font-size: 0.95rem; line-height: 1.5; }
+  .tenant { color: var(--ink-faint); font-size: 0.78rem; font-weight: 700; text-transform: lowercase; margin-top: 1.4rem; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🚧</div>
+    <h1>Atendimento pausado</h1>
+    <p>O WhatsApp desse tenant está temporariamente desativado.</p>
+    <p>Fale com a AtendPraGente pra reativar o atendimento.</p>
+    <div class="tenant">{{ tenant_id }}</div>
+  </div>
+</body>
+</html>

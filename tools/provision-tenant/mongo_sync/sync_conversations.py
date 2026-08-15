@@ -8,10 +8,14 @@ read-only e fazendo upsert incremental no Mongo, usando um cursor
 (sync_state) guardado no próprio Mongo — não no volume do tenant, pra
 nunca escrever ali.
 """
+import json
 import os
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse, parse_qs
 
 from pymongo import MongoClient, UpdateOne
 
@@ -19,6 +23,55 @@ TENANT_ID = os.environ["TENANT_ID"]
 SYNC_INTERVAL_SECONDS = float(os.environ.get("SYNC_INTERVAL_SECONDS", "15"))
 STATE_DB_PATH = "/opt/data/state.db"
 MONGO_URI = os.environ["MONGO_URI"]
+HANDOFF_HTTP_PORT = int(os.environ.get("HANDOFF_HTTP_PORT", "8091"))
+
+# Chat IDs currently under manual handoff (operador assumiu a conversa pelo
+# painel). Refeito do zero a cada ciclo de sync — ver refresh_handoff_cache.
+# Consultado pelo processo hermes via HTTP local (mesmo pod) antes de cada
+# envio automático, porque o container hermes não tem acesso direto ao
+# Mongo (só este sidecar tem).
+_handoff_chat_ids: set = set()
+_handoff_lock = threading.Lock()
+
+
+def refresh_handoff_cache(sessions_coll) -> None:
+    chat_ids = {
+        doc["chat_id"]
+        for doc in sessions_coll.find(
+            {"tenant_id": TENANT_ID, "handoff": True}, {"chat_id": 1}
+        )
+        if doc.get("chat_id")
+    }
+    with _handoff_lock:
+        _handoff_chat_ids.clear()
+        _handoff_chat_ids.update(chat_ids)
+
+
+class HandoffHTTPHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):  # silencia log padrão por request
+        pass
+
+    def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path != "/handoff":
+            self.send_response(404)
+            self.end_headers()
+            return
+        chat_id = (parse_qs(parsed.query).get("chat_id") or [""])[0]
+        with _handoff_lock:
+            active = chat_id in _handoff_chat_ids
+        body = json.dumps({"handoff": active}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def start_handoff_http_server() -> None:
+    server = HTTPServer(("127.0.0.1", HANDOFF_HTTP_PORT), HandoffHTTPHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print(f"[mongo-sync] tenant={TENANT_ID} handoff HTTP em 127.0.0.1:{HANDOFF_HTTP_PORT}")
 
 
 def now() -> datetime:
@@ -134,7 +187,9 @@ def main() -> None:
     db = client.get_default_database()
     ensure_indexes(db)
     sync_state_coll = db["sync_state"]
+    sessions_coll = db["sessions"]
 
+    start_handoff_http_server()
     print(f"[mongo-sync] tenant={TENANT_ID} interval={SYNC_INTERVAL_SECONDS}s iniciado")
 
     while True:
@@ -152,6 +207,11 @@ def main() -> None:
             print(f"[mongo-sync] tenant={TENANT_ID} state.db indisponível ainda: {e}")
         except Exception as e:
             print(f"[mongo-sync] tenant={TENANT_ID} ERRO: {e}")
+
+        try:
+            refresh_handoff_cache(sessions_coll)
+        except Exception as e:
+            print(f"[mongo-sync] tenant={TENANT_ID} handoff refresh ERRO: {e}")
 
         time.sleep(SYNC_INTERVAL_SECONDS)
 

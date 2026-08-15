@@ -8,18 +8,45 @@ Fase 4. Lê `TENANT_ID` do ambiente e consulta o MongoDB compartilhado
 
 Fica em `https://<tenant>.atendpragente.com.br/painel`, na mesma
 Ingress do webhook do tenant (regra de path separada, não subdomínio
-próprio). Protegido por **HTTP Basic Auth** — usuário/senha gerados no
-provisionamento (`PANEL_USER`/`PANEL_PASSWORD` no Secret do tenant).
+próprio). Login por formulário com sessão em cookie assinado — o
+cliente cadastra o próprio usuário/senha na primeira visita, via um
+link de configuração de uso único (`/painel/setup?token=...`, o token
+vem do provisionamento em `PANEL_SETUP_TOKEN` no Secret do tenant;
+`PANEL_SESSION_SECRET` assina o cookie de sessão). Credenciais do
+cliente ficam na coleção `panel_auth` do Mongo compartilhado (hash
+PBKDF2, nunca a senha em texto puro).
+
+## Handoff manual (operador assume a conversa)
+
+Cada sessão tem um campo `handoff` (bool) na collection `sessions`.
+Com `handoff: true`, o painel mostra uma caixa de mensagem e o
+operador pode responder direto pelo WhatsApp (`POST
+/painel/api/messages/{session_id}/send`, chama a Cloud API com
+`WHATSAPP_CLOUD_ACCESS_TOKEN`/`WHATSAPP_CLOUD_PHONE_NUMBER_ID` — já
+disponíveis no container via o mesmo Secret `{tenant}-env` do Hermes,
+nenhuma env var nova precisa ser provisionada). Mandar uma mensagem já
+liga `handoff` sozinho; existe também um toggle manual
+(`POST /painel/api/sessions/{session_id}/handoff`).
+
+**Importante:** por enquanto isso só controla o que o painel mostra e
+permite enviar — o processo Hermes do tenant (que recebe o webhook da
+Meta direto, sem passar pelo painel) ainda **não checa** esse campo, ou
+seja, o bot continua respondendo normalmente mesmo com `handoff: true`.
+Silenciar o bot de fato requer um patch em
+`/opt/hermes/plugins/platforms/whatsapp/adapter.py` no servidor (fora
+deste repo) — ver `specs/roadmap-multi-tenant.md` seção "Operação"/
+"Painel". Essa é a Fase B, ainda não feita.
 
 ## Rodar localmente
 
 ```bash
 export TENANT_ID=teste
 export MONGO_URI="mongodb://user:pass@localhost:27017/atendagente?authSource=admin"
-export PANEL_USER=teste-admin
-export PANEL_PASSWORD=senha-local
+export PANEL_SETUP_TOKEN=token-local-qualquer
+export PANEL_SESSION_SECRET=segredo-local-qualquer
 pip install -r requirements.txt
 uvicorn app:app --reload
+# depois acesse http://localhost:8000/painel/setup?token=token-local-qualquer
 ```
 
 ## Deploy

@@ -8,12 +8,14 @@ imagem custom/registry — ver README).
 """
 import os
 import re
+import secrets
 import sys
 from pathlib import Path
 
 import yaml
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 # /app é o hostPath de tools/ inteiro — provision-tenant/ e
@@ -21,15 +23,28 @@ from fastapi.templating import Jinja2Templates
 _TOOLS_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_TOOLS_DIR / "provision-tenant"))
 sys.path.insert(0, str(_TOOLS_DIR / "soul-generator"))
-from provision_tenant import ProvisionError, provision, subscribe_app_to_waba  # noqa: E402
+from provision_tenant import ProvisionError, provision, set_tenant_enabled, subscribe_app_to_waba, tenant_exists  # noqa: E402
 from generate_soul import render as render_soul  # noqa: E402
 
-from app import meta_client, store  # noqa: E402
+from app import asaas_client, meta_client, store  # noqa: E402
 
 APP_ID = os.environ["WHATSAPP_CLOUD_APP_ID"]
 CONFIG_ID = os.environ["META_CONFIG_ID"]
 BASE_DOMAIN = os.environ.get("BASE_DOMAIN", "atendpragente.com.br")
 TENANT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}[a-z0-9]$")
+
+# Só planos com valor fixo entram no checkout automático — "Sem limite"
+# é sob consulta e não aparece no wizard (ver PLANOS no form.html).
+PLANOS = {
+    "comecando": {"nome": "Começando", "valor": 197.00},
+    "crescendo": {"nome": "Crescendo", "valor": 897.00},
+}
+TRIAL_DIAS = 7
+CONFIRM_EVENTS = {"CHECKOUT_PAID", "PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"}
+FAIL_EVENTS = {
+    "PAYMENT_OVERDUE", "PAYMENT_DELETED",
+    "CHECKOUT_EXPIRED", "CHECKOUT_CANCELED",
+}
 
 app = FastAPI(title="AtendAgente — Onboarding")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -83,8 +98,17 @@ def signup_callback(payload: dict):
     code = payload.get("code")
     waba_id = payload.get("waba_id")
     phone_number_id = payload.get("phone_number_id")
+    invite = (payload.get("invite") or "").strip()
     if not (code and waba_id and phone_number_id):
         raise HTTPException(400, "code, waba_id e phone_number_id são obrigatórios")
+
+    invite_token = None
+    if invite:
+        token_doc = store.get_free_token(invite)
+        if token_doc and not token_doc["usado"]:
+            invite_token = invite
+        # token inválido/já usado: ignora silenciosamente, cliente segue
+        # o fluxo pago normal em vez de travar o cadastro por isso.
 
     try:
         access_token = meta_client.exchange_code_for_token(code)
@@ -92,6 +116,8 @@ def signup_callback(payload: dict):
         raise HTTPException(502, str(e))
 
     signup_id = store.create_signup(waba_id, phone_number_id, access_token)
+    if invite_token:
+        store.update_signup(signup_id, invite_token=invite_token)
     return {"signup_id": signup_id, "next": f"/signup/{signup_id}/form"}
 
 
@@ -101,8 +127,49 @@ def form_page(signup_id: str, request: Request, erro: str | None = None):
     if not signup:
         raise HTTPException(404, "Cadastro não encontrado")
     return templates.TemplateResponse(
-        request, "form.html", {"signup_id": signup_id, "erro": erro}
+        request, "form.html", {"signup_id": signup_id, "erro": erro, "gratuito": bool(signup.get("invite_token"))}
     )
+
+
+@app.get("/api/signup/check-slug")
+def check_slug(tenant_id: str):
+    tenant_id = tenant_id.strip().lower()
+    if not TENANT_ID_RE.match(tenant_id):
+        return {"valido": False, "disponivel": False}
+    disponivel = not (store.tenant_id_taken(tenant_id) or tenant_exists(tenant_id))
+    return {"valido": True, "disponivel": disponivel}
+
+
+def _run_provisioning(signup_id: str, signup: dict) -> dict:
+    """Provisiona de verdade — chamado só depois da Asaas confirmar o
+    pagamento (webhook), nunca direto do submit do formulário. Levanta
+    ProvisionError se falhar; quem chama decide o que fazer com isso."""
+    config = signup["config"]
+    tenant_id = config["tenant_id"]
+    dominio = config["dominio"]
+
+    store.update_signup(signup_id, status="provisioning")
+
+    tmp_path = Path(f"/tmp/signup-{signup_id}.yaml")
+    tmp_path.write_text(yaml.safe_dump(config, allow_unicode=True), encoding="utf-8")
+
+    env = provisioning_env()
+    env["WHATSAPP_ACCESS_TOKEN"] = signup["access_token"]
+
+    try:
+        credentials = provision(tmp_path, env, dry_run=False)
+        subscribe_app_to_waba(
+            signup["waba_id"],
+            signup["access_token"],
+            credentials["verify_token"],
+            f"https://{dominio}/whatsapp/webhook",
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    panel_setup_url = f"https://{dominio}/painel/setup?token={credentials['panel_setup_token']}"
+    store.update_signup(signup_id, status="live", panel_setup_url=panel_setup_url)
+    return credentials
 
 
 @app.post("/signup/{signup_id}/form", response_class=HTMLResponse)
@@ -123,6 +190,14 @@ def submit_form(
     escalacao_telefone: str = Form(...),
     escalacao_pronome: str = Form("ele"),
     exemplos: str = Form(""),
+    plano: str = Form(...),
+    email: str = Form(...),
+    cpf_cnpj: str = Form(...),
+    telefone_cobranca: str = Form(...),
+    endereco: str = Form(...),
+    endereco_numero: str = Form(...),
+    cep: str = Form(...),
+    bairro: str = Form(...),
 ):
     signup = store.get_signup(signup_id)
     if not signup:
@@ -142,6 +217,12 @@ def submit_form(
             "tenant_id inválido — use só letras minúsculas, números e hífen, "
             "começando com letra (3-32 caracteres)."
         )
+    if store.tenant_id_taken(tenant_id) or tenant_exists(tenant_id):
+        return erro_de_volta(
+            f"O endereço \"{tenant_id}\" já está em uso — escolha outro."
+        )
+    if plano not in PLANOS:
+        return erro_de_volta("Plano inválido — escolhe um dos planos disponíveis.")
 
     dominio = f"{tenant_id}.{BASE_DOMAIN}"
     config = {
@@ -174,48 +255,133 @@ def submit_form(
     except Exception as e:
         return erro_de_volta(f"Erro no formulário de SOUL: {e}")
 
-    store.update_signup(signup_id, status="provisioning", tenant_id=tenant_id)
-
-    tmp_path = Path(f"/tmp/signup-{signup_id}.yaml")
-    tmp_path.write_text(yaml.safe_dump(config, allow_unicode=True), encoding="utf-8")
-
-    env = provisioning_env()
-    env["WHATSAPP_ACCESS_TOKEN"] = signup["access_token"]
-
-    try:
-        credentials = provision(tmp_path, env, dry_run=False)
-        subscribe_app_to_waba(
-            signup["waba_id"],
-            signup["access_token"],
-            credentials["verify_token"],
-            f"https://{dominio}/whatsapp/webhook",
+    invite_token = signup.get("invite_token")
+    if invite_token:
+        # Cadastro gratuito (token gerado pela Duda) — pula a Asaas
+        # inteira e provisiona na hora, sem esperar webhook de pagamento.
+        store.update_signup(
+            signup_id,
+            status="payment_pending",  # _run_provisioning espera achar o signup com config já setado
+            tenant_id=tenant_id,
+            config=config,
+            plano=plano,
+            email=email,
+            cpf_cnpj=cpf_cnpj,
+            telefone_cobranca=telefone_cobranca,
+            endereco=endereco,
+            endereco_numero=endereco_numero,
+            cep=cep,
+            bairro=bairro,
         )
-    except ProvisionError as e:
-        store.update_signup(signup_id, status="failed", erro=str(e))
-        raise HTTPException(500, f"Provisionamento falhou: {e}")
-    finally:
-        tmp_path.unlink(missing_ok=True)
+        store.mark_free_token_used(invite_token, signup_id)
+        signup = store.get_signup(signup_id)
+        try:
+            _run_provisioning(signup_id, signup)
+        except ProvisionError as e:
+            store.update_signup(signup_id, status="failed", erro=str(e))
+        return RedirectResponse(f"/signup/{signup_id}/aguardando", status_code=303)
 
-    store.update_signup(signup_id, status="live", panel_user=credentials["panel_user"])
+    base_url = str(request.base_url).rstrip("/")
+    try:
+        checkout = asaas_client.create_subscription_checkout(
+            external_reference=signup_id,
+            plano_nome=PLANOS[plano]["nome"],
+            valor=PLANOS[plano]["valor"],
+            trial_dias=TRIAL_DIAS,
+            nome_negocio=nome_negocio,
+            email=email,
+            cpf_cnpj=cpf_cnpj,
+            telefone=telefone_cobranca,
+            endereco=endereco,
+            endereco_numero=endereco_numero,
+            cep=cep,
+            bairro=bairro,
+            success_url=f"{base_url}/signup/{signup_id}/aguardando",
+            cancel_url=f"{base_url}/signup/{signup_id}/form",
+            expired_url=f"{base_url}/signup/{signup_id}/form",
+        )
+    except asaas_client.AsaasApiError as e:
+        return erro_de_volta(f"Não consegui gerar a cobrança: {e}")
 
-    # Renderiza direto (sem redirect) porque a senha do painel só existe
-    # aqui, em memória — não é persistida no Mongo (ver store.py).
+    store.update_signup(
+        signup_id,
+        status="payment_pending",
+        tenant_id=tenant_id,
+        config=config,
+        plano=plano,
+        email=email,
+        cpf_cnpj=cpf_cnpj,
+        telefone_cobranca=telefone_cobranca,
+        endereco=endereco,
+        endereco_numero=endereco_numero,
+        cep=cep,
+        bairro=bairro,
+        checkout_id=checkout["id"],
+    )
+
+    return RedirectResponse(checkout["link"], status_code=303)
+
+
+@app.get("/signup/{signup_id}/aguardando", response_class=HTMLResponse)
+def aguardando_pagamento(signup_id: str, request: Request):
+    signup = store.get_signup(signup_id)
+    if not signup:
+        raise HTTPException(404, "Cadastro não encontrado")
+    if signup.get("status") == "live":
+        return RedirectResponse(f"/signup/{signup_id}/done", status_code=303)
     return templates.TemplateResponse(
         request,
-        "done.html",
+        "aguardando.html",
         {
-            "tenant_id": tenant_id,
-            "dominio": dominio,
-            "panel_user": credentials["panel_user"],
-            "panel_password": credentials["panel_password"],
+            "signup_id": signup_id,
+            "status": signup.get("status", "payment_pending"),
+            "erro": signup.get("erro"),
         },
     )
 
 
+@app.post("/api/asaas/webhook")
+async def asaas_webhook(request: Request):
+    token = request.headers.get("asaas-access-token")
+    if token != os.environ["ASAAS_WEBHOOK_TOKEN"]:
+        raise HTTPException(401, "Token de webhook inválido")
+
+    payload = await request.json()
+    event = payload.get("event")
+    external_reference = (
+        payload.get("payment", {}).get("externalReference")
+        or payload.get("checkout", {}).get("externalReference")
+    )
+    if not external_reference:
+        return {"ok": True, "ignorado": "sem externalReference"}
+
+    signup = store.get_signup(external_reference)
+    if not signup or signup.get("status") != "payment_pending":
+        # já processado (webhook duplicado) ou não é sobre um signup nosso
+        return {"ok": True, "ignorado": "signup não encontrado ou já processado"}
+
+    if event in CONFIRM_EVENTS:
+        try:
+            # _run_provisioning faz subprocess.run bloqueante (kubectl
+            # rollout status, até 120s) — numa def async isso travaria o
+            # event loop inteiro, derrubando até /health. Roda numa
+            # threadpool pra não bloquear outras requisições enquanto
+            # provisiona.
+            await run_in_threadpool(_run_provisioning, external_reference, signup)
+        except ProvisionError as e:
+            store.update_signup(external_reference, status="failed", erro=str(e))
+    elif event in FAIL_EVENTS:
+        store.update_signup(external_reference, status="failed", erro=f"Pagamento: {event}")
+
+    return {"ok": True}
+
+
 @app.get("/signup/{signup_id}/done", response_class=HTMLResponse)
 def done_page(signup_id: str, request: Request):
-    """Revisita de status pra um cadastro já concluído — não mostra a
-    senha do painel de novo (só apareceu na resposta original)."""
+    """Revisita de status pra um cadastro já concluído. O link de
+    configuração do painel é de uso único no próprio painel (não é
+    segredo persistido aqui como senha era antes), então dá pra
+    mostrar de novo sem problema."""
     signup = store.get_signup(signup_id)
     if not signup or signup.get("status") != "live":
         raise HTTPException(404, "Cadastro não encontrado ou ainda não concluído")
@@ -226,10 +392,66 @@ def done_page(signup_id: str, request: Request):
         {
             "tenant_id": signup["tenant_id"],
             "dominio": dominio,
-            "panel_user": signup.get("panel_user"),
-            "panel_password": None,
+            "panel_setup_url": signup.get("panel_setup_url"),
         },
     )
+
+
+def require_admin(request: Request) -> None:
+    """Autenticação de serviço-pra-serviço entre o admin-mcp (ferramentas
+    da Duda) e essas rotas — não confunde com o PIN de admin que o
+    admin-mcp pede pro humano: essa chave nunca é vista/decidida pela IA,
+    fica só no ambiente do admin-mcp."""
+    key = request.headers.get("x-admin-api-key", "")
+    if not secrets.compare_digest(key, os.environ.get("ADMIN_API_KEY", "")):
+        raise HTTPException(401, "Chave de admin inválida")
+
+
+@app.post("/api/admin/free-tokens")
+def admin_create_free_token(payload: dict, request: Request):
+    require_admin(request)
+    nota = (payload.get("nota") or "").strip()
+    token = store.create_free_token(nota=nota)
+    base_url = str(request.base_url).rstrip("/")
+    return {"token": token, "link": f"{base_url}/signup?invite={token}"}
+
+
+@app.get("/api/admin/tenants")
+def admin_list_tenants(request: Request):
+    require_admin(request)
+    signups = store.list_live_signups()
+    return [
+        {
+            "tenant_id": s["tenant_id"],
+            "dominio": f"{s['tenant_id']}.{BASE_DOMAIN}",
+            "plano": s.get("plano"),
+            "criado_em": s.get("criado_em"),
+            "gratuito": bool(s.get("invite_token")),
+        }
+        for s in signups
+    ]
+
+
+@app.get("/api/admin/tenants/{tenant_id}/usage")
+def admin_tenant_usage(tenant_id: str, request: Request):
+    require_admin(request)
+    signup = store.get_signup_by_tenant_id(tenant_id)
+    if not signup:
+        raise HTTPException(404, "Tenant não encontrado ou não está ao vivo")
+    return {"tenant_id": tenant_id, "plano": signup.get("plano"), **store.tenant_usage(tenant_id)}
+
+
+@app.post("/api/admin/tenants/{tenant_id}/enabled")
+def admin_set_tenant_enabled(tenant_id: str, payload: dict, request: Request):
+    """Liga/desliga o WhatsApp do tenant (`WHATSAPP_CLOUD_ENABLED`) sem
+    apagar nada — reversível, pro "pausar/reativar" da Duda."""
+    require_admin(request)
+    signup = store.get_signup_by_tenant_id(tenant_id)
+    if not signup:
+        raise HTTPException(404, "Tenant não encontrado ou não está ao vivo")
+    enabled = bool(payload.get("enabled"))
+    set_tenant_enabled(tenant_id, enabled)
+    return {"tenant_id": tenant_id, "enabled": enabled}
 
 
 @app.get("/health")

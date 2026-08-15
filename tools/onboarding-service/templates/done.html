@@ -100,13 +100,12 @@ a { color: var(--leaf-deep); }
     <p>O número conectado já está recebendo mensagens em <code>https://{{ dominio }}</code>.</p>
 
     <div class="box">
-      <p>Painel de conversas: <a href="https://{{ dominio }}/painel">https://{{ dominio }}/painel</a></p>
-      <p>Usuário: <code>{{ panel_user }}</code></p>
-      {% if panel_password %}
-      <p>Senha: <code>{{ panel_password }}</code></p>
-      <p class="aviso">Anote agora — essa senha só é mostrada uma vez.</p>
+      <p>Falta só um passo: cadastre seu usuário e senha do painel de conversas.</p>
+      {% if panel_setup_url %}
+      <p><a href="{{ panel_setup_url }}">{{ panel_setup_url }}</a></p>
+      <p class="aviso">Esse link só funciona até você cadastrar — depois disso, entre direto em <code>https://{{ dominio }}/painel</code> com o que você escolher.</p>
       {% else %}
-      <p>Senha: já foi mostrada no momento do cadastro. Se perdeu, fale com a Ac Soluções.</p>
+      <p>Se você já cadastrou seu acesso, entre direto em <a href="https://{{ dominio }}/painel">https://{{ dominio }}/painel</a>.</p>
       {% endif %}
     </div>
   </div>
