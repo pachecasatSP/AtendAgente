@@ -28,6 +28,7 @@ MONGO_URI = os.environ["MONGO_URI"]
 # frágil por um dict de 2 linhas. Se os planos mudarem, atualizar nos
 # dois lugares.
 LIMITES = {
+    "entrada": 500,
     "comecando": 1000,
     "crescendo": 5000,
 }

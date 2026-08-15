@@ -151,7 +151,8 @@ textarea { min-height: 4rem; resize: vertical; }
   margin-left: 0.4rem;
 }
 
-.plan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.plan-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+@media (max-width: 680px) { .plan-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 480px) { .plan-grid { grid-template-columns: 1fr; } }
 .plan-card {
   display: flex;
@@ -332,6 +333,13 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
           <p class="lead">7 dias grátis em qualquer um, sem compromisso.</p>
 
           <div class="plan-grid">
+            <label class="plan-card">
+              <input type="radio" name="plano" value="entrada" required>
+              <span class="plan-name">Entrada</span>
+              <span class="plan-volume">até 500 conversas/mês</span>
+              <span class="plan-price-de">de R$ 105,90</span>
+              <span class="plan-price">R$ 84,90<small>/mês</small></span>
+            </label>
             <label class="plan-card">
               <input type="radio" name="plano" value="comecando" required>
               <span class="plan-name">Começando</span>

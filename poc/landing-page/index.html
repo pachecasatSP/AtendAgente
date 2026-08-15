@@ -33,6 +33,7 @@
   "url": "https://atendpragente.com.br/",
   "description": "Atendimento no WhatsApp com IA treinada no negócio de cada cliente — responde na hora, 24h, e escala pra um humano quando precisa.",
   "offers": [
+    { "@type": "Offer", "name": "Entrada", "price": "84.90", "priceCurrency": "BRL", "url": "https://atendpragente.com.br/#planos" },
     { "@type": "Offer", "name": "Começando", "price": "157.90", "priceCurrency": "BRL", "url": "https://atendpragente.com.br/#planos" },
     { "@type": "Offer", "name": "Crescendo", "price": "717.90", "priceCurrency": "BRL", "url": "https://atendpragente.com.br/#planos" }
   ],
@@ -452,11 +453,12 @@ section { padding: 4.5rem 0; }
 /* ---------- Pricing ---------- */
 .pricing-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 1.6rem;
   align-items: stretch;
 }
-@media (max-width: 900px) { .pricing-grid { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .pricing-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .pricing-grid { grid-template-columns: 1fr; } }
 .price-card {
   background: var(--paper-card);
   border: 1px solid var(--line);
@@ -783,6 +785,18 @@ footer {
     </div>
     <div class="trial-banner"><span class="tag">grátis</span> 7 dias testando em qualquer plano, sem compromisso</div>
     <div class="pricing-grid">
+      <div class="price-card">
+        <span class="plan-name">Entrada</span>
+        <span class="plan-volume">até 500 conversas/mês</span>
+        <div class="plan-price-de">de R$ 105,90</div>
+        <div class="plan-price"><span class="amount">R$ 84,90</span><span class="period">/mês</span></div>
+        <ul class="plan-features">
+          <li>Seu WhatsApp conectado via API oficial da Meta</li>
+          <li>IA treinada no seu negócio (serviços, tom, horários)</li>
+          <li>Escalação pra humano quando o papo pedir</li>
+        </ul>
+        <a class="plan-cta" href="https://onboarding.atendpragente.com.br/signup">Testar 7 dias grátis</a>
+      </div>
       <div class="price-card">
         <span class="plan-name">Começando</span>
         <span class="plan-volume">até 1.000 conversas/mês</span>

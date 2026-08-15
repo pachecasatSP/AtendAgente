@@ -37,6 +37,7 @@ TENANT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}[a-z0-9]$")
 # Só planos com valor fixo entram no checkout automático — "Sem limite"
 # é sob consulta e não aparece no wizard (ver PLANOS no form.html).
 PLANOS = {
+    "entrada": {"nome": "Entrada", "valor": 84.90, "valor_de": 105.90, "limite": 500},
     "comecando": {"nome": "Começando", "valor": 157.90, "valor_de": 197.00, "limite": 1000},
     "crescendo": {"nome": "Crescendo", "valor": 717.90, "valor_de": 897.00, "limite": 5000},
 }

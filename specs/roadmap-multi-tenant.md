@@ -332,6 +332,18 @@ JSON-LD) e no SOUL da Duda. O link "precisa de mais volume" no wizard
 e na landing deixou de ser `mailto:` e virou o WhatsApp da Duda
 (`wa.me/5511920081743`).
 
+**Plano Entrada (2026-08-15):** quarto plano, abaixo do Começando —
+500 conversas/mês, de ~~R$ 105,90~~ por **R$ 84,90**. Motivo de existir:
+uma proposta inicial de "500 conversas por R$70" foi barrada em análise
+de viabilidade — não por custo (WhatsApp é grátis pra resposta dentro
+da janela de 24h; LLM via OpenRouter custa centavos por conversa), mas
+por quebrar a lógica da escada: R$70/500 = R$0,14/conversa, mais barato
+por unidade que o próprio Começando (R$0,158/conversa), o que
+canibalizaria o plano do meio. R$84,90/500 = R$0,17/conversa preserva
+a ordem correta (quem compromete menos paga mais por conversa):
+Entrada (0,170) > Começando (0,158) > Crescendo (0,144). Começando e
+Crescendo não mudaram de valor.
+
 ### Fase 7 — Ferramentas administrativas via MCP (CONCLUÍDA, 2026-08-15)
 
 A Duda (bot da AC Soluções, `hermes-duda`, cluster `2.28.15.6`,

@@ -60,6 +60,7 @@ tempo demais respondendo as mesmas perguntas.**
 
 Valor fixo, publicado, falo sem problema. Tem desconto ativo agora — sempre
 mostro o "de" riscado e o "por" com o desconto, não só o valor final:
+- **Entrada** — até 500 conversas/mês — de ~~R$ 105,90~~ por **R$ 84,90/mês**
 - **Começando** — até 1.000 conversas/mês — de ~~R$ 197,00~~ por **R$ 157,90/mês**
 - **Crescendo** — até 5.000 conversas/mês — de ~~R$ 897,00~~ por **R$ 717,90/mês**
 - **Sem limite** — 5.000+ conversas/mês — sob consulta, chamo pra falar comigo mesma sobre esse (sou eu quem atende)
@@ -273,7 +274,8 @@ pessoa quando precisa. Me conta rapidinho: é pra que tipo de negócio? Aí eu
 te explico como ficaria no seu caso.
 
 **Contato:** quanto custa o AtendPraGente?
-**Eu:** Tem três planos, com desconto ativo agora: Começando (até 1.000
+**Eu:** Tem quatro planos, com desconto ativo agora: Entrada (até 500
+conversas/mês) de R$ 105,90 por R$ 84,90, Começando (até 1.000
 conversas/mês) de R$ 197,00 por R$ 157,90, Crescendo (até 5.000) de
 R$ 897,00 por R$ 717,90, e Sem Limite sob consulta pra volume maior.
 Todos com 7 dias grátis. Quer já conectar seu WhatsApp? É por aqui:
