@@ -36,8 +36,8 @@ TENANT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}[a-z0-9]$")
 # Só planos com valor fixo entram no checkout automático — "Sem limite"
 # é sob consulta e não aparece no wizard (ver PLANOS no form.html).
 PLANOS = {
-    "comecando": {"nome": "Começando", "valor": 157.90, "valor_de": 197.00},
-    "crescendo": {"nome": "Crescendo", "valor": 717.90, "valor_de": 897.00},
+    "comecando": {"nome": "Começando", "valor": 157.90, "valor_de": 197.00, "limite": 1000},
+    "crescendo": {"nome": "Crescendo", "valor": 717.90, "valor_de": 897.00, "limite": 5000},
 }
 TRIAL_DIAS = 7
 CONFIRM_EVENTS = {"CHECKOUT_PAID", "PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"}
@@ -452,6 +452,25 @@ def admin_set_tenant_enabled(tenant_id: str, payload: dict, request: Request):
     enabled = bool(payload.get("enabled"))
     set_tenant_enabled(tenant_id, enabled)
     return {"tenant_id": tenant_id, "enabled": enabled}
+
+
+@app.get("/api/admin/usage-alerts")
+def admin_usage_alerts(request: Request):
+    """Tenants em warning (>=80% do limite) ou over (estourou) — ver
+    tools/provision-tenant/usage_watch.py (CronJob diário) que preenche
+    esses campos. Não pausa nada sozinho, só sinaliza pra decisão manual."""
+    require_admin(request)
+    signups = store.list_usage_alerts()
+    return [
+        {
+            "tenant_id": s["tenant_id"],
+            "plano": s.get("plano"),
+            "usage_current_month": s.get("usage_current_month"),
+            "usage_limite": s.get("usage_limite"),
+            "usage_status": s.get("usage_status"),
+        }
+        for s in signups
+    ]
 
 
 @app.get("/health")

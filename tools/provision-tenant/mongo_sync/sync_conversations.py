@@ -25,6 +25,13 @@ STATE_DB_PATH = "/opt/data/state.db"
 MONGO_URI = os.environ["MONGO_URI"]
 HANDOFF_HTTP_PORT = int(os.environ.get("HANDOFF_HTTP_PORT", "8091"))
 
+# Frase-gatilho que o SOUL instrui o bot a usar, sempre igual, quando
+# decide escalar pra um humano — ver "Quando encaminhar para o Adolfo"
+# em poc/SOUL-ac-solucoes.md. Detectada aqui (não via tool-call, que se
+# mostrou pouco confiável nesse modelo — ver feedback_hermes_mcp_tool_calling)
+# pra marcar a sessão como precisando de atenção manual no painel.
+ESCALATION_MARKER = "acionar o adolfo"
+
 # Chat IDs currently under manual handoff (operador assumiu a conversa pelo
 # painel). Refeito do zero a cada ciclo de sync — ver refresh_handoff_cache.
 # Consultado pelo processo hermes via HTTP local (mesmo pod) antes de cada
@@ -106,6 +113,16 @@ def sync_once(conn: sqlite3.Connection, db, cursor: dict) -> dict:
             display_name, started_at, ended_at, last_activity_at,
             message_count,
         ) = row
+        if not chat_id:
+            # Corrida na criação da sessão: last_activity_at já existe mas
+            # chat_id ainda não foi gravado no SQLite (visto na prática
+            # 2026-08-15). Não sincroniza nem avança o cursor pra essa
+            # linha — ela reaparece na consulta do próximo ciclo (15s)
+            # assim que o SQLite preencher o chat_id de verdade, em vez
+            # de gravar um doc órfão (sem chat_id o painel não consegue
+            # enviar mensagem — "Conversa sem chat_id — não é possível
+            # enviar") que só se corrigiria com nova atividade na sessão.
+            continue
         doc = {
             "tenant_id": TENANT_ID,
             "session_id": sid,
@@ -137,6 +154,7 @@ def sync_once(conn: sqlite3.Connection, db, cursor: dict) -> dict:
     ).fetchall()
 
     message_ops = []
+    escalated_session_ids = set()
     max_message_id = cursor["last_message_id"]
     for row in message_rows:
         (
@@ -162,8 +180,27 @@ def sync_once(conn: sqlite3.Connection, db, cursor: dict) -> dict:
             UpdateOne({"_id": f"{TENANT_ID}:{mid}"}, {"$set": doc}, upsert=True)
         )
         max_message_id = max(max_message_id, mid)
+        if role == "assistant" and content and ESCALATION_MARKER in content.lower():
+            escalated_session_ids.add(session_id)
     if message_ops:
         messages_coll.bulk_write(message_ops, ordered=False)
+
+    if escalated_session_ids:
+        # handoff:true também, não só o alerta visual — a Duda disse que
+        # ia acionar um humano, então ela mesma já para de responder até
+        # o operador (ou o botão "resolver" no painel) devolver o
+        # controle. Sem isso o bot continuava respondendo normalmente
+        # logo depois de anunciar que ia escalar.
+        sessions_coll.update_many(
+            {"tenant_id": TENANT_ID, "session_id": {"$in": list(escalated_session_ids)}},
+            {"$set": {
+                "needs_operator": True,
+                "needs_operator_at": now(),
+                "handoff": True,
+                "handoff_by": "bot (auto-escalação)",
+                "handoff_at": now(),
+            }},
+        )
 
     new_cursor = {
         "last_message_id": max_message_id,

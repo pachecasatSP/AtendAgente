@@ -69,6 +69,12 @@ def get_signup_by_tenant_id(tenant_id: str) -> dict | None:
     return _signups.find_one({"tenant_id": tenant_id, "status": "live"})
 
 
+def list_usage_alerts() -> list[dict]:
+    """Tenants ao vivo com usage_status em warning/over — preenchido
+    pelo CronJob usage_watch.py, não calculado aqui."""
+    return list(_signups.find({"status": "live", "usage_status": {"$in": ["warning", "over"]}}))
+
+
 # ── Tokens de gratuidade (cadastro sem cobrança, uso único) ────────────
 #
 # Gerados pela Duda (via MCP, ver tools/admin-mcp/) mediante PIN de admin

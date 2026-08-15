@@ -50,6 +50,7 @@ db = mongo_client.get_default_database()
 auth_col = db["panel_auth"]
 sessions_col = db["sessions"]
 messages_col = db["messages"]
+signups_col = db["signups"]
 
 app = FastAPI(title=f"Painel — {TENANT_ID}")
 app.add_middleware(SessionMiddleware, secret_key=PANEL_SESSION_SECRET, session_cookie="painel_session")
@@ -186,6 +187,25 @@ def panel_shell(request: Request):
     return templates.TemplateResponse(request, "index.html", {"tenant_id": TENANT_ID})
 
 
+@app.get("/painel/api/usage")
+def api_usage(request: Request) -> dict:
+    """Uso do mês corrente contra o limite do plano — calculado 1x/dia
+    por tools/provision-tenant/usage_watch.py, não em tempo real. Sem
+    doc de signup (ex: painel da Duda, que não passa pelo onboarding),
+    devolve sem plano — o front esconde a barra nesse caso."""
+    require_session(request)
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not signup:
+        return {"plano": None}
+    return {
+        "plano": signup.get("plano"),
+        "usage_current_month": signup.get("usage_current_month"),
+        "usage_limite": signup.get("usage_limite"),
+        "usage_pct": signup.get("usage_pct"),
+        "usage_status": signup.get("usage_status"),
+    }
+
+
 @app.get("/painel/api/sessions")
 def api_sessions(request: Request) -> list[dict]:
     require_session(request)
@@ -203,9 +223,44 @@ def api_sessions(request: Request) -> list[dict]:
             "last_activity_fmt": fmt_ts(s.get("last_activity_at")),
             "message_count": s.get("message_count") or 0,
             "handoff": bool(s.get("handoff")),
+            "needs_operator": bool(s.get("needs_operator")),
         }
         for s in sessions
     ]
+
+
+@app.post("/painel/api/sessions/{session_id}/resolve")
+def api_resolve_session(session_id: str, request: Request) -> dict:
+    """Limpa o alerta de 'precisa de atenção manual' e devolve o
+    controle pro bot (desliga handoff também) — o bot sinalizou (frase-
+    gatilho detectada pelo mongo-sync) que essa conversa deve ser
+    assumida por um humano, o que já silenciou o bot automaticamente;
+    resolver aqui é o operador dizendo "cuidei disso, pode responder
+    de novo"."""
+    require_session(request)
+    session = sessions_col.find_one({"tenant_id": TENANT_ID, "session_id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    sessions_col.update_one(
+        {"tenant_id": TENANT_ID, "session_id": session_id},
+        {"$set": {"needs_operator": False, "handoff": False, "handoff_by": None, "handoff_at": None}},
+    )
+    return {"ok": True}
+
+
+@app.delete("/painel/api/sessions/{session_id}")
+def api_delete_session(session_id: str, request: Request) -> dict:
+    """Remove uma conversa só da visualização do painel (Mongo) — não
+    apaga a memória real do bot, que vive no SQLite do pod do Hermes e
+    não é acessível daqui. Se o contato escrever de novo, a conversa
+    volta a aparecer pro operador na próxima sincronização."""
+    require_session(request)
+    session = sessions_col.find_one({"tenant_id": TENANT_ID, "session_id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+    messages_col.delete_many({"tenant_id": TENANT_ID, "session_id": session_id})
+    sessions_col.delete_one({"tenant_id": TENANT_ID, "session_id": session_id})
+    return {"ok": True}
 
 
 DISPLAY_ROLES = ["user", "assistant", "operator"]

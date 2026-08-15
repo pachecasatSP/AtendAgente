@@ -1,7 +1,8 @@
 """Servidor MCP de ferramentas administrativas — só a Duda (hermes-duda)
 conecta nele, via `hermes mcp add` com `--auth header` (Bearer
 MCP_AUTH_TOKEN). Expõe: criar token de gratuidade, listar tenants, medir
-recursos de um tenant, pausar/reativar um tenant.
+recursos de um tenant, pausar/reativar um tenant, alertar sobre tenants
+perto do limite do plano.
 
 Segurança em duas camadas independentes, nenhuma delas decidida pela IA:
 1. MCP_AUTH_TOKEN — Bearer estático checado por middleware antes de
@@ -71,6 +72,17 @@ def listar(pin: str) -> dict:
     if erro:
         return {"erro": erro}
     return {"tenants": _admin_request("GET", "/api/admin/tenants")}
+
+
+@mcp.tool()
+def alertas(pin: str) -> dict:
+    """Lista tenants perto do limite do plano (80%+) ou já estourando
+    (100%+) — contagem de contatos únicos no mês, atualizada 1x/dia.
+    Não pausa nem cobra nada sozinho, só avisa pra decisão manual."""
+    erro = _check_pin(pin)
+    if erro:
+        return {"erro": erro}
+    return {"alertas": _admin_request("GET", "/api/admin/usage-alerts")}
 
 
 @mcp.tool()

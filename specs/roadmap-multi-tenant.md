@@ -365,6 +365,44 @@ do `/agent-api` (ver `infra_hermes_profiles`). É modelo pago (não é SKU
 `:free`), gera custo real por mensagem — trade-off aceito em troca de
 tool-calling confiável.
 
+### Fase 8 — Controle de volume/custo por tenant (CONCLUÍDA, 2026-08-15)
+
+Item que ficava só implícito no marketing dos planos ("até 1.000/5.000
+conversas") sem nenhum controle técnico. **Definição de "conversa"**
+(decisão explícita): contatos únicos (`chat_id` distinto) no mês
+corrente — não sessões, mais fácil de justificar pro cliente ("quantas
+pessoas diferentes te procuraram") e não infla o número com múltiplas
+sessões do mesmo contato.
+
+**Arquitetura:** `tools/provision-tenant/usage_watch.py`, `CronJob`
+diário (03:17 UTC, namespace `atendagente`, mesmo padrão leve dos
+sidecars — `python:3.12-slim` + `pip install pymongo`, sem imagem
+própria; bootstrap idempotente em `setup_usage_watch.py`). Pra cada
+tenant `status=live`, conta `sessions.distinct("chat_id", {started_at
+>= início do mês})` e compara com `LIMITES` (duplicado de `PLANOS` do
+onboarding-service de propósito — sem import cross-serviço por um dict
+de 2 linhas). Grava `usage_current_month`/`usage_limite`/`usage_pct`/
+`usage_status` (`ok`/`warning`≥80%/`over`≥100%) no doc do signup.
+
+**Sem ação automática — só mede e sinaliza.** Nenhum tenant é pausado
+ou cobrado sozinho quando estoura; a decisão (negociar upgrade, cobrar
+excedente pela taxa de R$0,14/conversa do pitch Sem Limite, ou pausar
+com `set_tenant_enabled`) é sempre manual. Dois pontos de visibilidade:
+
+1. `GET /api/admin/usage-alerts` (onboarding-service) + ferramenta nova
+   `alertas` no admin-mcp (PIN-gated, mesmo padrão das outras 4) — a
+   Duda lista quem está em warning/over.
+2. `GET /painel/api/usage` (tenant-panel) — barra de progresso no topo
+   do painel do próprio cliente ("X de Y conversas esse mês", cor muda
+   verde→amarelo→vermelho conforme o status). Painéis sem doc de
+   signup (ex: o da Duda, que não passa pelo onboarding) simplesmente
+   escondem a barra, sem erro.
+
+Cobrança automática do excedente (criar cobrança avulsa na Asaas
+quando `over`) fica pra uma Fase 8.2 futura, mais arriscada por mexer
+com dinheiro sem revisão — só depois desse v1 (visibilidade) validado
+com uso real.
+
 ---
 
 ## Riscos / decisões a revisitar cedo

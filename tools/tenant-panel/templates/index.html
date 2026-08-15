@@ -95,6 +95,21 @@
     }
     .handoff-btn.bot { background: var(--leaf-pale); color: var(--leaf-deep); }
     .handoff-btn.manual { background: var(--spark); color: #4a3300; }
+    .delete-btn {
+      border: none; background: transparent; cursor: pointer; flex-shrink: 0;
+      font-size: 1rem; padding: 0.3rem 0.5rem; border-radius: 8px; opacity: 0.6;
+    }
+    .delete-btn:hover { opacity: 1; background: var(--error-bg, #fde8e4); }
+    .conv-item.needs-operator { background: var(--error-bg, #fff2ee); }
+    .operator-alert {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+      padding: 0.6rem 1rem; background: var(--error-bg, #fde8e4); color: var(--error, #9a3412);
+      font-size: 0.82rem; font-weight: 700; flex-shrink: 0;
+    }
+    .operator-alert button {
+      font-family: var(--font-body); font-weight: 800; font-size: 0.76rem; border: none; border-radius: 999px;
+      padding: 0.35rem 0.8rem; cursor: pointer; flex-shrink: 0; background: #fff; color: var(--error, #9a3412);
+    }
     .thread { flex: 1; overflow-y: auto; padding: 0.5rem 0.6rem; background: var(--thread-bg); }
     .compose { display: flex; gap: 0.5rem; padding: 0.7rem 1rem; background: var(--paper-card); border-top: 1px solid var(--line); flex-shrink: 0; }
     .compose input {
@@ -139,6 +154,12 @@
       background: var(--spark); clip-path: polygon(0 0, 0 100%, 100% 0);
     }
     .meta { position: absolute; right: 8px; bottom: 4px; font-size: 0.62rem; color: var(--ink-faint); white-space: nowrap; }
+    .usage-bar { padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); background: var(--paper-card); }
+    .usage-bar-label { font-size: 0.72rem; font-weight: 700; color: var(--ink-faint); margin-bottom: 0.3rem; }
+    .usage-bar-track { height: 6px; border-radius: 999px; background: var(--leaf-pale); overflow: hidden; }
+    .usage-bar-fill { height: 100%; border-radius: 999px; background: var(--leaf); transition: width 0.3s ease; }
+    .usage-bar-fill.warning { background: var(--spark); }
+    .usage-bar-fill.over { background: var(--error, #e0533d); }
   </style>
 </head>
 <body>
@@ -160,12 +181,21 @@
         </div>
         <a href="/painel/logout" class="logout-link" title="Sair">Sair</a>
       </div>
+      <div id="usage-bar" class="usage-bar" style="display:none">
+        <div class="usage-bar-label"><span id="usage-text"></span></div>
+        <div class="usage-bar-track"><div id="usage-bar-fill" class="usage-bar-fill"></div></div>
+      </div>
       <div id="conv-list"></div>
     </div>
     <div class="main">
       <div id="thread-header" class="thread-header" style="display:none">
         <div id="thread-title" class="thread-title"></div>
+        <button id="delete-btn" class="delete-btn" type="button" title="Excluir conversa">🗑</button>
         <button id="handoff-btn" class="handoff-btn bot" type="button"></button>
+      </div>
+      <div id="operator-alert" class="operator-alert" style="display:none">
+        🚨 O bot sinalizou que essa conversa precisa de um humano assumindo.
+        <button id="resolve-btn" type="button">Marcar como resolvido</button>
       </div>
       <div id="thread-area" class="main-empty">Selecione uma conversa</div>
       <form id="compose-form" class="compose" style="display:none">
@@ -182,6 +212,9 @@
     const threadHeaderEl = document.getElementById('thread-header');
     const threadTitleEl = document.getElementById('thread-title');
     const handoffBtnEl = document.getElementById('handoff-btn');
+    const deleteBtnEl = document.getElementById('delete-btn');
+    const operatorAlertEl = document.getElementById('operator-alert');
+    const resolveBtnEl = document.getElementById('resolve-btn');
     const composeFormEl = document.getElementById('compose-form');
     const composeInputEl = document.getElementById('compose-input');
     let activeSessionId = null;
@@ -211,10 +244,10 @@
         const seenCount = parseInt(localStorage.getItem(seenKey(s.session_id)) || '0', 10);
         const unread = Math.max(0, (s.message_count || 0) - seenCount);
         const item = document.createElement('div');
-        item.className = 'conv-item' + (s.session_id === activeSessionId ? ' active' : '');
+        item.className = 'conv-item' + (s.session_id === activeSessionId ? ' active' : '') + (s.needs_operator ? ' needs-operator' : '');
         item.innerHTML = `
           <div>
-            <div class="conv-name">${escapeHtml(s.display_name || s.chat_id || s.session_id)}</div>
+            <div class="conv-name">${s.needs_operator ? '🚨 ' : ''}${escapeHtml(s.display_name || s.chat_id || s.session_id)}</div>
             <div class="conv-time">${escapeHtml(s.last_activity_fmt)}</div>
           </div>
           ${unread > 0 ? `<div class="badge">${unread}</div>` : ''}
@@ -239,6 +272,7 @@
         handoffBtnEl.className = 'handoff-btn bot';
         composeFormEl.style.display = 'none';
       }
+      operatorAlertEl.style.display = s.needs_operator ? 'flex' : 'none';
     }
 
     async function renderThread(sessionId, { silent } = {}) {
@@ -294,6 +328,40 @@
       }
     });
 
+    resolveBtnEl.addEventListener('click', async () => {
+      if (!activeSessionId) return;
+      resolveBtnEl.disabled = true;
+      try {
+        const resp = await fetch(`/painel/api/sessions/${encodeURIComponent(activeSessionId)}/resolve`, { method: 'POST' });
+        if (resp.status === 401) { window.location.href = '/painel/login'; return; }
+        await loadSessions();
+      } finally {
+        resolveBtnEl.disabled = false;
+      }
+    });
+
+    deleteBtnEl.addEventListener('click', async () => {
+      if (!activeSessionId) return;
+      const s = sessionsById[activeSessionId];
+      const nome = (s && (s.display_name || s.chat_id)) || activeSessionId;
+      if (!confirm(`Excluir a conversa com "${nome}" do painel? Isso só limpa a lista aqui — o bot continua lembrando desse contato normalmente, e se ele escrever de novo a conversa volta a aparecer.`)) return;
+      deleteBtnEl.disabled = true;
+      try {
+        const resp = await fetch(`/painel/api/sessions/${encodeURIComponent(activeSessionId)}`, { method: 'DELETE' });
+        if (resp.status === 401) { window.location.href = '/painel/login'; return; }
+        if (!resp.ok) { alert('Não foi possível excluir a conversa.'); return; }
+        activeSessionId = null;
+        lastMessagesSignature = null;
+        threadHeaderEl.style.display = 'none';
+        operatorAlertEl.style.display = 'none';
+        threadAreaEl.className = 'main-empty';
+        threadAreaEl.textContent = 'Selecione uma conversa';
+        await loadSessions();
+      } finally {
+        deleteBtnEl.disabled = false;
+      }
+    });
+
     composeFormEl.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       if (!activeSessionId) return;
@@ -332,7 +400,23 @@
       }
     }
 
+    async function loadUsage() {
+      const resp = await fetch('/painel/api/usage');
+      if (!resp.ok) return;
+      const u = await resp.json();
+      const barEl = document.getElementById('usage-bar');
+      if (!u.plano || !u.usage_limite) { barEl.style.display = 'none'; return; }
+      barEl.style.display = 'block';
+      const pct = Math.min(100, Math.round((u.usage_pct || 0) * 100));
+      document.getElementById('usage-text').textContent =
+        `${u.usage_current_month} de ${u.usage_limite} conversas esse mês`;
+      const fillEl = document.getElementById('usage-bar-fill');
+      fillEl.style.width = pct + '%';
+      fillEl.className = 'usage-bar-fill' + (u.usage_status === 'over' ? ' over' : u.usage_status === 'warning' ? ' warning' : '');
+    }
+
     loadSessions();
+    loadUsage();
     setInterval(poll, POLL_MS);
   </script>
 </body>
