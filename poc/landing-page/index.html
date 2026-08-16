@@ -856,8 +856,7 @@ footer {
   <div class="wrap footer-inner">
     <p class="footer-tagline">AtendPraGente — atendimento no WhatsApp com IA, pra negócio que não quer deixar ninguém sem resposta.</p>
     <div class="footer-links">
-      <a href="https://onboarding.atendpragente.com.br/signup">Testar grátis</a>
-      <a href="mailto:contato@atendpragente.com.br">Falar com a gente</a>
+      <a href="https://wa.me/5511920081743?text=Quero%20conhecer%20o%20AtendPraGente" target="_blank" rel="noopener">Falar com a gente</a>
       <a href="/privacidade.html">Privacidade</a>
     </div>
   </div>
@@ -875,16 +874,50 @@ footer {
   </div>
 </div>
 <script>
+  // GTM/GA4 só carregam depois que a pessoa aceita cookies no banner
+  // abaixo (ou já tinha aceitado numa visita anterior) — nunca disparam
+  // pra quem clica "Só o essencial" ou ainda não decidiu.
+  window.dataLayer = window.dataLayer || [];
+  function gtag() { dataLayer.push(arguments); }
+
+  var GTM_ID = 'GTM-5ZRLPZ27';
+  var GA4_ID = 'G-XFC1PK1WCD';
+  var analyticsLoaded = false;
+
+  function loadAnalytics() {
+    if (analyticsLoaded) return;
+    analyticsLoaded = true;
+
+    (function (w, d, s, l, i) {
+      w[l] = w[l] || [];
+      w[l].push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });
+      var f = d.getElementsByTagName(s)[0], j = d.createElement(s), dl = l != 'dataLayer' ? '&l=' + l : '';
+      j.async = true;
+      j.src = 'https://www.googletagmanager.com/gtm.js?id=' + i + dl;
+      f.parentNode.insertBefore(j, f);
+    })(window, document, 'script', 'dataLayer', GTM_ID);
+
+    var gaScript = document.createElement('script');
+    gaScript.async = true;
+    gaScript.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA4_ID;
+    document.head.appendChild(gaScript);
+    gtag('js', new Date());
+    gtag('config', GA4_ID);
+  }
+
   (function () {
     var KEY = 'atendpragente-cookie-consent';
     var banner = document.getElementById('cookie-banner');
     var stored = localStorage.getItem(KEY);
     if (!stored) {
       banner.hidden = false;
+    } else if (stored === 'accepted') {
+      loadAnalytics();
     }
     function decide(value) {
       localStorage.setItem(KEY, value);
       banner.hidden = true;
+      if (value === 'accepted') loadAnalytics();
     }
     document.getElementById('cookie-accept').addEventListener('click', function () { decide('accepted'); });
     document.getElementById('cookie-reject').addEventListener('click', function () { decide('essential-only'); });
