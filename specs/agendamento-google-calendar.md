@@ -211,6 +211,13 @@ da lib `mcp` — não precisa de plano B.
   sem múltiplos participantes.
 - Conta de serviço aparece como organizadora do evento (não o dono do
   negócio) — decorrência direta da escolha de autenticação da v1.
+- **Google Meet nem sempre é gerado** — confirmado em teste real: conta
+  de serviço sem "domain-wide delegation" (não dá pra ter isso fora de
+  Google Workspace administrado) não consegue criar conferência via
+  API pra contas Gmail pessoais/pequena empresa. `check_and_book()`
+  detecta esse erro específico e cria o evento sem Meet em vez de
+  falhar o agendamento — `link_meet` vem `null` nesses casos, só
+  `link_evento` é garantido.
 
 ## Arquivos a tocar
 
