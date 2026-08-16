@@ -112,7 +112,7 @@ body {
 label { display: block; margin-top: 1.1rem; font-weight: 800; font-size: 0.95rem; }
 label:first-of-type { margin-top: 0; }
 small { display: block; color: var(--ink-faint); font-weight: 600; margin-top: 0.2rem; font-size: 0.82rem; }
-input[type=text], textarea {
+input[type=text], input[type=email], textarea {
   width: 100%;
   padding: 0.65rem 0.8rem;
   margin-top: 0.4rem;
@@ -132,9 +132,30 @@ textarea { min-height: 4rem; resize: vertical; }
 }
 .checkbox-label input[type=checkbox] { margin-top: 0.2rem; width: 1.05rem; height: 1.05rem; accent-color: var(--leaf); flex-shrink: 0; cursor: pointer; }
 .checkbox-label a { color: var(--leaf-deep); font-weight: 700; }
-.row-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; align-items: end; }
-.row-2 label { display: flex; flex-direction: column; }
-.row-2.row-2--narrow { grid-template-columns: minmax(0, 1fr) 4.5rem; }
+.row-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; align-items: start; }
+.row-2 label { display: flex; flex-direction: column; margin-top: 0; min-width: 0; }
+.row-2.row-2--narrow { grid-template-columns: minmax(0, 1fr) minmax(4.5rem, max-content); }
+.row-2.row-2--narrow label:last-child { white-space: nowrap; }
+.tenant-id-group {
+  display: flex; align-items: stretch; margin-top: 0.4rem; min-width: 0;
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  background: var(--paper);
+}
+#tenant_id-field {
+  width: auto; flex: 1 1 4rem; min-width: 0; margin-top: 0;
+  border: none; border-radius: 0;
+}
+#tenant_id-field:focus { outline: none; box-shadow: inset 0 0 0 2px var(--leaf); }
+.tenant-id-suffix {
+  flex: 0 1 auto; min-width: 0; display: flex; align-items: center;
+  padding: 0 0.6rem; border-left: 1px solid var(--line); border-radius: 0;
+  background: var(--paper-soft); color: var(--ink-faint); font-weight: 600;
+  font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Abaixo de 480px o par Endereço/Artigo empilha (como os outros pares
+   row-2) em vez de dividir a largura — o grupo Endereço+domínio precisa
+   da linha inteira pra não espremer o sufixo do domínio. */
+@media (max-width: 480px) { .row-2.row-2--narrow { grid-template-columns: 1fr; } }
 .slug-status { margin-top: 0.35rem; font-weight: 700; }
 .slug-status.checking { color: var(--ink-faint); }
 .slug-status.ok { color: var(--leaf-deep); }
@@ -246,8 +267,11 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
 
           <div class="row-2 row-2--narrow">
             <label>Endereço do seu atendimento
-              <small>Vira, por exemplo, minha-loja.atendpragente.com.br</small>
-              <input type="text" name="tenant_id" id="tenant_id-field" required pattern="[a-z][a-z0-9-]{1,30}[a-z0-9]" placeholder="minha-loja">
+              <small>Letras minúsculas, números e hífen.</small>
+              <div class="tenant-id-group">
+                <input type="text" name="tenant_id" id="tenant_id-field" required pattern="[a-z][a-z0-9-]{1,30}[a-z0-9]" placeholder="minha-loja">
+                <span class="tenant-id-suffix" aria-hidden="true">.atendpragente.com.br</span>
+              </div>
               <small id="tenant_id-status" class="slug-status"></small>
             </label>
             <label>Artigo
@@ -622,7 +646,7 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
     // visual imediato enquanto o servidor processa.
     document.getElementById('onboarding-form').addEventListener('submit', () => {
       btnSubmit.disabled = true;
-      btnSubmit.textContent = 'Ativando seu atendimento...';
+      btnSubmit.textContent = gratuito ? 'Ativando seu atendimento gratuito...' : 'Ativando seu atendimento...';
       btnBack.disabled = true;
     });
 

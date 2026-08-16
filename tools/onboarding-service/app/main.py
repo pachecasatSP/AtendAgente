@@ -128,9 +128,19 @@ def parse_label_lines(text: str) -> dict:
 
 
 @app.get("/signup", response_class=HTMLResponse)
-def signup_page(request: Request):
+def signup_page(request: Request, invite: str = ""):
+    invite = invite.strip()
+    invite_expired = False
+    if invite:
+        token_doc = store.get_free_token(invite)
+        # Só sinaliza "expirado" pra um convite que existiu e já foi usado —
+        # um token que nunca existiu (link digitado errado, etc.) é
+        # indistinguível de não ter convite nenhum, então não vale alarmar.
+        invite_expired = bool(token_doc and token_doc["usado"])
     return templates.TemplateResponse(
-        request, "signup.html", {"app_id": APP_ID, "config_id": CONFIG_ID}
+        request,
+        "signup.html",
+        {"app_id": APP_ID, "config_id": CONFIG_ID, "invite_expired": invite_expired},
     )
 
 
