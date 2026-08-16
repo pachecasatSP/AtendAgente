@@ -235,7 +235,7 @@ app = mcp.streamable_http_app(
     host="0.0.0.0",
     transport_security=TransportSecuritySettings(
         allowed_hosts=["calendar-mcp.atendagente.svc.cluster.local", "calendar-mcp", "localhost", "127.0.0.1"],
-        allowed_origins=None,
+        allowed_origins=[],
     ),
 )
 app.add_middleware(TenantAuthMiddleware)
