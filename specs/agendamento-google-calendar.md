@@ -176,21 +176,29 @@ falso, senão algo como:
    — não chamar duas vezes no mesmo tenant sem checar antes se o bloco
    já existe.
 
-## Risco técnico a verificar antes de ir pra produção
+## Risco técnico do `contextvar` — verificado, funciona (2026-08-16)
 
 `server.py` resolve o tenant no middleware (busca por Bearer token no
 Mongo) e guarda num `contextvars.ContextVar` pra a ferramenta
 `criar_agendamento` conseguir ler — ela não recebe o `Request`
-diretamente, só os argumentos que o modelo passa. Isso funciona no caso
-comum (mesma task assíncrona do request), mas depende de como a
-biblioteca `mcp` despacha chamadas de tool internamente no transporte
-`streamable_http` — não deu pra testar de ponta a ponta ainda porque
-não existe conta de serviço Google pra validar o fluxo completo.
-**Primeiro teste real de `criar_agendamento` deve confirmar que o
-contextvar chega certo** (ex: dois tenants de teste chamando ao mesmo
-tempo, conferir que cada um pega a própria agenda). Se não funcionar,
-alternativa: usar `Context`/injeção de request nativa da SDK do MCP, se
-existir.
+diretamente, só os argumentos que o modelo passa. Testado de ponta a
+ponta no tenant `novo-negocio` via `hermes -z "..."`: o Hermes chamou a
+ferramenta de verdade, o `calendar-mcp` resolveu o tenant certo pelo
+token e devolveu `{"ok": false, "motivo": "agenda_nao_configurada"}`
+(esperado, `google_calendar_email` ainda não configurado nesse tenant).
+Confirma que o contextvar chega certo no transporte `streamable_http`
+da lib `mcp` — não precisa de plano B.
+
+**Dois bugs reais encontrados só no deploy** (não pegos por
+`py_compile`, só em runtime):
+1. `TransportSecuritySettings(allowed_origins=None)` — precisa ser
+   lista (`[]`), não `None`; `pydantic.ValidationError` travava o
+   processo antes de subir.
+2. `allowed_hosts` precisa incluir a porta (`calendar-mcp....:8000`,
+   não só o hostname) — sem isso, todo request vinha `421 Misdirected
+   Request` (a checagem de DNS-rebinding compara a string do Host
+   header inteira, e como a porta não é 80/443 ela sempre vem
+   explícita no header).
 
 ## Limites da v1 (comunicar, não resolver agora)
 

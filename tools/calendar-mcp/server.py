@@ -231,10 +231,15 @@ async def testar_conexao_route(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+_ALLOWED_HOSTS_BASE = ["calendar-mcp.atendagente.svc.cluster.local", "calendar-mcp", "localhost", "127.0.0.1"]
+
 app = mcp.streamable_http_app(
     host="0.0.0.0",
     transport_security=TransportSecuritySettings(
-        allowed_hosts=["calendar-mcp.atendagente.svc.cluster.local", "calendar-mcp", "localhost", "127.0.0.1"],
+        # O Host header vem com a porta (não é 80/443) — a checagem de
+        # DNS-rebinding compara a string inteira, então precisa das duas
+        # variantes (com e sem `:8000`), senão dá 421 Misdirected Request.
+        allowed_hosts=_ALLOWED_HOSTS_BASE + [f"{h}:8000" for h in _ALLOWED_HOSTS_BASE],
         allowed_origins=[],
     ),
 )
