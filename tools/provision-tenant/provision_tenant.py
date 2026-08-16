@@ -115,6 +115,20 @@ def apply_display_defaults(prefix: str) -> None:
     if result.returncode != 0:
         raise ProvisionError(f"hermes config set (display.memory_notifications) falhou:\n{result.stderr}")
 
+    # Sem isso, o Hermes pede o max_tokens de saída máximo do modelo por
+    # padrão (128000 pro Claude Opus) — a API cobra pré-autorização por
+    # esse teto, não pelo uso real, e derruba a requisição com HTTP 402
+    # assim que o saldo compartilhado da OPENROUTER_API_KEY (mesma chave
+    # pra todos os tenants) fica pequeno, mesmo a resposta real custando
+    # centavos. 8000 tokens é de sobra pra resposta de WhatsApp.
+    result = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
+         "hermes", "config", "set", "model.max_tokens", "8000"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise ProvisionError(f"hermes config set (model.max_tokens) falhou:\n{result.stderr}")
+
 
 def publish_soul(tenant_id: str, config: dict) -> None:
     """Regenera o SOUL.md a partir de `config` e publica no pod do
