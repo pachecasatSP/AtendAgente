@@ -73,7 +73,7 @@ input[type=text], textarea {
 textarea { resize: vertical; min-height: 4.5rem; font-family: 'Courier New', monospace; font-size: 0.85rem; }
 input:focus, textarea:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
 .row { display: flex; gap: 0.8rem; }
-.row > label { flex: 1; min-width: 0; }
+.row > label { flex: 1; min-width: 0; margin-top: 0; }
 .row > label.field-narrow { flex: 0 0 96px; }
 @media (max-width: 420px) {
   .row { flex-direction: column; gap: 0; }
@@ -91,6 +91,43 @@ button:disabled { opacity: 0.6; cursor: default; transform: none; }
 button.danger {
   background: var(--danger-bg); color: var(--danger); box-shadow: none; border: 1px solid var(--danger);
 }
+a.vitrine-link { color: var(--leaf-deep); font-weight: 800; text-decoration: none; }
+a.vitrine-link:hover { text-decoration: underline; }
+button.secondary {
+  background: var(--paper-soft); color: var(--ink); box-shadow: none; border: 1px solid var(--line);
+  padding: 0.55rem 1rem; font-size: 0.85rem;
+}
+.produto-list { display: flex; flex-direction: column; gap: 0.6rem; margin: 1rem 0 1.6rem; }
+.produto-row {
+  display: flex; align-items: center; gap: 0.8rem; padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
+}
+.produto-row.inativo { opacity: 0.55; }
+.produto-thumb {
+  width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: var(--paper-soft);
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+}
+.produto-info { flex: 1; min-width: 0; }
+.produto-nome { font-weight: 800; font-size: 0.9rem; margin: 0; }
+.produto-meta { font-size: 0.78rem; color: var(--ink-faint); margin: 0.1rem 0 0; }
+.produto-acoes { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.produto-acoes button, .produto-acoes .foto-upload-btn {
+  margin: 0; padding: 0.4rem 0.6rem; font-size: 0.78rem; background: var(--paper-soft); color: var(--ink-soft);
+  box-shadow: none; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 0.3rem; line-height: 1;
+}
+.produto-acoes button.excluir { color: var(--danger); }
+.produto-acoes .foto-upload-btn:hover, .file-upload:hover .file-upload-btn { border-color: var(--leaf); color: var(--leaf-deep); }
+.produto-acoes .foto-upload-btn input[type=file], .file-upload input[type=file] { display: none; }
+.file-upload { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; flex-wrap: wrap; }
+.file-upload-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer;
+  background: var(--paper-soft); color: var(--ink); border: 1px solid var(--line); border-radius: 999px;
+  padding: 0.5rem 1.1rem; font-weight: 800; font-size: 0.85rem; white-space: nowrap; transition: border-color 0.15s ease, color 0.15s ease;
+}
+.file-upload-btn svg { width: 1em; height: 1em; flex-shrink: 0; }
+.file-upload-name { font-size: 0.8rem; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bulk-result { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.5rem; }
 </style>
 </head>
 <body>
@@ -176,6 +213,106 @@ button.danger {
 
       <button type="submit" id="save-btn">Salvar alterações</button>
     </form>
+  </div>
+
+  <div class="card">
+    <h1>Catálogo de produtos</h1>
+    <p class="lead">Cadastre o que você vende — o bot consulta pra responder preço e detalhes, e você pode mandar o link da vitrine pro cliente: <a class="vitrine-link" href="/vitrine" target="_blank" rel="noopener">/vitrine</a>.</p>
+
+    <div id="catalogo-status" class="soul-status">
+      <span id="catalogo-status-dot" class="soul-status-dot {{ 'erro' if catalogo_pending_error else ('pending' if catalogo_pending else 'ok') }}"></span>
+      <span id="catalogo-status-text">
+        {%- if catalogo_pending_error -%}
+          Não consegui publicar a última alteração do catálogo — vamos tentar de novo automaticamente.
+        {%- elif catalogo_pending -%}
+          Alteração salva, aguardando publicação — pode levar até {{ catalogo_apply_minutes }} minutos.
+        {%- elif catalogo_applied_at_fmt -%}
+          Última alteração publicada em {{ catalogo_applied_at_fmt }}.
+        {%- else -%}
+          Nenhuma alteração pendente.
+        {%- endif -%}
+      </span>
+    </div>
+
+    {% if not fotos_configuradas %}
+      <p class="hint" style="margin-top:0.6rem">Upload de fotos ainda não está disponível neste servidor — dá pra cadastrar produtos sem foto normalmente.</p>
+    {% endif %}
+
+    <div id="produto-list" class="produto-list">
+      {% for item in catalogo_itens %}
+        <div class="produto-row {{ '' if item.ativo else 'inativo' }}" data-id="{{ item.id }}" data-slug="{{ item.slug }}">
+          {% if item.foto_url %}
+            <img class="produto-thumb" src="{{ item.foto_url }}" alt="">
+          {% else %}
+            <div class="produto-thumb">📦</div>
+          {% endif %}
+          <div class="produto-info">
+            <p class="produto-nome">{{ item.nome }}{% if not item.ativo %} (inativo){% endif %}</p>
+            <p class="produto-meta">R$ {{ "%.2f"|format(item.preco or 0) }}{% if item.categoria %} · {{ item.categoria }}{% endif %} · {{ item.slug }}</p>
+          </div>
+          <div class="produto-acoes">
+            <label class="foto-upload-btn">
+              <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              Foto
+              <input type="file" accept="image/jpeg,image/png,image/webp" class="foto-input" {{ '' if fotos_configuradas else 'disabled' }}>
+            </label>
+            <button type="button" class="toggle-ativo">{{ 'Desativar' if item.ativo else 'Ativar' }}</button>
+            <button type="button" class="excluir">Excluir</button>
+          </div>
+        </div>
+      {% else %}
+        <p class="hint">Nenhum produto cadastrado ainda.</p>
+      {% endfor %}
+    </div>
+
+    <fieldset>
+      <legend>Novo produto</legend>
+      <form id="produto-form">
+        <div class="row">
+          <label>Nome
+            <input type="text" name="nome" required maxlength="120">
+          </label>
+          <label class="field-narrow">Preço
+            <input type="text" name="preco" placeholder="0,00" required>
+          </label>
+        </div>
+        <label>Categoria (opcional)
+          <input type="text" name="categoria" maxlength="60">
+        </label>
+        <label>Descrição
+          <textarea name="descricao" maxlength="400" rows="2"></textarea>
+        </label>
+        <button type="submit" id="produto-save-btn">Adicionar produto</button>
+      </form>
+    </fieldset>
+
+    <fieldset>
+      <legend>Import em massa</legend>
+      <label>Planilha CSV (colunas: nome, descricao, preco, categoria)
+        <div class="file-upload">
+          <span class="file-upload-btn">
+            <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+            Escolher CSV
+          </span>
+          <input type="file" id="import-csv-input" accept=".csv">
+          <span class="file-upload-name" id="import-csv-filename">Nenhum arquivo escolhido</span>
+        </div>
+        <div class="hint">Depois do import, a gente devolve o nome do arquivo que cada foto precisa ter — é assim que a foto casa com o produto certo.</div>
+      </label>
+      <div id="import-result" class="bulk-result"></div>
+
+      <label style="margin-top:1.2rem">Fotos em lote (.zip, nomeadas com o slug de cada produto)
+        <div class="file-upload">
+          <span class="file-upload-btn">
+            <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+            Escolher .zip
+          </span>
+          <input type="file" id="fotos-zip-input" accept=".zip" {{ '' if fotos_configuradas else 'disabled' }}>
+          <span class="file-upload-name" id="fotos-zip-filename">Nenhum arquivo escolhido</span>
+        </div>
+      </label>
+      <div id="fotos-bulk-result" class="bulk-result"></div>
+    </fieldset>
   </div>
 
   <div class="card danger-card">
@@ -276,6 +413,182 @@ button.danger {
         cancelBanner.className = 'banner erro';
         cancelBanner.style.display = 'block';
         cancelBanner.textContent = err.message;
+      }
+    });
+
+    // ── Catálogo ────────────────────────────────────────────────────
+    const catalogoStatusDot = document.getElementById('catalogo-status-dot');
+    const catalogoStatusText = document.getElementById('catalogo-status-text');
+    const catalogoApplyMinutes = {{ catalogo_apply_minutes }};
+    let catalogoPollTimer = null;
+
+    function renderCatalogoStatus(s) {
+      if (s.catalogo_pending_error) {
+        catalogoStatusDot.className = 'soul-status-dot erro';
+        catalogoStatusText.textContent = 'Não consegui publicar a última alteração do catálogo — vamos tentar de novo automaticamente.';
+      } else if (s.catalogo_pending) {
+        catalogoStatusDot.className = 'soul-status-dot pending';
+        catalogoStatusText.textContent = `Alteração salva, aguardando publicação — pode levar até ${catalogoApplyMinutes} minutos.`;
+      } else if (s.catalogo_applied_at_fmt) {
+        catalogoStatusDot.className = 'soul-status-dot ok';
+        catalogoStatusText.textContent = `Última alteração publicada em ${s.catalogo_applied_at_fmt}.`;
+      } else {
+        catalogoStatusDot.className = 'soul-status-dot';
+        catalogoStatusText.textContent = 'Nenhuma alteração pendente.';
+      }
+    }
+
+    async function pollCatalogoStatus() {
+      try {
+        const resp = await fetch('/painel/api/catalogo-status');
+        if (!resp.ok) return;
+        const s = await resp.json();
+        renderCatalogoStatus(s);
+        if (!s.catalogo_pending && catalogoPollTimer) {
+          clearInterval(catalogoPollTimer);
+          catalogoPollTimer = null;
+        }
+      } catch (e) { /* rede instável — tenta de novo no próximo tick */ }
+    }
+
+    function startCatalogoPolling() {
+      if (catalogoPollTimer) return;
+      catalogoPollTimer = setInterval(pollCatalogoStatus, 20000);
+    }
+
+    if (document.querySelector('#catalogo-status-dot.pending')) startCatalogoPolling();
+
+    const produtoForm = document.getElementById('produto-form');
+    produtoForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('produto-save-btn');
+      btn.disabled = true;
+      const data = Object.fromEntries(new FormData(produtoForm).entries());
+      data.preco = (data.preco || '0').replace(',', '.');
+      try {
+        const resp = await fetch('/painel/api/catalogo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || 'Não foi possível adicionar o produto');
+        }
+        location.reload();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    document.querySelectorAll('.produto-row .toggle-ativo').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const row = btn.closest('.produto-row');
+        const ativo = row.classList.contains('inativo');
+        btn.disabled = true;
+        try {
+          const resp = await fetch(`/painel/api/catalogo/${row.dataset.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ativo }),
+          });
+          if (!resp.ok) throw new Error('Não foi possível atualizar');
+          location.reload();
+        } catch (err) {
+          alert(err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll('.produto-row .excluir').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const row = btn.closest('.produto-row');
+        if (!confirm(`Excluir "${row.querySelector('.produto-nome').textContent.trim()}"?`)) return;
+        btn.disabled = true;
+        try {
+          const resp = await fetch(`/painel/api/catalogo/${row.dataset.id}`, { method: 'DELETE' });
+          if (!resp.ok) throw new Error('Não foi possível excluir');
+          row.remove();
+        } catch (err) {
+          alert(err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    document.querySelectorAll('.produto-row .foto-input').forEach((input) => {
+      input.addEventListener('change', async () => {
+        const file = input.files[0];
+        if (!file) return;
+        const row = input.closest('.produto-row');
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+          const resp = await fetch(`/painel/api/catalogo/${row.dataset.id}/foto`, { method: 'POST', body: formData });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || 'Não foi possível enviar a foto');
+          }
+          location.reload();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+
+    const importCsvInput = document.getElementById('import-csv-input');
+    const importCsvFilename = document.getElementById('import-csv-filename');
+    importCsvInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      importCsvFilename.textContent = file.name;
+      const resultEl = document.getElementById('import-result');
+      resultEl.textContent = 'Importando…';
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const resp = await fetch('/painel/api/catalogo/import', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || 'Falha no import');
+        const linhas = data.criados.map((c) => `${c.nome} -> ${c.slug}.jpg`).join('\n');
+        resultEl.textContent = `${data.criados.length} produto(s) criado(s). Nomeie as fotos assim:\n${linhas}`;
+        resultEl.style.whiteSpace = 'pre-wrap';
+      } catch (err) {
+        resultEl.textContent = err.message;
+      } finally {
+        e.target.value = '';
+        importCsvFilename.textContent = 'Nenhum arquivo escolhido';
+      }
+    });
+
+    const fotosZipInput = document.getElementById('fotos-zip-input');
+    const fotosZipFilename = document.getElementById('fotos-zip-filename');
+    fotosZipInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      fotosZipFilename.textContent = file.name;
+      const resultEl = document.getElementById('fotos-bulk-result');
+      resultEl.textContent = 'Enviando…';
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const resp = await fetch('/painel/api/catalogo/fotos-bulk', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || 'Falha no envio');
+        let msg = `${data.vinculados.length} foto(s) vinculada(s).`;
+        if (data.sem_correspondencia.length) {
+          msg += ` Sem produto correspondente: ${data.sem_correspondencia.join(', ')}`;
+        }
+        resultEl.textContent = msg;
+        if (data.vinculados.length) setTimeout(() => location.reload(), 1200);
+      } catch (err) {
+        resultEl.textContent = err.message;
+      } finally {
+        e.target.value = '';
+        fotosZipFilename.textContent = 'Nenhum arquivo escolhido';
       }
     });
   </script>

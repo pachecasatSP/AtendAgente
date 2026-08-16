@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catálogo — {{ nome_negocio }}</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='124' fill='%231FAE5C'/%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%23FFFCF5' stroke-width='44'/%3E%3Cpath d='M 166 210 C 180 120, 312 120, 330 215' fill='none' stroke='%23FFFCF5' stroke-width='34' stroke-linecap='round'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%23FFFCF5'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%23FFFCF5'/%3E%3Cpath d='M 330 215 C 400 235, 400 320, 270 365' fill='none' stroke='%23FFFCF5' stroke-width='28' stroke-linecap='round'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%23FFC93C'/%3E%3C/svg%3E">
+<style>
+:root {
+  --paper: #FFFCF5; --paper-card: #FFFFFF; --paper-soft: #FFF6E2; --leaf-pale: #E3F7EA;
+  --ink: #17231D; --ink-soft: #4A5A50; --ink-faint: #8A9690;
+  --leaf: #1FAE5C; --leaf-deep: #0E7A3D; --spark: #FFC93C; --line: #E4E0D0;
+  --font-display: ui-rounded, 'Segoe UI Rounded', 'Baloo 2', sans-serif;
+  --font-body: ui-rounded, 'Segoe UI', 'Nunito', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
+    --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
+    --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
+  --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
+  --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-weight: 500; line-height: 1.6;
+  padding: 2rem 1.25rem 4rem; display: flex; flex-direction: column; align-items: center;
+}
+.top { width: 100%; max-width: 760px; display: flex; align-items: center; gap: 0.55rem; margin-bottom: 1.8rem; }
+.brand-mark { width: 30px; height: 30px; flex-shrink: 0; }
+.brand-text { min-width: 0; }
+h1 {
+  font-family: var(--font-display); font-weight: 800; font-size: 1.5rem; line-height: 1.1; margin: 0;
+  color: var(--leaf); -webkit-text-stroke: 1.2px #17231D; paint-order: stroke fill;
+  overflow-wrap: break-word;
+}
+.subtitle { font-size: 0.62rem; color: var(--ink-faint); font-weight: 700; text-transform: lowercase; letter-spacing: 0.03em; margin: 0.1rem 0 0; }
+.wrap { width: 100%; max-width: 760px; }
+.categoria { margin-bottom: 2rem; }
+.categoria h2 { font-family: var(--font-display); font-weight: 800; font-size: 1.02rem; color: var(--leaf-deep); margin: 0 0 0.8rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+.item { background: var(--paper-card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; }
+.item-foto { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: var(--paper-soft); display: block; }
+.item-foto.placeholder { display: flex; align-items: center; justify-content: center; color: var(--ink-faint); font-size: 1.8rem; }
+.item-body { padding: 0.9rem 1rem 1.1rem; }
+.item-nome { font-weight: 800; font-size: 0.96rem; margin: 0 0 0.25rem; }
+.item-preco { font-family: var(--font-display); font-weight: 800; color: var(--leaf-deep); font-size: 1.05rem; margin: 0 0 0.4rem; }
+.item-descricao { font-size: 0.85rem; color: var(--ink-soft); margin: 0; }
+.vazio { color: var(--ink-faint); text-align: center; padding: 3rem 1rem; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
+      <rect x="0" y="0" width="512" height="512" rx="124" fill="var(--leaf)"/>
+      <circle cx="246" cy="225" r="80" fill="none" stroke="var(--paper-card)" stroke-width="44"/>
+      <path d="M 166 210 C 180 120, 312 120, 330 215" fill="none" stroke="var(--paper-card)" stroke-width="34" stroke-linecap="round"/>
+      <circle cx="166" cy="215" r="34" fill="var(--paper-card)"/>
+      <circle cx="330" cy="215" r="34" fill="var(--paper-card)"/>
+      <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="var(--paper-card)" stroke-width="28" stroke-linecap="round"/>
+      <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
+    </svg>
+    <div class="brand-text">
+      <h1>{{ nome_negocio }}</h1>
+      <p class="subtitle">by AtendPraGente</p>
+    </div>
+  </div>
+
+  <div class="wrap">
+    {% if not categorias %}
+      <p class="vazio">Ainda não há produtos cadastrados.</p>
+    {% endif %}
+    {% for categoria, itens in categorias.items() %}
+      <div class="categoria">
+        <h2>{{ categoria }}</h2>
+        <div class="grid">
+          {% for item in itens %}
+            <div class="item">
+              {% if item.foto_url %}
+                <img class="item-foto" src="{{ item.foto_url }}" alt="{{ item.nome }}" loading="lazy">
+              {% else %}
+                <div class="item-foto placeholder">📦</div>
+              {% endif %}
+              <div class="item-body">
+                <p class="item-nome">{{ item.nome }}</p>
+                <p class="item-preco">R$ {{ "%.2f"|format(item.preco or 0) }}</p>
+                {% if item.descricao %}<p class="item-descricao">{{ item.descricao }}</p>{% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

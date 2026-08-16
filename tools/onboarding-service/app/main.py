@@ -7,6 +7,8 @@ código montado via hostPath a partir de /root/atendagente-tools/ (sem
 imagem custom/registry — ver README).
 """
 import asyncio
+import csv
+import io
 import os
 import re
 import secrets
@@ -25,7 +27,7 @@ from fastapi.templating import Jinja2Templates
 _TOOLS_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_TOOLS_DIR / "provision-tenant"))
 sys.path.insert(0, str(_TOOLS_DIR / "soul-generator"))
-from provision_tenant import ProvisionError, provision, publish_soul, set_tenant_enabled, subscribe_app_to_waba, tenant_exists  # noqa: E402
+from provision_tenant import ProvisionError, provision, publish_catalog, publish_soul, set_tenant_enabled, subscribe_app_to_waba, tenant_exists  # noqa: E402
 from generate_soul import render as render_soul  # noqa: E402
 
 from app import asaas_client, meta_client, store  # noqa: E402
@@ -62,6 +64,10 @@ FAIL_EVENTS = {
 # tools/tenant-panel/templates/configuracoes.html.
 SOUL_APPLY_INTERVAL_SECONDS = int(os.environ.get("SOUL_APPLY_INTERVAL_SECONDS", "300"))
 
+# Mesmo intervalo do soul-apply por padrão (mostrado ao cliente em
+# catalogo_apply_minutes, ver tools/tenant-panel/templates/configuracoes.html).
+CATALOGO_APPLY_INTERVAL_SECONDS = int(os.environ.get("CATALOGO_APPLY_INTERVAL_SECONDS", "300"))
+
 app = FastAPI(title="AtendAgente — Onboarding")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
@@ -89,6 +95,40 @@ async def _soul_apply_loop() -> None:
 @app.on_event("startup")
 async def _start_soul_apply_loop() -> None:
     asyncio.create_task(_soul_apply_loop())
+
+
+def _build_catalog_csv(tenant_id: str) -> str:
+    """CSV enxuto pro `read_file` do bot — sem foto/slug, o bot não usa
+    isso pra responder (foto só aparece na /vitrine)."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["nome", "preco", "categoria", "descricao"])
+    for item in store.list_catalogo_ativos(tenant_id):
+        writer.writerow([item.get("nome", ""), item.get("preco", 0), item.get("categoria", ""), item.get("descricao", "")])
+    return buf.getvalue()
+
+
+async def _catalogo_apply_loop() -> None:
+    """Publica, em `CATALOGO_APPLY_INTERVAL_SECONDS`, os itens ativos do
+    catálogo que o cliente cadastrou/editou no painel — mesmo padrão do
+    _soul_apply_loop, mas sem restart (ver publish_catalog)."""
+    while True:
+        await asyncio.sleep(CATALOGO_APPLY_INTERVAL_SECONDS)
+        for signup in await run_in_threadpool(store.list_catalogo_pending_signups):
+            tenant_id = signup.get("tenant_id")
+            try:
+                csv_text = await run_in_threadpool(_build_catalog_csv, tenant_id)
+                await run_in_threadpool(publish_catalog, tenant_id, csv_text)
+                await run_in_threadpool(store.mark_catalogo_applied, signup["_id"])
+                print(f"[catalogo-apply] {tenant_id}: publicado")
+            except Exception as e:
+                await run_in_threadpool(store.mark_catalogo_failed, signup["_id"], str(e))
+                print(f"[catalogo-apply] {tenant_id}: falhou, tenta de novo no próximo ciclo: {e}", file=sys.stderr)
+
+
+@app.on_event("startup")
+async def _start_catalogo_apply_loop() -> None:
+    asyncio.create_task(_catalogo_apply_loop())
 
 
 def provisioning_env() -> dict:

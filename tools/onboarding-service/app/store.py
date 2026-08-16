@@ -180,6 +180,43 @@ def mark_cancelled(signup_id: str) -> None:
     )
 
 
+# ── Fila de alterações de Catálogo vindas do painel do cliente ─────────
+#
+# Mesmo padrão da fila de SOUL (ver acima): o painel do tenant não tem
+# kubectl, só marca catalogo_pending=True em cima dos itens já salvos em
+# `catalogo_itens` (ver tools/tenant-panel/app.py). Quem publica de
+# verdade — monta o CSV derivado e escreve no pod — é o
+# onboarding-service, via loop periódico (ver main.py).
+
+def list_catalogo_pending_signups() -> list[dict]:
+    return list(_signups.find({"status": "live", "catalogo_pending": True}))
+
+
+def list_catalogo_ativos(tenant_id: str) -> list[dict]:
+    return list(
+        _db["catalogo_itens"]
+        .find({"tenant_id": tenant_id, "ativo": True})
+        .sort("categoria", 1)
+    )
+
+
+def mark_catalogo_applied(signup_id: str) -> None:
+    _signups.update_one(
+        {"_id": signup_id},
+        {
+            "$set": {"catalogo_pending": False, "catalogo_applied_at": datetime.now(timezone.utc)},
+            "$unset": {"catalogo_pending_error": ""},
+        },
+    )
+
+
+def mark_catalogo_failed(signup_id: str, erro: str) -> None:
+    _signups.update_one(
+        {"_id": signup_id},
+        {"$set": {"catalogo_pending_error": erro, "catalogo_pending_error_at": datetime.now(timezone.utc)}},
+    )
+
+
 def tenant_usage(tenant_id: str) -> dict:
     """Contagem de sessões/mensagens sincronizadas pelo mongo-sync do
     tenant (mesmas collections que o tenant-panel lê)."""

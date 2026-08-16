@@ -18,24 +18,33 @@ sem reload de página. O badge de "não lidas" é calculado só no
 navegador (localStorage comparando message_count com o que já foi
 visto) — não existe conceito de usuário/leitura no backend.
 """
+import csv
 import hashlib
+import io
 import json
 import os
+import re
 import secrets as secrets_module
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
 
+from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from pymongo import MongoClient
+
+import storage
 
 TENANT_ID = os.environ["TENANT_ID"]
 MONGO_URI = os.environ["MONGO_URI"]
@@ -52,6 +61,7 @@ auth_col = db["panel_auth"]
 sessions_col = db["sessions"]
 messages_col = db["messages"]
 signups_col = db["signups"]
+catalogo_col = db["catalogo_itens"]
 
 app = FastAPI(title=f"Painel — {TENANT_ID}")
 app.add_middleware(SessionMiddleware, secret_key=PANEL_SESSION_SECRET, session_cookie="painel_session")
@@ -301,6 +311,23 @@ def _format_label_lines(mapping: dict) -> str:
     return "\n".join(f"{k}: {v}" for k, v in (mapping or {}).items())
 
 
+def _catalogo_itens_view() -> list[dict]:
+    itens = list(catalogo_col.find({"tenant_id": TENANT_ID}).sort("criado_em", -1))
+    return [
+        {
+            "id": str(i["_id"]),
+            "nome": i.get("nome", ""),
+            "slug": i.get("slug", ""),
+            "descricao": i.get("descricao", ""),
+            "preco": i.get("preco", 0),
+            "categoria": i.get("categoria", ""),
+            "ativo": bool(i.get("ativo", True)),
+            "foto_url": i.get("foto_url"),
+        }
+        for i in itens
+    ]
+
+
 @app.get("/painel/configuracoes", response_class=HTMLResponse)
 def configuracoes_page(request: Request):
     if not TENANT_ENABLED:
@@ -330,6 +357,12 @@ def configuracoes_page(request: Request):
             "escalacao_pronome": escalacao.get("pronome", "ele"),
             "servicos": _format_pipe_lines(config.get("servicos"), ["nome", "descricao", "publico_alvo"]),
             "como_trabalhamos": _format_label_lines(config.get("como_trabalhamos")),
+            "catalogo_itens": _catalogo_itens_view(),
+            "catalogo_pending": bool((signup or {}).get("catalogo_pending")),
+            "catalogo_pending_error": (signup or {}).get("catalogo_pending_error"),
+            "catalogo_applied_at_fmt": fmt_ts((signup or {}).get("catalogo_applied_at").timestamp()) if (signup or {}).get("catalogo_applied_at") else None,
+            "catalogo_apply_minutes": SOUL_APPLY_MINUTES,
+            "fotos_configuradas": storage.configured(),
         },
     )
 
@@ -392,6 +425,266 @@ def api_soul_status(request: Request) -> dict:
         "soul_pending_error": signup.get("soul_pending_error"),
         "soul_applied_at_fmt": fmt_ts(applied_at.timestamp()) if applied_at else None,
     }
+
+
+def slugify(nome: str) -> str:
+    """Minúsculas, sem acento, espaço/pontuação -> `_`. Base do slug de
+    produto — congelado na criação (ver _unique_slug e specs/
+    catalogo-produtos.md); é a chave de casamento com foto no import
+    em massa, por isso a regra precisa ser estável."""
+    nome = unicodedata.normalize("NFKD", nome or "").encode("ascii", "ignore").decode("ascii")
+    nome = re.sub(r"[^a-z0-9]+", "_", nome.lower().strip()).strip("_")
+    return nome or "produto"
+
+
+def _unique_slug(base_slug: str) -> str:
+    slug = base_slug
+    i = 2
+    while catalogo_col.find_one({"tenant_id": TENANT_ID, "slug": slug}):
+        slug = f"{base_slug}-{i}"
+        i += 1
+    return slug
+
+
+def _mark_catalogo_pending() -> None:
+    """Mesmo padrão do soul_pending (ver api_salvar_configuracoes) — só
+    marca a fila, quem publica de verdade é o onboarding-service. Na
+    primeira ativação do catálogo (config.catalogo_ativo False->True),
+    também marca soul_pending pra republicar o SOUL.md com o parágrafo
+    fixo apontando pra vitrine (ver generate_soul.py)."""
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not signup:
+        return
+    update = {"catalogo_pending": True, "catalogo_pending_at": datetime.now(timezone.utc)}
+    config = signup.get("config") or {}
+    if not config.get("catalogo_ativo"):
+        config = dict(config)
+        config["catalogo_ativo"] = True
+        update["config"] = config
+        update["soul_pending"] = True
+        update["soul_pending_at"] = datetime.now(timezone.utc)
+    signups_col.update_one(
+        {"_id": signup["_id"]},
+        {"$set": update, "$unset": {"catalogo_pending_error": ""}},
+    )
+
+
+def _find_produto(item_id: str) -> dict:
+    try:
+        oid = ObjectId(item_id)
+    except InvalidId:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+    item = catalogo_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
+    if not item:
+        raise HTTPException(status_code=404, detail="Produto não encontrado")
+    return item
+
+
+@app.get("/painel/api/catalogo-status")
+def api_catalogo_status(request: Request) -> dict:
+    """Mesmo padrão de polling do soul-status (ver configuracoes.html)."""
+    require_session(request)
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not signup:
+        raise HTTPException(status_code=404, detail="Configuração do tenant não encontrada")
+    applied_at = signup.get("catalogo_applied_at")
+    return {
+        "catalogo_pending": bool(signup.get("catalogo_pending")),
+        "catalogo_pending_error": signup.get("catalogo_pending_error"),
+        "catalogo_applied_at_fmt": fmt_ts(applied_at.timestamp()) if applied_at else None,
+    }
+
+
+@app.post("/painel/api/catalogo")
+def api_criar_produto(request: Request, payload: dict) -> dict:
+    require_session(request)
+    nome = (payload.get("nome") or "").strip()
+    if not nome:
+        raise HTTPException(status_code=400, detail="Nome é obrigatório")
+    try:
+        preco = float(payload.get("preco") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Preço inválido")
+
+    slug = _unique_slug(slugify(nome))
+    now = datetime.now(timezone.utc)
+    item = {
+        "tenant_id": TENANT_ID,
+        "nome": nome,
+        "slug": slug,
+        "descricao": (payload.get("descricao") or "").strip(),
+        "preco": preco,
+        "categoria": (payload.get("categoria") or "").strip(),
+        "ativo": bool(payload.get("ativo", True)),
+        "foto_url": None,
+        "criado_em": now,
+        "atualizado_em": now,
+    }
+    result = catalogo_col.insert_one(item)
+    _mark_catalogo_pending()
+    return {"ok": True, "item_id": str(result.inserted_id), "slug": slug}
+
+
+@app.put("/painel/api/catalogo/{item_id}")
+def api_editar_produto(item_id: str, request: Request, payload: dict) -> dict:
+    require_session(request)
+    item = _find_produto(item_id)
+
+    update = {"atualizado_em": datetime.now(timezone.utc)}
+    if "nome" in payload:
+        nome = (payload.get("nome") or "").strip()
+        if not nome:
+            raise HTTPException(status_code=400, detail="Nome não pode ficar vazio")
+        update["nome"] = nome  # slug fica congelado, não recalcula
+    if "descricao" in payload:
+        update["descricao"] = (payload.get("descricao") or "").strip()
+    if "preco" in payload:
+        try:
+            update["preco"] = float(payload.get("preco") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Preço inválido")
+    if "categoria" in payload:
+        update["categoria"] = (payload.get("categoria") or "").strip()
+    if "ativo" in payload:
+        update["ativo"] = bool(payload.get("ativo"))
+
+    catalogo_col.update_one({"_id": item["_id"]}, {"$set": update})
+    _mark_catalogo_pending()
+    return {"ok": True}
+
+
+@app.delete("/painel/api/catalogo/{item_id}")
+def api_excluir_produto(item_id: str, request: Request) -> dict:
+    require_session(request)
+    item = _find_produto(item_id)
+    storage.delete_photo(item.get("foto_url"))
+    catalogo_col.delete_one({"_id": item["_id"]})
+    _mark_catalogo_pending()
+    return {"ok": True}
+
+
+@app.post("/painel/api/catalogo/{item_id}/foto")
+async def api_upload_foto_produto(item_id: str, request: Request, file: UploadFile = File(...)) -> dict:
+    require_session(request)
+    item = _find_produto(item_id)
+
+    content_type = file.content_type or ""
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Arquivo vazio")
+
+    storage.delete_photo(item.get("foto_url"))
+    foto_url = storage.upload_photo(TENANT_ID, item["slug"], file_bytes, content_type)
+    catalogo_col.update_one({"_id": item["_id"]}, {"$set": {"foto_url": foto_url, "atualizado_em": datetime.now(timezone.utc)}})
+    _mark_catalogo_pending()
+    return {"ok": True, "foto_url": foto_url}
+
+
+@app.post("/painel/api/catalogo/import")
+async def api_importar_catalogo(request: Request, file: UploadFile = File(...)) -> dict:
+    """Import em massa via CSV (colunas nome,descricao,preco,categoria) —
+    devolve a lista nome->slug pro cliente nomear as fotos antes do
+    upload em massa (ver /painel/api/catalogo/fotos-bulk)."""
+    require_session(request)
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Arquivo precisa estar em UTF-8")
+
+    now = datetime.now(timezone.utc)
+    criados = []
+    for row in csv.DictReader(io.StringIO(text)):
+        nome = (row.get("nome") or "").strip()
+        if not nome:
+            continue
+        try:
+            preco = float((row.get("preco") or "0").replace(",", "."))
+        except ValueError:
+            preco = 0.0
+        slug = _unique_slug(slugify(nome))
+        catalogo_col.insert_one({
+            "tenant_id": TENANT_ID,
+            "nome": nome,
+            "slug": slug,
+            "descricao": (row.get("descricao") or "").strip(),
+            "preco": preco,
+            "categoria": (row.get("categoria") or "").strip(),
+            "ativo": True,
+            "foto_url": None,
+            "criado_em": now,
+            "atualizado_em": now,
+        })
+        criados.append({"nome": nome, "slug": slug})
+
+    if not criados:
+        raise HTTPException(status_code=400, detail="Nenhum produto válido encontrado (esperado: coluna 'nome')")
+
+    _mark_catalogo_pending()
+    return {"ok": True, "criados": criados}
+
+
+MAX_BULK_ZIP_BYTES = 25 * 1024 * 1024
+BULK_PHOTO_CONTENT_TYPES = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+
+
+@app.post("/painel/api/catalogo/fotos-bulk")
+async def api_fotos_bulk(request: Request, file: UploadFile = File(...)) -> dict:
+    """Zip de fotos nomeadas com o slug do produto (ex:
+    cadeirao_de_praia_vermelha_10kg.jpg) — casa pelo nome do arquivo sem
+    extensão. Itens sem correspondência ficam disponíveis pro upload
+    unitário (ver api_upload_foto_produto)."""
+    require_session(request)
+    raw = await file.read()
+    if len(raw) > MAX_BULK_ZIP_BYTES:
+        raise HTTPException(status_code=400, detail="Zip maior que 25MB — divida em lotes menores")
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Arquivo precisa ser um .zip")
+
+    itens_por_slug = {i["slug"]: i for i in catalogo_col.find({"tenant_id": TENANT_ID})}
+    vinculados, sem_correspondencia = [], []
+
+    for name in zf.namelist():
+        if name.endswith("/"):
+            continue
+        base, ext = os.path.splitext(os.path.basename(name))
+        content_type = BULK_PHOTO_CONTENT_TYPES.get(ext.lower().lstrip("."))
+        if not content_type:
+            continue
+        item = itens_por_slug.get(base)
+        if not item:
+            sem_correspondencia.append(name)
+            continue
+        storage.delete_photo(item.get("foto_url"))
+        foto_url = storage.upload_photo(TENANT_ID, base, zf.read(name), content_type)
+        catalogo_col.update_one({"_id": item["_id"]}, {"$set": {"foto_url": foto_url, "atualizado_em": datetime.now(timezone.utc)}})
+        vinculados.append({"nome": item["nome"], "slug": base})
+
+    if vinculados:
+        _mark_catalogo_pending()
+    return {"ok": True, "vinculados": vinculados, "sem_correspondencia": sem_correspondencia}
+
+
+@app.get("/vitrine", response_class=HTMLResponse)
+def vitrine(request: Request):
+    """Pública, sem require_session — link que o bot pode mandar pro
+    cliente final ver o catálogo inteiro (ver SOUL.md, catalog_block)."""
+    if not TENANT_ENABLED:
+        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+
+    itens = list(catalogo_col.find({"tenant_id": TENANT_ID, "ativo": True}).sort("categoria", 1))
+    categorias: dict[str, list[dict]] = {}
+    for item in itens:
+        categorias.setdefault(item.get("categoria") or "Outros", []).append(item)
+
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    nome_negocio = ((signup or {}).get("config") or {}).get("nome_negocio", TENANT_ID)
+    return templates.TemplateResponse(
+        request, "vitrine.html",
+        {"tenant_id": TENANT_ID, "nome_negocio": nome_negocio, "categorias": categorias},
+    )
 
 
 @app.post("/painel/api/cancelar-assinatura")

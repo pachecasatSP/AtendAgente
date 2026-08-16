@@ -59,6 +59,27 @@ def build_escalation_triggers_block(custom_triggers: list[str]) -> str:
     return "".join(f"- {t}\n" for t in triggers) + "\n"
 
 
+def build_catalog_block(config: dict) -> str:
+    """Vazio até o tenant cadastrar o primeiro item do catálogo no
+    painel (config.catalogo_ativo, ver tools/tenant-panel/app.py). O CSV
+    em si é publicado à parte, sem restart — ver publish_catalog em
+    tools/provision-tenant/provision_tenant.py."""
+    if not config.get("catalogo_ativo"):
+        return ""
+    dominio = config.get("dominio", "")
+    vitrine_url = f"https://{dominio}/vitrine" if dominio else "/vitrine"
+    return (
+        "\n## Catálogo de produtos\n"
+        "Você tem acesso a um catálogo de produtos/serviços em "
+        "`/opt/data/catalogo.csv` (nome, preço, categoria, descrição — "
+        "um por linha). Use a ferramenta de leitura de arquivo pra "
+        "consultar preços e detalhes quando o cliente perguntar sobre "
+        "algo específico. Não invente item nem preço que não esteja lá "
+        "— se não achar, diga que vai confirmar. Pra mostrar o catálogo "
+        f"inteiro, pode mandar o link da vitrine: `{vitrine_url}`.\n"
+    )
+
+
 def build_examples_block(examples: list[dict]) -> str:
     if not examples:
         return "\n(sem exemplos cadastrados ainda — adicionar após as primeiras conversas reais)\n"
@@ -91,6 +112,7 @@ def render(config: dict) -> str:
         ).strip(),
         "emoji_policy": tone.get("emoji", "com moderação — no máximo um, e nem sempre"),
         "services_block": build_services_block(config.get("servicos", [])),
+        "catalog_block": build_catalog_block(config),
         "how_we_work_block": build_how_we_work_block(config.get("como_trabalhamos", {})),
         "unknown_gaps_block": build_unknown_gaps_block(config.get("lacunas_conhecidas", [])),
         "escalation_name": escalation["nome"],

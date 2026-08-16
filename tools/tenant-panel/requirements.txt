@@ -5,3 +5,4 @@ jinja2
 itsdangerous
 python-multipart
 tzdata
+boto3

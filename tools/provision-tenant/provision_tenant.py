@@ -128,6 +128,16 @@ def publish_soul(tenant_id: str, config: dict) -> None:
     wait_for_health(prefix)
 
 
+def publish_catalog(tenant_id: str, csv_text: str) -> None:
+    """Publica o CSV do catálogo (derivado de `catalogo_itens` no Mongo,
+    ver onboarding-service/app/store.py) no pod do tenant já
+    provisionado. Sem `rollout restart` — diferente do SOUL.md, a
+    ferramenta `read_file` do Hermes lê /opt/data/catalogo.csv ao vivo a
+    cada chamada, não só na inicialização do processo."""
+    prefix = f"{tenant_id}-hermes"
+    kubectl_exec_stdin(prefix, ["sh", "-c", "cat > /opt/data/catalogo.csv"], csv_text)
+
+
 def kubectl_apply(manifest_yaml: str) -> None:
     result = subprocess.run(
         ["kubectl", "apply", "-f", "-"],
@@ -353,6 +363,9 @@ spec:
                 name: mongo-credentials
             - secretRef:
                 name: {prefix}-env
+            - secretRef:
+                name: object-storage-credentials
+                optional: true
           volumeMounts:
             - name: panel-code
               mountPath: /app
@@ -392,6 +405,13 @@ spec:
       http:
         paths:
           - path: /painel
+            pathType: Prefix
+            backend:
+              service:
+                name: {prefix}-panel
+                port:
+                  number: 8000
+          - path: /vitrine
             pathType: Prefix
             backend:
               service:
