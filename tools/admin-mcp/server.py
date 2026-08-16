@@ -133,6 +133,31 @@ def provisionar(pin: str, signup_id: str) -> dict:
     return _admin_request("POST", f"/api/admin/signups/{signup_id}/retry-provisioning")
 
 
+@mcp.tool()
+def cancelamentos(pin: str) -> dict:
+    """Lista pedidos de cancelamento de assinatura feitos por clientes no
+    próprio painel (botão 'Cancelar assinatura' em Configurações). Cada
+    item tem o signup_id pra usar em `cancelar` — nada é cancelado
+    sozinho, é sempre você autorizando um a um."""
+    erro = _check_pin(pin)
+    if erro:
+        return {"erro": erro}
+    return {"cancelamentos": _admin_request("GET", "/api/admin/cancelamentos")}
+
+
+@mcp.tool()
+def cancelar(pin: str, signup_id: str) -> dict:
+    """Autoriza um pedido de cancelamento (veja `cancelamentos`): cancela
+    a cobrança recorrente na Asaas (não estorna o que já foi cobrado),
+    desliga o WhatsApp do tenant e marca o cadastro como cancelado. Não
+    apaga conversas nem dados — reversível na parte do WhatsApp, mas a
+    assinatura cancelada na Asaas não volta sozinha."""
+    erro = _check_pin(pin)
+    if erro:
+        return {"erro": erro}
+    return _admin_request("POST", f"/api/admin/signups/{signup_id}/cancelar")
+
+
 class BearerAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         if request.headers.get("authorization") != f"Bearer {MCP_AUTH_TOKEN}":

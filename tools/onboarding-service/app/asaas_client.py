@@ -19,13 +19,13 @@ class AsaasApiError(RuntimeError):
     pass
 
 
-def _post(path: str, payload: dict) -> dict:
+def _request(method: str, path: str, payload: dict | None = None) -> dict:
     api_key = os.environ["ASAAS_API_KEY"]
-    body = json.dumps(payload).encode("utf-8")
+    body = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(
         f"{ASAAS_BASE_URL}{path}",
         data=body,
-        method="POST",
+        method=method,
         headers={
             "Content-Type": "application/json",
             "access_token": api_key,
@@ -38,6 +38,10 @@ def _post(path: str, payload: dict) -> dict:
         raise AsaasApiError(
             f"Asaas {path} falhou: HTTP {e.code}: {e.read().decode()}"
         ) from e
+
+
+def _post(path: str, payload: dict) -> dict:
+    return _request("POST", path, payload)
 
 
 def create_subscription_checkout(
@@ -107,3 +111,11 @@ def create_subscription_checkout(
     if not checkout_id or not link:
         raise AsaasApiError(f"Resposta da Asaas sem id/link de checkout: {data}")
     return {"id": checkout_id, "link": link}
+
+
+def cancel_subscription(subscription_id: str) -> None:
+    """Cancela a assinatura recorrente na Asaas — para as cobranças
+    futuras; não estorna cobranças já feitas. Só a Duda dispara isso
+    (via admin-mcp), depois de autorizar um pedido de cancelamento vindo
+    do painel do cliente (ver /api/admin/cancelamentos)."""
+    _request("DELETE", f"/subscriptions/{subscription_id}")

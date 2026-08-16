@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configurações — Painel {{ tenant_id }}</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='124' fill='%231FAE5C'/%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%23FFFCF5' stroke-width='44'/%3E%3Cpath d='M 166 210 C 180 120, 312 120, 330 215' fill='none' stroke='%23FFFCF5' stroke-width='34' stroke-linecap='round'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%23FFFCF5'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%23FFFCF5'/%3E%3Cpath d='M 330 215 C 400 235, 400 320, 270 365' fill='none' stroke='%23FFFCF5' stroke-width='28' stroke-linecap='round'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%23FFC93C'/%3E%3C/svg%3E">
+<style>
+:root {
+  --paper: #FFFCF5; --paper-card: #FFFFFF; --paper-soft: #FFF6E2; --leaf-pale: #E3F7EA;
+  --ink: #17231D; --ink-soft: #4A5A50; --ink-faint: #8A9690;
+  --leaf: #1FAE5C; --leaf-deep: #0E7A3D; --spark: #FFC93C; --line: #E4E0D0;
+  --error: #C0392B; --error-bg: #FBE9E7; --danger: #D64545; --danger-bg: #FCE9E8;
+  --font-display: ui-rounded, 'Segoe UI Rounded', 'Baloo 2', sans-serif;
+  --font-body: ui-rounded, 'Segoe UI', 'Nunito', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
+    --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
+    --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
+    --error: #FF8A75; --error-bg: #3A1712; --danger: #FF8A75; --danger-bg: #3A1712;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
+  --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
+  --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
+  --error: #FF8A75; --error-bg: #3A1712; --danger: #FF8A75; --danger-bg: #3A1712;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-weight: 500; line-height: 1.6;
+  padding: 2.5rem 1.25rem 5rem; display: flex; flex-direction: column; align-items: center;
+}
+.top { width: 100%; max-width: 640px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.6rem; }
+.brand { display: inline-flex; align-items: center; gap: 0.55rem; }
+.brand-mark { width: 30px; height: 30px; flex-shrink: 0; }
+.brand-word { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; color: var(--ink); }
+.brand-word .pra { color: var(--leaf-deep); }
+.back-link { color: var(--ink-faint); text-decoration: none; font-weight: 800; font-size: 0.85rem; }
+.back-link:hover { color: var(--leaf-deep); }
+.card {
+  background: var(--paper-card); border: 1px solid var(--line); border-radius: 20px;
+  padding: 1.8rem 1.8rem 2rem; max-width: 640px; width: 100%; margin-bottom: 1.5rem;
+  box-shadow: 0 20px 50px -30px rgba(23,35,29,0.2);
+}
+h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; margin: 0 0 0.35rem; }
+h2 { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; margin: 0 0 0.35rem; }
+.lead { color: var(--ink-soft); margin: 0 0 1.4rem; font-size: 0.92rem; }
+.tenant-tag { font-weight: 800; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--leaf-deep); margin-bottom: 0.4rem; }
+.banner { padding: 0.7rem 0.9rem; border-radius: 10px; margin-bottom: 1.2rem; font-weight: 700; font-size: 0.86rem; }
+.banner.pending { background: var(--paper-soft); color: var(--ink-soft); border: 1px solid var(--line); }
+.banner.erro { background: var(--error-bg); color: var(--error); }
+.banner.ok { background: var(--leaf-pale); color: var(--leaf-deep); }
+.soul-status { display: flex; align-items: center; gap: 0.55rem; padding: 0.6rem 0.85rem; border-radius: 10px; background: var(--paper-soft); border: 1px solid var(--line); margin-bottom: 0.3rem; font-weight: 700; font-size: 0.86rem; color: var(--ink-soft); }
+.soul-status-dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex-shrink: 0; background: var(--ink-faint); }
+.soul-status-dot.ok { background: var(--leaf); }
+.soul-status-dot.pending { background: var(--spark); animation: pulse 1.4s ease-in-out infinite; }
+.soul-status-dot.erro { background: var(--danger); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+fieldset { border: none; padding: 0; margin: 0 0 1.4rem; }
+legend { font-family: var(--font-display); font-weight: 800; font-size: 0.95rem; margin-bottom: 0.5rem; padding: 0; }
+label { display: block; margin-top: 1rem; font-weight: 800; font-size: 0.88rem; }
+label:first-of-type { margin-top: 0; }
+.hint { font-weight: 500; color: var(--ink-faint); font-size: 0.78rem; margin-top: 0.2rem; }
+input[type=text], textarea {
+  width: 100%; padding: 0.6rem 0.75rem; margin-top: 0.35rem;
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 0.94rem;
+}
+textarea { resize: vertical; min-height: 4.5rem; font-family: 'Courier New', monospace; font-size: 0.85rem; }
+input:focus, textarea:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
+.row { display: flex; gap: 0.8rem; }
+.row > label { flex: 1; min-width: 0; }
+.row > label.field-narrow { flex: 0 0 96px; }
+@media (max-width: 420px) {
+  .row { flex-direction: column; gap: 0; }
+  .row > label.field-narrow { flex: 1; }
+}
+button {
+  margin-top: 1.4rem; font-family: var(--font-body); font-weight: 800; font-size: 0.95rem;
+  padding: 0.7rem 1.4rem; background: var(--spark); color: #211500; border: none; border-radius: 999px;
+  cursor: pointer; box-shadow: 0 12px 26px -12px rgba(255,201,60,0.7); transition: transform 0.15s ease;
+}
+button:hover { transform: translateY(-2px); }
+button:disabled { opacity: 0.6; cursor: default; transform: none; }
+.danger-card { border-color: var(--danger); }
+.danger-card h2 { color: var(--danger); }
+button.danger {
+  background: var(--danger-bg); color: var(--danger); box-shadow: none; border: 1px solid var(--danger);
+}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
+        <rect x="0" y="0" width="512" height="512" rx="124" fill="var(--leaf)"/>
+        <circle cx="246" cy="225" r="80" fill="none" stroke="var(--paper-card)" stroke-width="44"/>
+        <path d="M 166 210 C 180 120, 312 120, 330 215" fill="none" stroke="var(--paper-card)" stroke-width="34" stroke-linecap="round"/>
+        <circle cx="166" cy="215" r="34" fill="var(--paper-card)"/>
+        <circle cx="330" cy="215" r="34" fill="var(--paper-card)"/>
+        <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="var(--paper-card)" stroke-width="28" stroke-linecap="round"/>
+        <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
+      </svg>
+      <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
+    </div>
+    <a href="/painel" class="back-link">&larr; Voltar pras conversas</a>
+  </div>
+
+  <div class="card">
+    <div class="tenant-tag">{{ tenant_id }}</div>
+    <h1>Configurações do atendente</h1>
+    <p class="lead">Ajuste como o bot fala e pra quem ele transfere a conversa. As mudanças não aparecem na hora — elas entram numa fila e são publicadas em até <strong>{{ soul_apply_minutes }} minutos</strong>.</p>
+
+    <div id="soul-status" class="soul-status">
+      <span id="soul-status-dot" class="soul-status-dot {{ 'erro' if soul_pending_error else ('pending' if soul_pending else 'ok') }}"></span>
+      <span id="soul-status-text">
+        {%- if soul_pending_error -%}
+          Não consegui publicar sua última alteração — vamos tentar de novo automaticamente. Se continuar assim, chama a gente.
+        {%- elif soul_pending -%}
+          Alteração salva, aguardando publicação — pode levar até {{ soul_apply_minutes }} minutos.
+        {%- elif soul_applied_at_fmt -%}
+          Última alteração publicada em {{ soul_applied_at_fmt }}.
+        {%- else -%}
+          Nenhuma alteração pendente.
+        {%- endif -%}
+      </span>
+    </div>
+    {% if soul_pending_error %}<p class="hint" style="margin-top:0.3rem">Detalhe técnico: {{ soul_pending_error }}</p>{% endif %}
+
+    <form id="config-form">
+      <fieldset>
+        <legend>Tom de voz</legend>
+        <label>Como o bot deve falar
+          <textarea name="tom_descricao" required maxlength="600">{{ tom_descricao }}</textarea>
+          <div class="hint">Ex: "Português do Brasil, tom cordial e direto."</div>
+        </label>
+        <label>Uso de emoji
+          <input type="text" name="tom_emoji" maxlength="120" value="{{ tom_emoji }}">
+          <div class="hint">Ex: "com moderação — no máximo um, e nem sempre"</div>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Pra quem transferir (escalação)</legend>
+        <div class="row">
+          <label>Nome
+            <input type="text" name="escalacao_nome" required maxlength="80" value="{{ escalacao_nome }}">
+          </label>
+          <label class="field-narrow">Pronome
+            <input type="text" name="escalacao_pronome" maxlength="20" value="{{ escalacao_pronome }}">
+          </label>
+        </div>
+        <label>Telefone
+          <input type="text" name="escalacao_telefone" required maxlength="30" value="{{ escalacao_telefone }}">
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Serviços</legend>
+        <label>Um por linha: nome | descrição | público-alvo (opcional)
+          <textarea name="servicos" required rows="4">{{ servicos }}</textarea>
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Como trabalhamos</legend>
+        <label>Um por linha: rótulo: texto
+          <textarea name="como_trabalhamos" rows="4">{{ como_trabalhamos }}</textarea>
+          <div class="hint">Ex: "Prazo: normalmente respondemos em até 1 dia útil"</div>
+        </label>
+      </fieldset>
+
+      <button type="submit" id="save-btn">Salvar alterações</button>
+    </form>
+  </div>
+
+  <div class="card danger-card">
+    <h2>Cancelar assinatura</h2>
+    <p class="lead">Isso registra um pedido de cancelamento — nossa equipe confirma e finaliza o cancelamento na cobrança. Cobranças já feitas não são estornadas.</p>
+    <div id="cancel-banner" class="banner {{ 'pending' if cancelamento_status == 'solicitado' else '' }}" {% if cancelamento_status != 'solicitado' %}style="display:none"{% endif %}>
+      {% if cancelamento_status == 'solicitado' %}Pedido de cancelamento registrado — nossa equipe vai confirmar em breve.{% endif %}
+    </div>
+    <button type="button" id="cancel-btn" class="danger" {% if cancelamento_status == 'solicitado' %}disabled{% endif %}>
+      {{ 'Cancelamento já solicitado' if cancelamento_status == 'solicitado' else 'Cancelar assinatura' }}
+    </button>
+  </div>
+
+  <script>
+    const form = document.getElementById('config-form');
+    const saveBtn = document.getElementById('save-btn');
+    const statusDot = document.getElementById('soul-status-dot');
+    const statusText = document.getElementById('soul-status-text');
+    const soulApplyMinutes = {{ soul_apply_minutes }};
+    let pollTimer = null;
+
+    function renderSoulStatus(s) {
+      if (s.soul_pending_error) {
+        statusDot.className = 'soul-status-dot erro';
+        statusText.textContent = 'Não consegui publicar sua última alteração — vamos tentar de novo automaticamente. Se continuar assim, chama a gente.';
+      } else if (s.soul_pending) {
+        statusDot.className = 'soul-status-dot pending';
+        statusText.textContent = `Alteração salva, aguardando publicação — pode levar até ${soulApplyMinutes} minutos.`;
+      } else if (s.soul_applied_at_fmt) {
+        statusDot.className = 'soul-status-dot ok';
+        statusText.textContent = `Última alteração publicada em ${s.soul_applied_at_fmt}.`;
+      } else {
+        statusDot.className = 'soul-status-dot';
+        statusText.textContent = 'Nenhuma alteração pendente.';
+      }
+    }
+
+    async function pollSoulStatus() {
+      try {
+        const resp = await fetch('/painel/api/soul-status');
+        if (!resp.ok) return;
+        const s = await resp.json();
+        renderSoulStatus(s);
+        if (!s.soul_pending && pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      } catch (e) { /* rede instável — tenta de novo no próximo tick */ }
+    }
+
+    function startPolling() {
+      if (pollTimer) return;
+      pollTimer = setInterval(pollSoulStatus, 20000);
+    }
+
+    if (document.querySelector('.soul-status-dot.pending')) startPolling();
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Salvando…';
+      const data = Object.fromEntries(new FormData(form).entries());
+      try {
+        const resp = await fetch('/painel/api/configuracoes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          throw new Error(err.detail || 'Não foi possível salvar');
+        }
+        renderSoulStatus({ soul_pending: true });
+        startPolling();
+      } catch (err) {
+        statusDot.className = 'soul-status-dot erro';
+        statusText.textContent = err.message;
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Salvar alterações';
+      }
+    });
+
+    const cancelBtn = document.getElementById('cancel-btn');
+    const cancelBanner = document.getElementById('cancel-banner');
+    cancelBtn.addEventListener('click', async () => {
+      if (!confirm('Tem certeza que quer cancelar sua assinatura? Isso vai encerrar o atendimento automático assim que nossa equipe confirmar.')) return;
+      cancelBtn.disabled = true;
+      try {
+        const resp = await fetch('/painel/api/cancelar-assinatura', { method: 'POST' });
+        if (!resp.ok) throw new Error('Não foi possível registrar o pedido — tenta de novo em instantes.');
+        cancelBanner.className = 'banner pending';
+        cancelBanner.style.display = 'block';
+        cancelBanner.textContent = 'Pedido de cancelamento registrado — nossa equipe vai confirmar em breve.';
+        cancelBtn.textContent = 'Cancelamento já solicitado';
+      } catch (err) {
+        cancelBtn.disabled = false;
+        cancelBanner.className = 'banner erro';
+        cancelBanner.style.display = 'block';
+        cancelBanner.textContent = err.message;
+      }
+    });
+  </script>
+</body>
+</html>

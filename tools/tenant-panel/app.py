@@ -263,6 +263,155 @@ def api_delete_session(session_id: str, request: Request) -> dict:
     return {"ok": True}
 
 
+SOUL_APPLY_MINUTES = 5  # mantido em sincronia com SOUL_APPLY_INTERVAL_SECONDS do onboarding-service — ver comentário lá
+
+
+def _parse_pipe_lines(text: str, fields: list[str]) -> list[dict]:
+    """Mesmo formato do formulário de onboarding (um item por linha,
+    campos separados por `|`) — duplicado aqui de propósito porque o
+    pod do painel só monta tools/tenant-panel/ (não os diretórios
+    irmãos), então não dá pra importar de main.py."""
+    items = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        items.append({f: (parts[i] if i < len(parts) else "") for i, f in enumerate(fields)})
+    return items
+
+
+def _parse_label_lines(text: str) -> dict:
+    result: dict[str, str] = {}
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        label, _, value = line.partition(":")
+        result[label.strip()] = value.strip()
+    return result
+
+
+def _format_pipe_lines(items: list[dict], fields: list[str]) -> str:
+    return "\n".join("|".join((item.get(f) or "") for f in fields) for item in (items or []))
+
+
+def _format_label_lines(mapping: dict) -> str:
+    return "\n".join(f"{k}: {v}" for k, v in (mapping or {}).items())
+
+
+@app.get("/painel/configuracoes", response_class=HTMLResponse)
+def configuracoes_page(request: Request):
+    if not TENANT_ENABLED:
+        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+    if not request.session.get("username"):
+        return RedirectResponse("/painel/login")
+
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    config = (signup or {}).get("config") or {}
+    tom = config.get("tom", {})
+    escalacao = config.get("escalacao", {})
+
+    return templates.TemplateResponse(
+        request,
+        "configuracoes.html",
+        {
+            "tenant_id": TENANT_ID,
+            "soul_apply_minutes": SOUL_APPLY_MINUTES,
+            "soul_pending": bool((signup or {}).get("soul_pending")),
+            "soul_pending_error": (signup or {}).get("soul_pending_error"),
+            "soul_applied_at_fmt": fmt_ts((signup or {}).get("soul_applied_at").timestamp()) if (signup or {}).get("soul_applied_at") else None,
+            "cancelamento_status": (signup or {}).get("cancelamento_status"),
+            "tom_descricao": tom.get("descricao", ""),
+            "tom_emoji": tom.get("emoji", ""),
+            "escalacao_nome": escalacao.get("nome", ""),
+            "escalacao_telefone": escalacao.get("telefone", ""),
+            "escalacao_pronome": escalacao.get("pronome", "ele"),
+            "servicos": _format_pipe_lines(config.get("servicos"), ["nome", "descricao", "publico_alvo"]),
+            "como_trabalhamos": _format_label_lines(config.get("como_trabalhamos")),
+        },
+    )
+
+
+@app.post("/painel/api/configuracoes")
+def api_salvar_configuracoes(request: Request, payload: dict) -> dict:
+    require_session(request)
+
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not signup or not signup.get("config"):
+        raise HTTPException(status_code=404, detail="Configuração do tenant não encontrada")
+
+    tom_descricao = (payload.get("tom_descricao") or "").strip()
+    escalacao_nome = (payload.get("escalacao_nome") or "").strip()
+    escalacao_telefone = (payload.get("escalacao_telefone") or "").strip()
+    if not tom_descricao:
+        raise HTTPException(status_code=400, detail="Descrição do tom não pode ficar vazia")
+    if not escalacao_nome or not escalacao_telefone:
+        raise HTTPException(status_code=400, detail="Nome e telefone de escalação são obrigatórios")
+
+    servicos = _parse_pipe_lines(payload.get("servicos") or "", ["nome", "descricao", "publico_alvo"])
+    if not servicos:
+        raise HTTPException(status_code=400, detail="Cadastre pelo menos um serviço")
+
+    config = dict(signup["config"])
+    config["tom"] = {"descricao": tom_descricao, "emoji": (payload.get("tom_emoji") or "").strip()}
+    config["escalacao"] = {
+        **config.get("escalacao", {}),
+        "nome": escalacao_nome,
+        "telefone": escalacao_telefone,
+        "pronome": (payload.get("escalacao_pronome") or "ele").strip(),
+    }
+    config["servicos"] = servicos
+    config["como_trabalhamos"] = _parse_label_lines(payload.get("como_trabalhamos") or "")
+
+    signups_col.update_one(
+        {"_id": signup["_id"]},
+        {
+            "$set": {"config": config, "soul_pending": True, "soul_pending_at": datetime.now(timezone.utc)},
+            "$unset": {"soul_pending_error": ""},
+        },
+    )
+    return {"ok": True, "soul_apply_minutes": SOUL_APPLY_MINUTES}
+
+
+@app.get("/painel/api/soul-status")
+def api_soul_status(request: Request) -> dict:
+    """Pro front-end de Configurações ficar de olho na fila sem precisar
+    recarregar a página — chamado em polling enquanto soul_pending=True
+    (ver configuracoes.html). O erro (se houver) vem da última tentativa
+    do loop de publicação no onboarding-service (ver soul_pending_error
+    em tools/onboarding-service/app/store.py)."""
+    require_session(request)
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not signup:
+        raise HTTPException(status_code=404, detail="Configuração do tenant não encontrada")
+    applied_at = signup.get("soul_applied_at")
+    return {
+        "soul_pending": bool(signup.get("soul_pending")),
+        "soul_pending_error": signup.get("soul_pending_error"),
+        "soul_applied_at_fmt": fmt_ts(applied_at.timestamp()) if applied_at else None,
+    }
+
+
+@app.post("/painel/api/cancelar-assinatura")
+def api_cancelar_assinatura(request: Request) -> dict:
+    require_session(request)
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not signup:
+        raise HTTPException(status_code=404, detail="Assinatura não encontrada")
+    if signup.get("cancelamento_status") == "solicitado":
+        return {"ok": True, "cancelamento_status": "solicitado"}
+
+    signups_col.update_one(
+        {"_id": signup["_id"]},
+        {"$set": {
+            "cancelamento_status": "solicitado",
+            "cancelamento_solicitado_em": datetime.now(timezone.utc),
+        }},
+    )
+    return {"ok": True, "cancelamento_status": "solicitado"}
+
+
 DISPLAY_ROLES = ["user", "assistant", "operator"]
 
 

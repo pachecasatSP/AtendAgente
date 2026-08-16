@@ -115,6 +115,71 @@ def mark_free_token_used(token: str, signup_id: str) -> None:
     )
 
 
+# ── Fila de alterações de SOUL vindas do painel do cliente ─────────────
+#
+# O painel do tenant não tem kubectl/kubeconfig, só Mongo — ele só marca
+# `soul_pending=True` em cima do `config` já salvo no signup (ver
+# tools/tenant-panel/app.py). Quem publica de verdade (regenera SOUL.md
+# e reinicia o Deployment) é o próprio onboarding-service, que já roda
+# com kubeconfig namespace-scoped — via loop periódico, ver main.py.
+
+def list_soul_pending_signups() -> list[dict]:
+    return list(_signups.find({"status": "live", "soul_pending": True}))
+
+
+def mark_soul_applied(signup_id: str) -> None:
+    _signups.update_one(
+        {"_id": signup_id},
+        {
+            "$set": {"soul_pending": False, "soul_applied_at": datetime.now(timezone.utc)},
+            "$unset": {"soul_pending_error": ""},
+        },
+    )
+
+
+def mark_soul_failed(signup_id: str, erro: str) -> None:
+    """Publicação falhou (ex: kubectl exec fora do ar) — fica com
+    soul_pending=True pro loop tentar de novo no próximo ciclo, só grava
+    o erro pra aparecer no painel do cliente (ver
+    tools/tenant-panel/templates/configuracoes.html)."""
+    _signups.update_one(
+        {"_id": signup_id},
+        {"$set": {"soul_pending_error": erro, "soul_pending_error_at": datetime.now(timezone.utc)}},
+    )
+
+
+# ── Pedidos de cancelamento de assinatura ───────────────────────────────
+#
+# O botão "cancelar assinatura" do painel do cliente só registra o
+# pedido aqui (`cancelamento_status="solicitado"`) — quem cancela de
+# verdade na Asaas é a Duda, via ferramenta `cancelar` do admin-mcp,
+# depois de olhar a fila com `cancelamentos`. Nunca automático.
+
+def list_cancellation_requests() -> list[dict]:
+    return list(_signups.find({"status": "live", "cancelamento_status": "solicitado"}))
+
+
+def request_cancellation(tenant_id: str) -> None:
+    _signups.update_one(
+        {"tenant_id": tenant_id, "status": "live"},
+        {"$set": {
+            "cancelamento_status": "solicitado",
+            "cancelamento_solicitado_em": datetime.now(timezone.utc),
+        }},
+    )
+
+
+def mark_cancelled(signup_id: str) -> None:
+    _signups.update_one(
+        {"_id": signup_id},
+        {"$set": {
+            "cancelamento_status": "cancelado",
+            "cancelamento_autorizado_em": datetime.now(timezone.utc),
+            "status": "cancelado",
+        }},
+    )
+
+
 def tenant_usage(tenant_id: str) -> dict:
     """Contagem de sessões/mensagens sincronizadas pelo mongo-sync do
     tenant (mesmas collections que o tenant-panel lê)."""

@@ -6,6 +6,7 @@ próprio (namespace-scoped, restrito a `atendagente`) via KUBECONFIG, e
 código montado via hostPath a partir de /root/atendagente-tools/ (sem
 imagem custom/registry — ver README).
 """
+import asyncio
 import os
 import re
 import secrets
@@ -24,7 +25,7 @@ from fastapi.templating import Jinja2Templates
 _TOOLS_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_TOOLS_DIR / "provision-tenant"))
 sys.path.insert(0, str(_TOOLS_DIR / "soul-generator"))
-from provision_tenant import ProvisionError, provision, set_tenant_enabled, subscribe_app_to_waba, tenant_exists  # noqa: E402
+from provision_tenant import ProvisionError, provision, publish_soul, set_tenant_enabled, subscribe_app_to_waba, tenant_exists  # noqa: E402
 from generate_soul import render as render_soul  # noqa: E402
 
 from app import asaas_client, meta_client, store  # noqa: E402
@@ -54,8 +55,40 @@ FAIL_EVENTS = {
     "CHECKOUT_EXPIRED", "CHECKOUT_CANCELED",
 }
 
+# Intervalo do loop que publica alterações de SOUL pendentes (vindas do
+# painel do cliente, ver /painel/api/configuracoes no tenant-panel). O
+# painel mostra esse mesmo número pro cliente ("aplicado em até N
+# minutos") — se mudar aqui, atualizar também
+# tools/tenant-panel/templates/configuracoes.html.
+SOUL_APPLY_INTERVAL_SECONDS = int(os.environ.get("SOUL_APPLY_INTERVAL_SECONDS", "300"))
+
 app = FastAPI(title="AtendAgente — Onboarding")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+
+async def _soul_apply_loop() -> None:
+    """Publica, em `SOUL_APPLY_INTERVAL_SECONDS`, as alterações de tom/
+    escalação/serviços que o cliente salvou no painel — regenera o
+    SOUL.md e reinicia o Deployment do tenant (kubectl exec + rollout
+    restart, mesmo passo 5/5 do provisionamento). Uma falha num tenant
+    não trava os outros nem para o loop; a alteração fica pendente pra
+    tentar de novo no próximo ciclo."""
+    while True:
+        await asyncio.sleep(SOUL_APPLY_INTERVAL_SECONDS)
+        for signup in await run_in_threadpool(store.list_soul_pending_signups):
+            tenant_id = signup.get("tenant_id")
+            try:
+                await run_in_threadpool(publish_soul, tenant_id, signup["config"])
+                await run_in_threadpool(store.mark_soul_applied, signup["_id"])
+                print(f"[soul-apply] {tenant_id}: publicado")
+            except Exception as e:
+                await run_in_threadpool(store.mark_soul_failed, signup["_id"], str(e))
+                print(f"[soul-apply] {tenant_id}: falhou, tenta de novo no próximo ciclo: {e}", file=sys.stderr)
+
+
+@app.on_event("startup")
+async def _start_soul_apply_loop() -> None:
+    asyncio.create_task(_soul_apply_loop())
 
 
 def provisioning_env() -> dict:
@@ -388,6 +421,9 @@ async def asaas_webhook(request: Request):
         return {"ok": True, "ignorado": "signup não encontrado ou já processado"}
 
     if event in CONFIRM_EVENTS:
+        subscription_id = payload.get("payment", {}).get("subscription")
+        if subscription_id:
+            store.update_signup(external_reference, asaas_subscription_id=subscription_id)
         try:
             # _run_provisioning faz subprocess.run bloqueante (kubectl
             # rollout status, até 120s) — numa def async isso travaria o
@@ -536,6 +572,51 @@ def admin_retry_provisioning(signup_id: str, request: Request):
     except ProvisionError as e:
         store.update_signup(signup_id, status="failed", erro=str(e))
         raise HTTPException(500, f"Provisionamento falhou de novo: {e}")
+    return {"ok": True, "signup_id": signup_id, "tenant_id": signup["tenant_id"]}
+
+
+@app.get("/api/admin/cancelamentos")
+def admin_list_cancellation_requests(request: Request):
+    """Pedidos de cancelamento de assinatura feitos pelo cliente no
+    próprio painel (botão 'Cancelar assinatura' em Configurações) —
+    nenhum é executado sozinho, é sempre a Duda autorizando um a um via
+    `cancelar` (admin-mcp)."""
+    require_admin(request)
+    signups = store.list_cancellation_requests()
+    return [
+        {
+            "signup_id": s["_id"],
+            "tenant_id": s.get("tenant_id"),
+            "plano": s.get("plano"),
+            "cancelamento_solicitado_em": s.get("cancelamento_solicitado_em"),
+        }
+        for s in signups
+    ]
+
+
+@app.post("/api/admin/signups/{signup_id}/cancelar")
+def admin_authorize_cancellation(signup_id: str, request: Request):
+    """Autoriza um pedido de cancelamento (ver `admin_list_cancellation_
+    requests`): cancela a assinatura recorrente na Asaas (não estorna
+    cobranças já feitas), desliga o WhatsApp do tenant (reversível, mesmo
+    mecanismo do 'pausar' — ver `set_tenant_enabled`) e marca o signup
+    como cancelado. Não apaga nada."""
+    require_admin(request)
+    signup = store.get_signup(signup_id)
+    if not signup:
+        raise HTTPException(404, "Cadastro não encontrado")
+    if signup.get("cancelamento_status") != "solicitado":
+        raise HTTPException(409, "Esse cadastro não tem pedido de cancelamento pendente")
+
+    subscription_id = signup.get("asaas_subscription_id")
+    if subscription_id:
+        try:
+            asaas_client.cancel_subscription(subscription_id)
+        except asaas_client.AsaasApiError as e:
+            raise HTTPException(502, f"Cancelamento na Asaas falhou: {e}")
+
+    set_tenant_enabled(signup["tenant_id"], False)
+    store.mark_cancelled(signup_id)
     return {"ok": True, "signup_id": signup_id, "tenant_id": signup["tenant_id"]}
 
 

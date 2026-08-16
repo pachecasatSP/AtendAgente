@@ -80,7 +80,11 @@ def set_tenant_enabled(tenant_id: str, enabled: bool) -> None:
     """Liga/desliga o WhatsApp de um tenant já provisionado sem apagar
     nada — pra `/api/admin/tenants/{id}/enabled` (ferramenta de
     pausar/reativar da Duda). Reversível: só troca o valor no Secret e
-    reinicia o Deployment."""
+    reinicia os Deployments. Reinicia hermes E painel — os dois leem
+    WHATSAPP_CLOUD_ENABLED do mesmo Secret só na inicialização (ver
+    TENANT_ENABLED em tools/tenant-panel/app.py), então sem reiniciar o
+    painel ele continuaria mostrando as conversas normalmente com o
+    WhatsApp já pausado."""
     prefix = f"{tenant_id}-hermes"
     value_b64 = base64.b64encode(str(enabled).lower().encode()).decode()
     patch = json.dumps([{"op": "replace", "path": "/data/WHATSAPP_CLOUD_ENABLED", "value": value_b64}])
@@ -91,6 +95,37 @@ def set_tenant_enabled(tenant_id: str, enabled: bool) -> None:
     if result.returncode != 0:
         raise ProvisionError(f"kubectl patch (enabled={enabled}) falhou:\n{result.stderr}")
     subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
+    subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}-panel"], check=True)
+
+
+def apply_display_defaults(prefix: str) -> None:
+    """`display.memory_notifications` (Hermes default: "on") faz o
+    processo de revisão em segundo plano do agente imprimir "💾 Memory
+    updated" no meio da conversa — inofensivo pra uso interno (Duda),
+    mas um vazamento de mecanismo interno pro cliente final de um tenant
+    (WhatsApp de atendimento). provision_tenant.py nunca escrevia
+    config.yaml nenhum, então todo tenant novo herdava esse "on" — desligado
+    aqui, na mesma janela de restart do passo 5/5, pra não custar um
+    segundo rollout."""
+    result = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
+         "hermes", "config", "set", "display.memory_notifications", "off"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise ProvisionError(f"hermes config set (display.memory_notifications) falhou:\n{result.stderr}")
+
+
+def publish_soul(tenant_id: str, config: dict) -> None:
+    """Regenera o SOUL.md a partir de `config` e publica no pod do
+    tenant já provisionado — mesmo passo 5/5 do `provision()`, extraído
+    pra reuso pela fila de alterações de comportamento vindas do painel
+    do cliente (ver /api/admin/soul-pending no onboarding-service)."""
+    prefix = f"{tenant_id}-hermes"
+    soul_text = render_soul(config)
+    kubectl_exec_stdin(prefix, ["sh", "-c", "cat > /opt/data/SOUL.md"], soul_text)
+    subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
+    wait_for_health(prefix)
 
 
 def kubectl_apply(manifest_yaml: str) -> None:
@@ -378,8 +413,8 @@ spec:
 
 def normalize_br_phone(raw: str) -> str:
     """Telefone digitado tipo '(11) 90000-0000' vira '5511900000000' —
-    formato bare E.164 (sem +) que o WHATSAPP_HOME_CHANNEL espera como
-    chat_id. Assume DDD+número brasileiro se não vier com o 55 já."""
+    formato bare E.164 (sem +) que o WHATSAPP_CLOUD_HOME_CHANNEL espera
+    como chat_id. Assume DDD+número brasileiro se não vier com o 55 já."""
     digits = "".join(c for c in raw if c.isdigit())
     if digits.startswith("55") and len(digits) >= 12:
         return digits
@@ -414,8 +449,8 @@ stringData:
   WHATSAPP_CLOUD_APP_SECRET: "{env['WHATSAPP_APP_SECRET']}"
   OPENROUTER_API_KEY: "{env['OPENROUTER_API_KEY']}"
   GATEWAY_ALLOW_ALL_USERS: "true"
-  WHATSAPP_HOME_CHANNEL: "{home_channel}"
-  WHATSAPP_HOME_CHANNEL_NAME: "{home_channel_name}"
+  WHATSAPP_CLOUD_HOME_CHANNEL: "{home_channel}"
+  WHATSAPP_CLOUD_HOME_CHANNEL_NAME: "{home_channel_name}"
   PANEL_SETUP_TOKEN: "{panel_setup_token}"
   PANEL_SESSION_SECRET: "{panel_session_secret}"
 """
@@ -494,6 +529,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
 
     print("5/5 Gerando e publicando SOUL.md...")
     kubectl_exec_stdin(prefix, ["sh", "-c", "cat > /opt/data/SOUL.md"], soul_text)
+    apply_display_defaults(prefix)
     subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
     wait_for_health(prefix)
 
