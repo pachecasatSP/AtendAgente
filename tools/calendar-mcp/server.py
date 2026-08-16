@@ -127,12 +127,27 @@ def check_and_book(calendar_email: str, start: datetime, duration_minutes: int, 
             calendarId=calendar_email, body=event_body, conferenceDataVersion=1
         ).execute()
     except HttpError as e:
-        return {"ok": False, "motivo": "erro_google", "detalhe": str(e)}
+        # Contas de serviço não conseguem gerar Google Meet automático
+        # sem "domain-wide delegation" (só existe em Google Workspace
+        # administrado — não serve pra Gmail pessoal/pequena empresa,
+        # que é o caso comum aqui). Confirmado reproduzindo o erro
+        # (400 "Invalid conference type value") — é limitação
+        # documentada da Google, não intermitência. Em vez de falhar o
+        # agendamento inteiro por causa do Meet, cria sem conferência:
+        # o cliente ainda recebe o horário marcado e o link do evento.
+        if e.resp.status == 400 and "conference" in str(e).lower():
+            event_body_sem_meet = {k: v for k, v in event_body.items() if k != "conferenceData"}
+            try:
+                created = service.events().insert(calendarId=calendar_email, body=event_body_sem_meet).execute()
+            except HttpError as e2:
+                return {"ok": False, "motivo": "erro_google", "detalhe": str(e2)}
+        else:
+            return {"ok": False, "motivo": "erro_google", "detalhe": str(e)}
 
     return {
         "ok": True,
         "link_evento": created.get("htmlLink"),
-        "link_meet": created.get("hangoutLink"),
+        "link_meet": created.get("hangoutLink"),  # None se essa conta não suporta Meet via API
     }
 
 
@@ -142,14 +157,16 @@ mcp = MCPServer("agenda")
 @mcp.tool()
 def criar_agendamento(data_hora_inicio_iso: str, titulo: str) -> dict:
     """Confere disponibilidade e cria um evento na Google Agenda do
-    negócio, com Google Meet habilitado. `data_hora_inicio_iso`: data e
-    hora no formato ISO 8601 (ex: "2026-08-20T15:00:00"), horário de
-    Brasília se não vier com fuso. `titulo`: assunto do agendamento
-    (ex: "Consulta com Fulano").  Duração vem da configuração do
-    negócio no painel (padrão 30 minutos).
+    negócio, com Google Meet quando a conta suportar (nem toda agenda
+    consegue gerar Meet automático, ver comentário em check_and_book).
+    `data_hora_inicio_iso`: data e hora no formato ISO 8601 (ex:
+    "2026-08-20T15:00:00"), horário de Brasília se não vier com fuso.
+    `titulo`: assunto do agendamento (ex: "Consulta com Fulano").
+    Duração vem da configuração do negócio no painel (padrão 30 minutos).
 
     Devolve {"ok": true, "link_evento": ..., "link_meet": ...} se
-    conseguiu marcar, ou {"ok": false, "motivo": "..."} se não —
+    conseguiu marcar (`link_meet` pode vir null — normal, sem problema),
+    ou {"ok": false, "motivo": "..."} se não —
     motivos possíveis: "horario_ocupado" (peça outro horário, nunca
     insista no mesmo nem invente disponibilidade), "agenda_nao_configurada"
     (esse negócio ainda não configurou a agenda), "sem_acesso_a_agenda"
