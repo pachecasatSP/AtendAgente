@@ -54,6 +54,8 @@ ACCESS_TOKEN = os.environ.get("WHATSAPP_CLOUD_ACCESS_TOKEN", "")
 PHONE_NUMBER_ID = os.environ.get("WHATSAPP_CLOUD_PHONE_NUMBER_ID", "")
 WHATSAPP_API_VERSION = os.environ.get("WHATSAPP_API_VERSION", "v20.0")
 TENANT_ENABLED = os.environ.get("WHATSAPP_CLOUD_ENABLED", "true").strip().lower() != "false"
+CALENDAR_MCP_TOKEN = os.environ.get("CALENDAR_MCP_TOKEN", "")
+CALENDAR_MCP_BASE_URL = os.environ.get("CALENDAR_MCP_BASE_URL", "http://calendar-mcp.atendagente.svc.cluster.local:8000")
 
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client.get_default_database()
@@ -363,6 +365,11 @@ def configuracoes_page(request: Request):
             "catalogo_applied_at_fmt": fmt_ts((signup or {}).get("catalogo_applied_at").timestamp()) if (signup or {}).get("catalogo_applied_at") else None,
             "catalogo_apply_minutes": SOUL_APPLY_MINUTES,
             "fotos_configuradas": storage.configured(),
+            "agenda_disponivel": bool(CALENDAR_MCP_TOKEN),
+            "google_calendar_email": config.get("google_calendar_email", ""),
+            "agendamento_duracao_minutos": config.get("agendamento_duracao_minutos", 30),
+            "agendamento_ativo": bool(config.get("agendamento_ativo")),
+            "agenda_service_account_email": _calendar_mcp_service_account_email() if CALENDAR_MCP_TOKEN else None,
         },
     )
 
@@ -685,6 +692,93 @@ def vitrine(request: Request):
         request, "vitrine.html",
         {"tenant_id": TENANT_ID, "nome_negocio": nome_negocio, "categorias": categorias},
     )
+
+
+def _calendar_mcp_post(path: str, payload: dict) -> dict:
+    """Fala com o calendar-mcp usando o token deste tenant (mesmo Bearer
+    que o Hermes usa pra ferramenta de agendamento, ver
+    tools/calendar-mcp/server.py) — o painel reaproveita esse token só
+    pra testar conexão, nunca cria evento por aqui."""
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        f"{CALENDAR_MCP_BASE_URL}{path}",
+        data=body,
+        method="POST",
+        headers={"Authorization": f"Bearer {CALENDAR_MCP_TOKEN}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            return json.loads(exc.read())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {"ok": False, "motivo": "erro_desconhecido"}
+    except urllib.error.URLError:
+        return {"ok": False, "motivo": "calendar_mcp_indisponivel"}
+
+
+def _calendar_mcp_service_account_email() -> str | None:
+    """Melhor esforço — se o calendar-mcp ainda não estiver no ar (ex:
+    infra da Google não provisionada ainda), a tela de Configurações
+    simplesmente não mostra a instrução de compartilhamento."""
+    try:
+        with urllib.request.urlopen(f"{CALENDAR_MCP_BASE_URL}/service-account-email", timeout=5) as resp:
+            return json.loads(resp.read()).get("email") or None
+    except Exception:
+        return None
+
+
+AGENDA_ERRO_MENSAGENS = {
+    "sem_acesso_a_agenda": "Não consegui acessar essa agenda — confirme que ela foi compartilhada com a conta de serviço.",
+    "calendar_mcp_indisponivel": "Serviço de agenda indisponível no momento — tenta de novo em instantes.",
+    "nao_configurado": "Agendamento ainda não está disponível neste servidor.",
+    "email_vazio": "Informe o e-mail da Google Agenda.",
+}
+
+
+@app.post("/painel/api/agenda")
+def api_salvar_agenda(request: Request, payload: dict) -> dict:
+    require_session(request)
+    if not CALENDAR_MCP_TOKEN:
+        raise HTTPException(status_code=500, detail="Agendamento ainda não está disponível neste servidor")
+
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not signup or not signup.get("config"):
+        raise HTTPException(status_code=404, detail="Configuração do tenant não encontrada")
+
+    google_calendar_email = (payload.get("google_calendar_email") or "").strip()
+    if not google_calendar_email:
+        raise HTTPException(status_code=400, detail="Informe o e-mail da Google Agenda")
+    try:
+        duracao = int(payload.get("agendamento_duracao_minutos") or 30)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Duração inválida")
+    if duracao < 5 or duracao > 480:
+        raise HTTPException(status_code=400, detail="Duração precisa ficar entre 5 e 480 minutos")
+
+    resultado = _calendar_mcp_post("/testar-conexao", {"google_calendar_email": google_calendar_email})
+    if not resultado.get("ok"):
+        motivo = resultado.get("motivo", "erro_desconhecido")
+        raise HTTPException(
+            status_code=400,
+            detail=AGENDA_ERRO_MENSAGENS.get(motivo, f"Não consegui confirmar o acesso à agenda ({motivo})"),
+        )
+
+    config = dict(signup["config"])
+    primeira_ativacao = not config.get("agendamento_ativo")
+    config["google_calendar_email"] = google_calendar_email
+    config["agendamento_duracao_minutos"] = duracao
+    config["agendamento_ativo"] = True
+
+    update = {"config": config}
+    op: dict = {"$set": update}
+    if primeira_ativacao:
+        update["soul_pending"] = True
+        update["soul_pending_at"] = datetime.now(timezone.utc)
+        op["$unset"] = {"soul_pending_error": ""}
+    signups_col.update_one({"_id": signup["_id"]}, op)
+    return {"ok": True}
 
 
 @app.post("/painel/api/cancelar-assinatura")

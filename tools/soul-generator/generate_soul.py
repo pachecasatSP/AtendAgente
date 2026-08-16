@@ -84,6 +84,28 @@ def build_catalog_block(config: dict) -> str:
     )
 
 
+def build_agenda_block(config: dict) -> str:
+    """Vazio até o tenant configurar+testar a Google Agenda no painel
+    (config.agendamento_ativo, ver /painel/api/agenda em
+    tools/tenant-panel/app.py). A ferramenta `criar_agendamento` já fica
+    registrada no Hermes desde o provisionamento (ver enable_calendar_mcp
+    em tools/provision-tenant/provision_tenant.py) — esse bloco só
+    autoriza o bot a usá-la."""
+    if not config.get("agendamento_ativo"):
+        return ""
+    duracao = config.get("agendamento_duracao_minutos") or 30
+    return (
+        "\n## Agendamento\n"
+        "Você pode marcar horário na nossa agenda usando a ferramenta "
+        f"`criar_agendamento`. Duração padrão: {duracao} minutos. Antes "
+        "de chamar a ferramenta, confirme com a pessoa o assunto e o "
+        "horário que ela quer. Se a ferramenta disser que o horário está "
+        "ocupado, avise e peça outro horário — nunca insista no mesmo "
+        "nem invente disponibilidade. Depois de agendar com sucesso, "
+        "sempre mande o link do Google Meet na conversa.\n"
+    )
+
+
 def build_examples_block(examples: list[dict]) -> str:
     if not examples:
         return "\n(sem exemplos cadastrados ainda — adicionar após as primeiras conversas reais)\n"
@@ -117,6 +139,7 @@ def render(config: dict) -> str:
         "emoji_policy": tone.get("emoji", "com moderação — no máximo um, e nem sempre"),
         "services_block": build_services_block(config.get("servicos", [])),
         "catalog_block": build_catalog_block(config),
+        "agenda_block": build_agenda_block(config),
         "how_we_work_block": build_how_we_work_block(config.get("como_trabalhamos", {})),
         "unknown_gaps_block": build_unknown_gaps_block(config.get("lacunas_conhecidas", [])),
         "escalation_name": escalation["nome"],

@@ -351,6 +351,12 @@ def submit_form(
             "pronome": escalacao_pronome,
         },
         "exemplos": parse_pipe_lines(exemplos, ["pergunta", "resposta"]),
+        # Gerado aqui (não em provision_tenant.py) porque precisa estar
+        # em signups.config ANTES do provisionamento — é assim que o
+        # calendar-mcp acha o tenant depois (busca por
+        # config.calendar_mcp_token no Mongo, ver
+        # tools/calendar-mcp/server.py).
+        "calendar_mcp_token": secrets.token_urlsafe(24),
     }
 
     try:

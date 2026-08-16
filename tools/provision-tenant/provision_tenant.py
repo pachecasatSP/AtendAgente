@@ -442,7 +442,8 @@ def normalize_br_phone(raw: str) -> str:
 
 
 def build_secret_manifest(
-    tenant_id: str, phone_number_id: str, waba_id: str, env: dict, escalacao: dict
+    tenant_id: str, phone_number_id: str, waba_id: str, env: dict, escalacao: dict,
+    calendar_mcp_token: str = "",
 ) -> tuple[str, dict]:
     prefix = f"{tenant_id}-hermes"
     verify_token = secrets.token_urlsafe(24)
@@ -453,6 +454,13 @@ def build_secret_manifest(
     # configuração de uso único, nunca uma senha pronta.
     panel_setup_token = secrets.token_urlsafe(24)
     panel_session_secret = secrets.token_urlsafe(32)
+    # Idealmente já vem em config["calendar_mcp_token"] (gerado no
+    # submit_form do onboarding-service e salvo em signups.config —
+    # calendar-mcp busca o tenant por esse valor no Mongo). Gerar aqui
+    # só cobre provisionamento manual via CLI direto (YAML sem esse
+    # campo) — nesse caso o calendar-mcp não vai achar o tenant até
+    # alguém também gravar o mesmo valor em signups.config à mão.
+    calendar_mcp_token = calendar_mcp_token or secrets.token_urlsafe(24)
     manifest = f"""\
 apiVersion: v1
 kind: Secret
@@ -473,12 +481,39 @@ stringData:
   WHATSAPP_CLOUD_HOME_CHANNEL_NAME: "{home_channel_name}"
   PANEL_SETUP_TOKEN: "{panel_setup_token}"
   PANEL_SESSION_SECRET: "{panel_session_secret}"
+  CALENDAR_MCP_TOKEN: "{calendar_mcp_token}"
 """
     credentials = {
         "verify_token": verify_token,
         "panel_setup_token": panel_setup_token,
+        "calendar_mcp_token": calendar_mcp_token,
     }
     return manifest, credentials
+
+
+def enable_calendar_mcp(tenant_id: str, calendar_mcp_token: str) -> None:
+    """Registra a ferramenta de agendamento (calendar-mcp, ver
+    tools/calendar-mcp/) no Hermes do tenant — escrito direto em
+    config.yaml/.env em vez de `hermes mcp add` (interativo, espera
+    respostas por prompt, frágil sem TTY numa automação). Formato final
+    idêntico ao que o comando interativo produziria. A ferramenta só
+    "funciona de verdade" depois que o tenant configurar
+    google_calendar_email em Configurações → Agenda; registrar aqui
+    evita mais um passo de provisionamento manual depois. Não reinicia
+    o pod — quem chama decide quando (normalmente já tem um restart
+    programado no mesmo passo)."""
+    prefix = f"{tenant_id}-hermes"
+    mcp_block = (
+        "\nmcp_servers:\n"
+        "  agenda:\n"
+        "    url: http://calendar-mcp.atendagente.svc.cluster.local:8000/mcp\n"
+        "    headers:\n"
+        "      Authorization: Bearer ${MCP_AGENDA_API_KEY}\n"
+        "    enabled: true\n"
+    )
+    kubectl_exec_stdin(prefix, ["sh", "-c", "cat >> /opt/data/config.yaml"], mcp_block)
+    env_line = f'\nMCP_AGENDA_API_KEY="{calendar_mcp_token}"\n'
+    kubectl_exec_stdin(prefix, ["sh", "-c", "cat >> /opt/data/.env"], env_line)
 
 
 def wait_for_health(deployment: str, timeout_s: int = 120) -> bool:
@@ -507,7 +542,8 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
     print(f"== Provisionando tenant '{tenant_id}' ({host}) {'[DRY RUN]' if dry_run else ''} ==")
 
     secret_yaml, credentials = build_secret_manifest(
-        tenant_id, phone_number_id, waba_id, env, config["escalacao"]
+        tenant_id, phone_number_id, waba_id, env, config["escalacao"],
+        calendar_mcp_token=config.get("calendar_mcp_token", ""),
     )
     infra_yaml = build_infra_manifest(tenant_id, host)
     soul_text = render_soul(config)
@@ -515,7 +551,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
     if dry_run:
         print("--- Secret (valores sensíveis mascarados) ---")
         for line in secret_yaml.splitlines():
-            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "VERIFY_TOKEN", "PANEL_SETUP_TOKEN", "PANEL_SESSION_SECRET")):
+            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "VERIFY_TOKEN", "PANEL_SETUP_TOKEN", "PANEL_SESSION_SECRET", "CALENDAR_MCP_TOKEN")):
                 key = line.split(":", 1)[0]
                 print(f"{key}: <mascarado>")
             else:
@@ -550,6 +586,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
     print("5/5 Gerando e publicando SOUL.md...")
     kubectl_exec_stdin(prefix, ["sh", "-c", "cat > /opt/data/SOUL.md"], soul_text)
     apply_display_defaults(prefix)
+    enable_calendar_mcp(tenant_id, credentials["calendar_mcp_token"])
     subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
     wait_for_health(prefix)
 

@@ -1,0 +1,5 @@
+mcp>=2.0.0,<3.0.0
+uvicorn[standard]
+pymongo
+google-api-python-client
+google-auth

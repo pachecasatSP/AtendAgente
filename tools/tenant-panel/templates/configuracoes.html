@@ -315,6 +315,37 @@ button.secondary {
     </fieldset>
   </div>
 
+  <div class="card">
+    <h1>Agenda</h1>
+    <p class="lead">Deixe o bot marcar horário direto na sua Google Agenda — confere se está livre e já manda o link do Google Meet na conversa.</p>
+
+    {% if not agenda_disponivel %}
+      <p class="hint">Agendamento ainda não está disponível neste servidor.</p>
+    {% else %}
+      <div id="agenda-status" class="soul-status">
+        <span id="agenda-status-dot" class="soul-status-dot {{ 'ok' if agendamento_ativo else '' }}"></span>
+        <span id="agenda-status-text">{{ 'Agenda conectada.' if agendamento_ativo else 'Agenda ainda não configurada.' }}</span>
+      </div>
+
+      {% if agenda_service_account_email %}
+        <p class="hint" style="margin-top:0.6rem">Compartilhe sua Google Agenda com <strong>{{ agenda_service_account_email }}</strong> (Google Agenda → Configurações → Compartilhar com pessoas específicas, permissão "Fazer alterações nos eventos") antes de testar a conexão.</p>
+      {% endif %}
+
+      <form id="agenda-form">
+        <div class="row">
+          <label>E-mail da Google Agenda
+            <input type="text" name="google_calendar_email" required maxlength="200" value="{{ google_calendar_email }}">
+          </label>
+          <label class="field-narrow">Duração (min)
+            <input type="text" name="agendamento_duracao_minutos" value="{{ agendamento_duracao_minutos }}">
+          </label>
+        </div>
+        <button type="submit" id="agenda-save-btn">Salvar e testar conexão</button>
+      </form>
+      <div id="agenda-result" class="bulk-result"></div>
+    {% endif %}
+  </div>
+
   <div class="card danger-card">
     <h2>Cancelar assinatura</h2>
     <p class="lead">Isso registra um pedido de cancelamento — nossa equipe confirma e finaliza o cancelamento na cobrança. Cobranças já feitas não são estornadas.</p>
@@ -415,6 +446,39 @@ button.secondary {
         cancelBanner.textContent = err.message;
       }
     });
+
+    // ── Agenda ──────────────────────────────────────────────────────
+    const agendaForm = document.getElementById('agenda-form');
+    if (agendaForm) {
+      agendaForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('agenda-save-btn');
+        const resultEl = document.getElementById('agenda-result');
+        btn.disabled = true;
+        btn.textContent = 'Testando…';
+        resultEl.textContent = '';
+        const data = Object.fromEntries(new FormData(agendaForm).entries());
+        try {
+          const resp = await fetch('/painel/api/agenda', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || 'Não foi possível salvar');
+          }
+          document.getElementById('agenda-status-dot').className = 'soul-status-dot ok';
+          document.getElementById('agenda-status-text').textContent = 'Agenda conectada.';
+          resultEl.textContent = 'Conexão confirmada — a agenda já está ativa.';
+        } catch (err) {
+          resultEl.textContent = err.message;
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Salvar e testar conexão';
+        }
+      });
+    }
 
     // ── Catálogo ────────────────────────────────────────────────────
     const catalogoStatusDot = document.getElementById('catalogo-status-dot');

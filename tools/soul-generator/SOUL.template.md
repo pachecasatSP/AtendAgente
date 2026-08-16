@@ -26,6 +26,7 @@ ${tone_description}
 # O que a gente faz
 ${services_block}
 ${catalog_block}
+${agenda_block}
 # Como a gente trabalha
 
 Informação genérica pra dar contexto na conversa — não é compromisso
