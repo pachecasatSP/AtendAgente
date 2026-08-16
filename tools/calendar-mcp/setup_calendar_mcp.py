@@ -103,6 +103,11 @@ spec:
           resources:
             requests: {{cpu: "50m", memory: "128Mi"}}
             limits: {{cpu: "200m", memory: "256Mi"}}
+          readinessProbe:
+            httpGet: {{path: /service-account-email, port: 8000}}
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            failureThreshold: 30
       volumes:
         - name: tools
           hostPath:
