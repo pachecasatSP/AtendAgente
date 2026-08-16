@@ -25,12 +25,13 @@ import secrets as secrets_module
 import time
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -477,6 +478,132 @@ def _send_whatsapp_message(chat_id: str, content: str) -> None:
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise HTTPException(status_code=502, detail=f"WhatsApp API falhou: HTTP {exc.code}: {detail}")
+
+
+MAX_IMAGE_BYTES = 5 * 1024 * 1024  # limite da própria API do WhatsApp pra imagens
+
+
+def _build_multipart(fields: dict, file_field: str, filename: str, file_bytes: bytes, content_type: str) -> tuple[bytes, str]:
+    boundary = uuid.uuid4().hex
+    parts = []
+    for key, value in fields.items():
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode())
+    parts.append(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; filename="{filename}"\r\n'
+        f'Content-Type: {content_type}\r\n\r\n'.encode()
+        + file_bytes
+        + b"\r\n"
+    )
+    parts.append(f"--{boundary}--\r\n".encode())
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def _upload_whatsapp_media(file_bytes: bytes, content_type: str, filename: str) -> str:
+    """Sobe a imagem pro armazenamento de mídia da própria Meta — a
+    gente nunca grava os bytes em disco/Mongo aqui. O media_id devolvido
+    só existe do lado da Meta; se precisar reenviar/recuperar a imagem
+    depois, é lá que ela vive, não neste painel."""
+    if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
+        raise HTTPException(status_code=500, detail="Envio manual não configurado para este tenant")
+
+    url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{PHONE_NUMBER_ID}/media"
+    body, content_type_header = _build_multipart(
+        {"messaging_product": "whatsapp", "type": content_type}, "file", filename, file_bytes, content_type
+    )
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": content_type_header},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=502, detail=f"Upload de mídia falhou: HTTP {exc.code}: {detail}")
+
+    media_id = data.get("id")
+    if not media_id:
+        raise HTTPException(status_code=502, detail=f"Resposta da Meta sem media id: {data}")
+    return media_id
+
+
+def _send_whatsapp_image(chat_id: str, media_id: str, caption: str = "") -> None:
+    image_payload = {"id": media_id}
+    if caption:
+        image_payload["caption"] = caption
+    url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{PHONE_NUMBER_ID}/messages"
+    body = json.dumps(
+        {"messaging_product": "whatsapp", "to": chat_id, "type": "image", "image": image_payload}
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=15)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=502, detail=f"WhatsApp API falhou: HTTP {exc.code}: {detail}")
+
+
+@app.post("/painel/api/messages/{session_id}/send-image")
+async def api_send_image(
+    session_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    caption: str = Form(""),
+) -> dict:
+    username = require_session(request)
+    session = sessions_col.find_one({"tenant_id": TENANT_ID, "session_id": session_id})
+    if not session:
+        raise HTTPException(status_code=404, detail="Conversa não encontrada")
+
+    chat_id = session.get("chat_id")
+    if not chat_id:
+        raise HTTPException(status_code=500, detail="Conversa sem chat_id — não é possível enviar")
+
+    content_type = file.content_type or ""
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Só é possível enviar arquivos de imagem")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Arquivo vazio")
+    if len(file_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=400, detail="Imagem maior que 5MB — limite da API do WhatsApp")
+
+    caption = caption.strip()
+    media_id = _upload_whatsapp_media(file_bytes, content_type, file.filename or "imagem.jpg")
+    _send_whatsapp_image(chat_id, media_id, caption)
+
+    now = time.time()
+    messages_col.insert_one(
+        {
+            "tenant_id": TENANT_ID,
+            "session_id": session_id,
+            "role": "operator",
+            "content": f"📷 {caption}" if caption else "📷 Imagem enviada",
+            "timestamp": now,
+            "sent_by": username,
+        }
+    )
+    sessions_col.update_one(
+        {"tenant_id": TENANT_ID, "session_id": session_id},
+        {
+            "$set": {
+                "last_activity_at": now,
+                "handoff": True,
+                "handoff_by": username,
+                "handoff_at": datetime.now(timezone.utc),
+            },
+            "$inc": {"message_count": 1},
+        },
+    )
+    return {"ok": True}
 
 
 @app.post("/painel/api/messages/{session_id}/send")

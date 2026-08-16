@@ -127,6 +127,17 @@
       padding: 0.55rem 1.1rem; background: var(--leaf); color: #fff; cursor: pointer; flex-shrink: 0;
     }
     .compose button:disabled { opacity: 0.6; cursor: default; }
+    .attach-btn {
+      background: transparent !important; color: var(--ink-faint) !important; padding: 0.55rem 0.7rem !important;
+      font-size: 1.1rem !important; line-height: 1;
+    }
+    .attach-btn:hover { color: var(--leaf-deep) !important; }
+    #image-preview-bar {
+      display: none; align-items: center; gap: 0.6rem; padding: 0.5rem 1rem;
+      background: var(--paper-soft); border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--ink-soft);
+    }
+    #image-preview-bar img { width: 40px; height: 40px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
+    #image-preview-remove { margin-left: auto; background: none; border: none; color: var(--ink-faint); cursor: pointer; font-weight: 800; }
     .msg-row { display: flex; margin: 2px 0; }
     .msg-row.user { justify-content: flex-start; }
     .msg-row.assistant { justify-content: flex-end; }
@@ -234,7 +245,14 @@
         <button id="resolve-btn" type="button">Marcar como resolvido</button>
       </div>
       <div id="thread-area" class="main-empty">Selecione uma conversa</div>
+      <div id="image-preview-bar">
+        <img id="image-preview-img" alt="">
+        <span id="image-preview-name"></span>
+        <button id="image-preview-remove" type="button" title="Remover">✕</button>
+      </div>
       <form id="compose-form" class="compose" style="display:none">
+        <input id="image-input" type="file" accept="image/*" style="display:none">
+        <button id="attach-btn" class="attach-btn" type="button" title="Anexar imagem">📎</button>
         <input id="compose-input" type="text" placeholder="Escreva uma mensagem…" autocomplete="off" maxlength="4000">
         <button type="submit">Enviar</button>
       </form>
@@ -409,20 +427,63 @@
       }
     });
 
+    const attachBtnEl = document.getElementById('attach-btn');
+    const imageInputEl = document.getElementById('image-input');
+    const imagePreviewBarEl = document.getElementById('image-preview-bar');
+    const imagePreviewImgEl = document.getElementById('image-preview-img');
+    const imagePreviewNameEl = document.getElementById('image-preview-name');
+    const imagePreviewRemoveEl = document.getElementById('image-preview-remove');
+    let pendingImageFile = null;
+
+    function clearPendingImage() {
+      pendingImageFile = null;
+      imageInputEl.value = '';
+      imagePreviewBarEl.style.display = 'none';
+      if (imagePreviewImgEl.src) URL.revokeObjectURL(imagePreviewImgEl.src);
+      imagePreviewImgEl.src = '';
+    }
+
+    attachBtnEl.addEventListener('click', () => imageInputEl.click());
+
+    imageInputEl.addEventListener('change', () => {
+      const file = imageInputEl.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { alert('Só é possível anexar imagens.'); clearPendingImage(); return; }
+      if (file.size > 5 * 1024 * 1024) { alert('Imagem maior que 5MB — limite da API do WhatsApp.'); clearPendingImage(); return; }
+      pendingImageFile = file;
+      imagePreviewImgEl.src = URL.createObjectURL(file);
+      imagePreviewNameEl.textContent = file.name;
+      imagePreviewBarEl.style.display = 'flex';
+    });
+
+    imagePreviewRemoveEl.addEventListener('click', clearPendingImage);
+
     composeFormEl.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       if (!activeSessionId) return;
       const content = composeInputEl.value.trim();
-      if (!content) return;
-      const submitBtn = composeFormEl.querySelector('button');
+      if (!content && !pendingImageFile) return;
+      const submitBtn = composeFormEl.querySelector('button[type=submit]');
       composeInputEl.disabled = true;
       submitBtn.disabled = true;
+      attachBtnEl.disabled = true;
       try {
-        const resp = await fetch(`/painel/api/messages/${encodeURIComponent(activeSessionId)}/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content }),
-        });
+        let resp;
+        if (pendingImageFile) {
+          const formData = new FormData();
+          formData.append('file', pendingImageFile);
+          formData.append('caption', content);
+          resp = await fetch(`/painel/api/messages/${encodeURIComponent(activeSessionId)}/send-image`, {
+            method: 'POST',
+            body: formData,
+          });
+        } else {
+          resp = await fetch(`/painel/api/messages/${encodeURIComponent(activeSessionId)}/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content }),
+          });
+        }
         if (resp.status === 401) { window.location.href = '/painel/login'; return; }
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
@@ -430,12 +491,14 @@
           return;
         }
         composeInputEl.value = '';
+        clearPendingImage();
         lastMessagesSignature = null;
         await renderThread(activeSessionId);
         await loadSessions();
       } finally {
         composeInputEl.disabled = false;
         submitBtn.disabled = false;
+        attachBtnEl.disabled = false;
         composeInputEl.focus();
       }
     });
