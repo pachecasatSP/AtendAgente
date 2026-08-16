@@ -218,6 +218,17 @@ da lib `mcp` — não precisa de plano B.
   detecta esse erro específico e cria o evento sem Meet em vez de
   falhar o agendamento — `link_meet` vem `null` nesses casos, só
   `link_evento` é garantido.
+  **Domain-wide delegation foi avaliado e descartado pra v1**
+  (2026-08-16): exige dois passos — habilitar DWD na conta de serviço
+  (Cloud Console, `client_id` = `102699687697249785712`,
+  `project_id` = `atendpragente-com-br`) **e** autorizar esse
+  `client_id` no Admin Console (`admin.google.com`) de um domínio
+  Google Workspace administrado. O usuário não tem acesso de admin a
+  nenhum domínio Workspace — e a maioria dos tenants reais da
+  AtendAgente provavelmente usa Gmail pessoal mesmo, onde DWD nunca
+  seria aplicável de qualquer forma (não existe Admin Console numa
+  conta `@gmail.com`). Fallback sem Meet é a solução real pra v1, não
+  um workaround temporário.
 
 ## Arquivos a tocar
 
