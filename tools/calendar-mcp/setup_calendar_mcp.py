@@ -93,6 +93,9 @@ spec:
           envFrom:
             - secretRef:
                 name: {ENV_SECRET_NAME}
+            - secretRef:
+                name: object-storage-credentials
+                optional: true
           volumeMounts:
             - name: tools
               mountPath: /app

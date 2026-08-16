@@ -26,9 +26,11 @@ import contextvars
 import json
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import boto3
+from botocore.config import Config as BotoConfig
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -44,6 +46,18 @@ GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
 CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
+# Mesmo bucket compartilhado das fotos do catálogo (ver
+# tools/tenant-panel/storage.py e infra_object_storage_cdn na memória
+# do projeto) — prefixo próprio pra não misturar com as fotos. Envio do
+# .ics é best-effort: se o bucket não estiver configurado, o
+# agendamento continua funcionando normal, só sem o anexo.
+OBJECT_STORAGE_ENDPOINT = os.environ.get("OBJECT_STORAGE_ENDPOINT", "")
+OBJECT_STORAGE_BUCKET = os.environ.get("OBJECT_STORAGE_BUCKET", "")
+OBJECT_STORAGE_ACCESS_KEY = os.environ.get("OBJECT_STORAGE_ACCESS_KEY", "")
+OBJECT_STORAGE_SECRET_KEY = os.environ.get("OBJECT_STORAGE_SECRET_KEY", "")
+OBJECT_STORAGE_CDN_BASE_URL = os.environ.get("OBJECT_STORAGE_CDN_BASE_URL", "").rstrip("/")
+ICS_PREFIX = os.environ.get("OBJECT_STORAGE_ICS_PREFIX", "atendpragente-agenda-ics").strip("/")
+
 _mongo = MongoClient(MONGO_URI)
 _db = _mongo.get_default_database()
 _signups = _db["signups"]
@@ -52,6 +66,69 @@ _current_tenant: contextvars.ContextVar[dict] = contextvars.ContextVar("current_
 
 _service_account_info: dict | None = None
 _calendar_service = None
+_s3_client = None
+
+
+def _object_storage_configured() -> bool:
+    return bool(
+        OBJECT_STORAGE_ENDPOINT and OBJECT_STORAGE_BUCKET
+        and OBJECT_STORAGE_ACCESS_KEY and OBJECT_STORAGE_SECRET_KEY
+        and OBJECT_STORAGE_CDN_BASE_URL
+    )
+
+
+def _get_s3_client():
+    global _s3_client
+    if _s3_client is None:
+        _s3_client = boto3.client(
+            "s3", endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_KEY,
+            config=BotoConfig(signature_version="s3v4"),
+        )
+    return _s3_client
+
+
+def _ics_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;").replace("\n", "\\n")
+
+
+def build_ics(uid: str, summary: str, start: datetime, end: datetime) -> bytes:
+    def fmt(dt: datetime) -> str:
+        return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//AtendPraGente//Agendamento//PT",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "BEGIN:VEVENT",
+        f"UID:{uid}@atendpragente.com.br",
+        f"DTSTAMP:{fmt(datetime.now(timezone.utc))}",
+        f"DTSTART:{fmt(start)}",
+        f"DTEND:{fmt(end)}",
+        f"SUMMARY:{_ics_escape(summary)}",
+        "END:VEVENT",
+        "END:VCALENDAR",
+    ]
+    return ("\r\n".join(lines) + "\r\n").encode("utf-8")
+
+
+def upload_ics(tenant_id: str, ics_bytes: bytes) -> str | None:
+    """Melhor esforço — não derruba o agendamento se o bucket estiver
+    fora do ar ou não configurado."""
+    if not _object_storage_configured():
+        return None
+    key = f"{ICS_PREFIX}/{tenant_id}/{uuid.uuid4().hex}.ics"
+    try:
+        _get_s3_client().put_object(
+            Bucket=OBJECT_STORAGE_BUCKET, Key=key, Body=ics_bytes,
+            ContentType="text/calendar; charset=utf-8", ACL="public-read",
+        )
+    except Exception:
+        return None
+    return f"{OBJECT_STORAGE_CDN_BASE_URL}/{key}"
 
 
 def _load_service_account_info() -> dict | None:
@@ -89,7 +166,7 @@ def _parse_start(data_hora_inicio_iso: str) -> datetime:
     return dt
 
 
-def check_and_book(calendar_email: str, start: datetime, duration_minutes: int, titulo: str) -> dict:
+def check_and_book(calendar_email: str, start: datetime, duration_minutes: int, titulo: str, tenant_id: str) -> dict:
     service = _get_calendar_service()
     end = start + timedelta(minutes=duration_minutes)
 
@@ -144,10 +221,14 @@ def check_and_book(calendar_email: str, start: datetime, duration_minutes: int, 
         else:
             return {"ok": False, "motivo": "erro_google", "detalhe": str(e)}
 
+    ics_bytes = build_ics(created.get("id", uuid.uuid4().hex), titulo, start, end)
+    link_ics = upload_ics(tenant_id, ics_bytes)
+
     return {
         "ok": True,
         "link_evento": created.get("htmlLink"),
         "link_meet": created.get("hangoutLink"),  # None se essa conta não suporta Meet via API
+        "link_ics": link_ics,  # None se o bucket não estiver configurado — nunca bloqueia o agendamento
     }
 
 
@@ -164,9 +245,11 @@ def criar_agendamento(data_hora_inicio_iso: str, titulo: str) -> dict:
     `titulo`: assunto do agendamento (ex: "Consulta com Fulano").
     Duração vem da configuração do negócio no painel (padrão 30 minutos).
 
-    Devolve {"ok": true, "link_evento": ..., "link_meet": ...} se
-    conseguiu marcar (`link_meet` pode vir null — normal, sem problema),
-    ou {"ok": false, "motivo": "..."} se não —
+    Devolve {"ok": true, "link_evento": ..., "link_meet": ..., "link_ics": ...}
+    se conseguiu marcar (`link_meet`/`link_ics` podem vir null — normal,
+    sem problema; `link_ics` é um arquivo de convite universal, funciona
+    em qualquer app de calendário, não só Google — sempre mande esse
+    junto se vier preenchido), ou {"ok": false, "motivo": "..."} se não —
     motivos possíveis: "horario_ocupado" (peça outro horário, nunca
     insista no mesmo nem invente disponibilidade), "agenda_nao_configurada"
     (esse negócio ainda não configurou a agenda), "sem_acesso_a_agenda"
@@ -183,7 +266,7 @@ def criar_agendamento(data_hora_inicio_iso: str, titulo: str) -> dict:
     except ValueError:
         return {"ok": False, "motivo": "data_invalida"}
 
-    return check_and_book(calendar_email, start, duracao, titulo)
+    return check_and_book(calendar_email, start, duracao, titulo, tenant["tenant_id"])
 
 
 class TenantAuthMiddleware(BaseHTTPMiddleware):
