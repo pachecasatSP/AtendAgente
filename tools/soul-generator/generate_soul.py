@@ -74,9 +74,13 @@ def build_catalog_block(config: dict) -> str:
         "`/opt/data/catalogo.csv` (nome, preço, categoria, descrição — "
         "um por linha). Use a ferramenta de leitura de arquivo pra "
         "consultar preços e detalhes quando o cliente perguntar sobre "
-        "algo específico. Não invente item nem preço que não esteja lá "
-        "— se não achar, diga que vai confirmar. Pra mostrar o catálogo "
-        f"inteiro, pode mandar o link da vitrine: `{vitrine_url}`.\n"
+        "algo específico. **Releia o arquivo toda vez que o assunto for "
+        "produto/preço, mesmo que já tenha lido antes na mesma conversa** "
+        "— o catálogo pode mudar a qualquer momento (item novo, preço "
+        "atualizado), e responder com uma leitura antiga é o mesmo erro "
+        "que inventar informação. Não invente item nem preço que não "
+        "esteja lá — se não achar, diga que vai confirmar. Pra mostrar o "
+        f"catálogo inteiro, pode mandar o link da vitrine: `{vitrine_url}`.\n"
     )
 
 
