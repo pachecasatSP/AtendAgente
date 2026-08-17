@@ -65,10 +65,9 @@ legend { font-family: var(--font-display); font-weight: 800; font-size: 0.95rem;
 label { display: block; margin-top: 1rem; font-weight: 800; font-size: 0.88rem; }
 label:first-of-type { margin-top: 0; }
 .hint { font-weight: 500; color: var(--ink-faint); font-size: 0.78rem; margin-top: 0.2rem; }
-.conn-info { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; margin: 0; }
-.conn-info dt { font-weight: 700; color: var(--ink-faint); font-size: 0.82rem; }
-.conn-info dd { margin: 0; font-size: 0.88rem; }
-.conn-info code { font-family: 'Courier New', monospace; font-size: 0.82rem; background: var(--paper); padding: 0.1rem 0.4rem; border-radius: 6px; }
+.conn-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.9rem; margin: 0; font-size: 0.68rem; color: var(--ink-soft); }
+.conn-info strong { color: var(--ink-faint); font-weight: 700; margin-right: 0.2rem; }
+.conn-info code { font-family: 'Courier New', monospace; font-size: 0.64rem; background: var(--paper); padding: 0.05rem 0.3rem; border-radius: 5px; }
 input[type=text], textarea {
   width: 100%; padding: 0.6rem 0.75rem; margin-top: 0.35rem;
   border: 1px solid var(--line); background: var(--paper); color: var(--ink);
@@ -154,11 +153,11 @@ button.secondary {
   <div class="card">
     <div class="tenant-tag">{{ tenant_id }}</div>
     <h2>Conexão do WhatsApp</h2>
-    <dl class="conn-info">
-      <dt>Número</dt><dd>{{ whatsapp_numero or "não disponível" }}</dd>
-      <dt>Phone Number ID</dt><dd><code>{{ whatsapp_phone_number_id or "—" }}</code></dd>
-      <dt>WABA ID</dt><dd><code>{{ whatsapp_waba_id or "—" }}</code></dd>
-    </dl>
+    <div class="conn-info">
+      <span class="conn-item"><strong>Número:</strong> {{ whatsapp_numero or "não disponível" }}</span>
+      <span class="conn-item"><strong>Phone Number ID:</strong> <code>{{ whatsapp_phone_number_id or "—" }}</code></span>
+      <span class="conn-item"><strong>WABA ID:</strong> <code>{{ whatsapp_waba_id or "—" }}</code></span>
+    </div>
   </div>
 
   <div class="card">
