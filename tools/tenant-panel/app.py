@@ -12,6 +12,14 @@ PANEL_SETUP_TOKEN). Depois disso é login por formulário normal, sessão
 em cookie assinado (SessionMiddleware). Nada de HTTP Basic — evita o
 popup nativo do navegador e permite logout de verdade.
 
+"Esqueci minha senha": não tem fluxo nessa aplicação — o cliente pede
+pra Duda (WhatsApp) direto, ela confirma o CPF/CNPJ do cadastro e usa a
+ferramenta `resetar_senha` (admin-mcp), sem PIN, validação é o próprio
+dado bater com o signup. Isso apaga o doc de panel_auth e reabre o
+mesmo link de /painel/setup?token=... de uso único gerado no
+provisionamento (nunca expira, só ficava bloqueado enquanto já havia
+usuário/senha configurados).
+
 Layout de duas colunas (lista à esquerda, thread à direita, estilo
 WhatsApp Web) — a lista/thread carregam via fetch (rotas /painel/api/*),
 sem reload de página. O badge de "não lidas" é calculado só no
@@ -352,6 +360,9 @@ def configuracoes_page(request: Request):
             "soul_pending_error": (signup or {}).get("soul_pending_error"),
             "soul_applied_at_fmt": fmt_ts((signup or {}).get("soul_applied_at").timestamp()) if (signup or {}).get("soul_applied_at") else None,
             "cancelamento_status": (signup or {}).get("cancelamento_status"),
+            "whatsapp_waba_id": (config.get("whatsapp") or {}).get("waba_id"),
+            "whatsapp_phone_number_id": (config.get("whatsapp") or {}).get("phone_number_id"),
+            "whatsapp_numero": (signup or {}).get("display_phone_number"),
             "tom_descricao": tom.get("descricao", ""),
             "tom_emoji": tom.get("emoji", ""),
             "escalacao_nome": escalacao.get("nome", ""),

@@ -65,6 +65,10 @@ legend { font-family: var(--font-display); font-weight: 800; font-size: 0.95rem;
 label { display: block; margin-top: 1rem; font-weight: 800; font-size: 0.88rem; }
 label:first-of-type { margin-top: 0; }
 .hint { font-weight: 500; color: var(--ink-faint); font-size: 0.78rem; margin-top: 0.2rem; }
+.conn-info { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; margin: 0; }
+.conn-info dt { font-weight: 700; color: var(--ink-faint); font-size: 0.82rem; }
+.conn-info dd { margin: 0; font-size: 0.88rem; }
+.conn-info code { font-family: 'Courier New', monospace; font-size: 0.82rem; background: var(--paper); padding: 0.1rem 0.4rem; border-radius: 6px; }
 input[type=text], textarea {
   width: 100%; padding: 0.6rem 0.75rem; margin-top: 0.35rem;
   border: 1px solid var(--line); background: var(--paper); color: var(--ink);
@@ -145,6 +149,16 @@ button.secondary {
       <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
     </div>
     <a href="/painel" class="back-link">&larr; Voltar pras conversas</a>
+  </div>
+
+  <div class="card">
+    <div class="tenant-tag">{{ tenant_id }}</div>
+    <h2>Conexão do WhatsApp</h2>
+    <dl class="conn-info">
+      <dt>Número</dt><dd>{{ whatsapp_numero or "não disponível" }}</dd>
+      <dt>Phone Number ID</dt><dd><code>{{ whatsapp_phone_number_id or "—" }}</code></dd>
+      <dt>WABA ID</dt><dd><code>{{ whatsapp_waba_id or "—" }}</code></dd>
+    </dl>
   </div>
 
   <div class="card">
