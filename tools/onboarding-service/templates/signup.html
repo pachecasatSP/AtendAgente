@@ -79,7 +79,7 @@ body {
 .card > * { min-width: 0; }
 .g-eyebrow { grid-area: eyebrow; }
 .g-intro { grid-area: intro; }
-.g-chat { grid-area: chat; }
+.g-chat { grid-area: chat; display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.6rem; }
 .g-benefits { grid-area: benefits; }
 .g-cta { grid-area: cta; }
 
@@ -102,7 +102,7 @@ body {
       "cta     chat";
     align-items: start;
   }
-  .g-chat { align-self: stretch; display: flex; flex-direction: column; justify-content: center; }
+  .g-chat { align-self: start; }
   .benefits, .reassure { text-align: left; }
 }
 .eyebrow {
@@ -148,6 +148,25 @@ p { color: var(--ink-soft); margin: 0 0 1.6rem; font-size: 1.02rem; }
   box-shadow: inset 0 0 0 1px var(--leaf);
 }
 .reassure { color: var(--ink-faint); font-size: 0.8rem; font-weight: 600; margin: 0.9rem 0 0; }
+.g-steps { list-style: none; counter-reset: g-step; margin: 0; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 0.45rem; }
+.g-steps li { counter-increment: g-step; display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.84rem; line-height: 1.3; color: var(--ink-soft); }
+.g-steps li::before {
+  content: counter(g-step);
+  flex-shrink: 0; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--leaf-pale); color: var(--leaf-deep); font-weight: 800; font-size: 0.68rem;
+  display: flex; align-items: center; justify-content: center; margin-top: 0.05rem;
+}
+.g-warn {
+  text-align: left; font-size: 0.8rem; font-weight: 600; color: var(--ink-soft);
+  background: var(--leaf-pale); border-radius: 12px; padding: 0.65rem 0.85rem;
+}
+.g-warn p { margin: 0; line-height: 1.35; }
+.g-warn p + p { margin-top: 0.4rem; }
+.g-faq { text-align: left; }
+.g-faq summary { font-size: 0.82rem; font-weight: 700; color: var(--leaf-deep); cursor: pointer; }
+.g-faq dl { margin: 0.6rem 0 0; font-size: 0.78rem; color: var(--ink-soft); }
+.g-faq dt { font-weight: 800; color: var(--ink); margin-top: 0.4rem; }
+.g-faq dd { margin: 0.1rem 0 0; }
 .invite-expired {
   position: fixed; top: 1rem; left: 50%; transform: translateX(-50%);
   background: #FBE9E7; color: #C0392B; border-radius: 999px;
@@ -159,6 +178,39 @@ p { color: var(--ink-soft); margin: 0 0 1.6rem; font-size: 1.02rem; }
   :root:not([data-theme="light"]) .invite-expired { background: #3A1712; color: #FF8A75; }
 }
 :root[data-theme="dark"] .invite-expired { background: #3A1712; color: #FF8A75; }
+.invite-expired.desistiu-ok { background: var(--leaf-pale); color: var(--leaf-deep); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .invite-expired.desistiu-ok { background: var(--leaf-pale); color: var(--leaf-deep); }
+}
+:root[data-theme="dark"] .invite-expired.desistiu-ok { background: var(--leaf-pale); color: var(--leaf-deep); }
+
+/* Atalho escondido pra Duda gerar convite de teste — digite "duda" em
+   qualquer lugar da página pra abrir. Sem botão visível de propósito;
+   a proteção é o PIN no backend, não o painel estar difícil de achar. */
+.egg-panel {
+  position: fixed; bottom: 1.2rem; right: 1.2rem; z-index: 20;
+  background: var(--paper-card); border: 1px solid var(--line); border-radius: 16px;
+  padding: 1.1rem 1.2rem; width: 260px; text-align: left;
+  box-shadow: 0 20px 50px -20px rgba(23,35,29,0.35);
+}
+.egg-close {
+  position: absolute; top: 0.5rem; right: 0.7rem; background: none; border: none;
+  font-size: 1.1rem; line-height: 1; color: var(--ink-faint); cursor: pointer; padding: 0.2rem;
+}
+.egg-title { font-weight: 800; font-size: 0.86rem; color: var(--ink); margin: 0 0 0.8rem; }
+.egg-label { display: block; font-size: 0.76rem; font-weight: 700; color: var(--ink-soft); margin-bottom: 0.7rem; }
+.egg-label input {
+  display: block; width: 100%; margin-top: 0.3rem; box-sizing: border-box;
+  font-family: var(--font-body); font-size: 0.86rem; padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink);
+}
+.egg-optional { font-weight: 600; color: var(--ink-faint); text-transform: none; }
+.egg-gerar {
+  width: 100%; font-family: var(--font-body); font-weight: 800; font-size: 0.86rem;
+  padding: 0.55rem; background: var(--leaf); color: #fff; border: none; border-radius: 8px; cursor: pointer;
+}
+.egg-erro { margin: 0.6rem 0 0; font-size: 0.78rem; font-weight: 700; color: #C0392B; }
+.egg-resultado { margin-top: 0.8rem; }
 button {
   font-family: var(--font-body);
   font-weight: 800;
@@ -193,6 +245,9 @@ button:hover { transform: translateY(-2px); }
   {% if invite_expired %}
   <p class="invite-expired">⚠️ Esse link de convite já foi usado e não vale mais. Você ainda pode se cadastrar normalmente abaixo, só que sem o plano gratuito do convite.</p>
   {% endif %}
+  {% if desistiu %}
+  <p class="invite-expired desistiu-ok">✅ Tudo bem, cancelamos sua conexão com a Meta. Pode começar de novo quando quiser.</p>
+  {% endif %}
 
   <div class="card">
     <span class="eyebrow g-eyebrow">atendimento no zap</span>
@@ -202,9 +257,31 @@ button:hover { transform: translateY(-2px); }
       <p>Conecta seu WhatsApp e sai com um assistente treinado no seu negócio — pronto pra atender em minutos.</p>
     </div>
 
-    <div class="mini-chat g-chat" aria-hidden="true">
-      <div class="mini-bubble in">Oi! Vocês ainda atendem hoje?</div>
-      <div class="mini-bubble out">Atendemos até às 19h! Quer marcar um horário? 😊</div>
+    <div class="g-chat">
+      <div class="mini-chat" aria-hidden="true">
+        <div class="mini-bubble in">Oi! Vocês ainda atendem hoje?</div>
+        <div class="mini-bubble out">Atendemos até às 19h! Quer marcar um horário? 😊</div>
+      </div>
+
+      <ol class="g-steps">
+        <li>Você faz login com sua conta do Facebook</li>
+        <li>A Meta pede pra criar (ou escolher) o Portfólio Empresarial da sua empresa</li>
+        <li>Você confirma seu número por SMS ou ligação</li>
+      </ol>
+
+      <div class="g-warn">
+        <p>⚠️ Já tem um Portfólio Empresarial no Facebook? Selecione ele em vez de criar um novo.</p>
+        <p>Esse número passa a valer pelo WhatsApp Business API — se ele já tiver o app normal instalado, desinstale depois de conectar.</p>
+      </div>
+
+      <details class="g-faq">
+        <summary>Já tenho um Portfólio Empresarial, mas não sei onde acessar</summary>
+        <dl>
+          <dt>Conta pessoal do Facebook</dt><dd>seu login, com seu nome.</dd>
+          <dt>Página do Facebook</dt><dd>a página pública da sua empresa no Facebook (curtidas, posts).</dd>
+          <dt>Portfólio Empresarial (Business Manager)</dt><dd>o painel de administração onde ficam WhatsApp, anúncios e páginas da empresa — é esse que o cadastro pede.</dd>
+        </dl>
+      </details>
     </div>
 
     <ul class="benefits g-benefits">
@@ -220,6 +297,24 @@ button:hover { transform: translateY(-2px); }
     </div>
   </div>
 
+  <div id="egg-panel" class="egg-panel" hidden>
+    <button type="button" id="egg-close" class="egg-close" aria-label="Fechar">×</button>
+    <p class="egg-title">Gerar convite de teste</p>
+    <label class="egg-label">PIN
+      <input type="password" id="egg-pin" inputmode="numeric" autocomplete="off">
+    </label>
+    <label class="egg-label">Nota <span class="egg-optional">opcional</span>
+      <input type="text" id="egg-nota" autocomplete="off" placeholder="ex.: teste feira X">
+    </label>
+    <button type="button" id="egg-gerar" class="egg-gerar">Gerar link</button>
+    <p id="egg-erro" class="egg-erro" hidden></p>
+    <div id="egg-resultado" class="egg-resultado" hidden>
+      <label class="egg-label">Link
+        <input type="text" id="egg-link" readonly>
+      </label>
+    </div>
+  </div>
+
   <script>
     window.fbAsyncInit = function () {
       FB.init({ appId: '{{ app_id }}', autoLogAppEvents: true, xfbml: true, version: 'v21.0' });
@@ -228,6 +323,62 @@ button:hover { transform: translateY(-2px); }
   <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
 
   <script>
+    // Atalho escondido: digitar "duda" em qualquer lugar da página abre
+    // o painel de convite de teste (ver #egg-panel). A defesa real é o
+    // PIN, checado no backend — não faz sentido esconder demais isso.
+    (function () {
+      const eggPanel = document.getElementById('egg-panel');
+      const eggPin = document.getElementById('egg-pin');
+      const eggNota = document.getElementById('egg-nota');
+      const eggErro = document.getElementById('egg-erro');
+      const eggResultado = document.getElementById('egg-resultado');
+      const eggLink = document.getElementById('egg-link');
+      let buffer = '';
+
+      window.addEventListener('keydown', (e) => {
+        if (!eggPanel.hidden) return;
+        if (e.key.length !== 1) return;
+        buffer = (buffer + e.key.toLowerCase()).slice(-4);
+        if (buffer === 'duda') {
+          eggPanel.hidden = false;
+          eggPin.focus();
+        }
+      });
+
+      document.getElementById('egg-close').addEventListener('click', () => {
+        eggPanel.hidden = true;
+        eggPin.value = '';
+        eggErro.hidden = true;
+        eggResultado.hidden = true;
+      });
+
+      document.getElementById('egg-gerar').addEventListener('click', (e) => {
+        const btn = e.currentTarget;
+        eggErro.hidden = true;
+        eggResultado.hidden = true;
+        btn.disabled = true;
+        fetch('/api/easter-egg/free-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: eggPin.value, nota: eggNota.value }),
+        })
+          .then(async (r) => {
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || 'falhou');
+            return r.json();
+          })
+          .then((data) => {
+            eggLink.value = data.link;
+            eggResultado.hidden = false;
+            eggLink.select();
+          })
+          .catch((err) => {
+            eggErro.textContent = err.message || 'Não consegui gerar o convite.';
+            eggErro.hidden = false;
+          })
+          .finally(() => { btn.disabled = false; });
+      });
+    })();
+
     let wabaId = null;
     let phoneNumberId = null;
 

@@ -72,10 +72,28 @@ body {
   padding: 2.5rem 1.25rem 5rem;
 }
 .wrap { max-width: 600px; margin: 0 auto; }
-.brand { display: flex; align-items: center; gap: 0.55rem; margin-bottom: 1.8rem; }
+.brand { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-bottom: 1.8rem; flex-wrap: wrap; }
+.brand-id { display: flex; align-items: center; gap: 0.55rem; }
 .brand-mark { width: 34px; height: 34px; flex-shrink: 0; }
 .brand-word { font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; color: var(--ink); }
 .brand-word .pra { color: var(--leaf-deep); }
+
+.desistir-link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  font-family: var(--font-body); font-size: 0.8rem; font-weight: 700; color: var(--ink-faint);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.desistir-link:hover { color: var(--ink-soft); }
+.desistir-confirm { background: var(--error-bg); border-radius: 14px; padding: 0.9rem 1.1rem; margin-bottom: 1.4rem; }
+.desistir-confirm p { margin: 0 0 0.7rem; font-size: 0.86rem; font-weight: 600; color: var(--error); }
+.desistir-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.btn-secondary, .btn-danger {
+  font-family: var(--font-body); font-weight: 700; font-size: 0.85rem;
+  padding: 0.5rem 0.95rem; border-radius: 999px; cursor: pointer; border: none;
+}
+.btn-secondary { background: var(--paper-card); border: 1px solid var(--line); color: var(--ink-soft); }
+.btn-danger { background: var(--error); color: #fff; }
+.desistir-erro { margin: 0.7rem 0 0; font-size: 0.82rem; font-weight: 700; color: var(--error); }
 
 .erro { background: var(--error-bg); color: var(--error); padding: 0.85rem 1rem; border-radius: 12px; margin-bottom: 1.4rem; font-weight: 700; font-size: 0.92rem; }
 
@@ -106,6 +124,10 @@ body {
 @media (prefers-reduced-motion: reduce) { .step.active { animation: none; } }
 
 .step-eyebrow { font-weight: 800; font-size: 0.8rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--leaf-deep); margin: 0 0 0.5rem; }
+.confirm-banner {
+  background: var(--leaf-pale); color: var(--leaf-deep); font-weight: 700; font-size: 0.86rem;
+  border-radius: 12px; padding: 0.6rem 0.9rem; margin: 0 0 1rem;
+}
 .step h2 { font-family: var(--font-display); font-weight: 800; font-size: 1.5rem; margin: 0 0 0.4rem; text-wrap: balance; }
 .step .lead { color: var(--ink-soft); margin: 0 0 1.6rem; font-size: 1rem; }
 
@@ -223,16 +245,28 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
 <body>
   <div class="wrap">
     <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
-        <rect x="0" y="0" width="512" height="512" rx="124" fill="var(--leaf)"/>
-        <circle cx="246" cy="225" r="80" fill="none" stroke="var(--paper-card)" stroke-width="44"/>
-        <path d="M 166 210 C 180 120, 312 120, 330 215" fill="none" stroke="var(--paper-card)" stroke-width="34" stroke-linecap="round"/>
-        <circle cx="166" cy="215" r="34" fill="var(--paper-card)"/>
-        <circle cx="330" cy="215" r="34" fill="var(--paper-card)"/>
-        <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="var(--paper-card)" stroke-width="28" stroke-linecap="round"/>
-        <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
-      </svg>
-      <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
+      <div class="brand-id">
+        <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
+          <rect x="0" y="0" width="512" height="512" rx="124" fill="var(--leaf)"/>
+          <circle cx="246" cy="225" r="80" fill="none" stroke="var(--paper-card)" stroke-width="44"/>
+          <path d="M 166 210 C 180 120, 312 120, 330 215" fill="none" stroke="var(--paper-card)" stroke-width="34" stroke-linecap="round"/>
+          <circle cx="166" cy="215" r="34" fill="var(--paper-card)"/>
+          <circle cx="330" cy="215" r="34" fill="var(--paper-card)"/>
+          <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="var(--paper-card)" stroke-width="28" stroke-linecap="round"/>
+          <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
+        </svg>
+        <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
+      </div>
+      <button type="button" id="desistir-link" class="desistir-link">Desistir do cadastro</button>
+    </div>
+
+    <div id="desistir-confirm" class="desistir-confirm" hidden>
+      <p>Tem certeza? Isso desconecta seu WhatsApp da AtendPraGente — você pode começar de novo depois, quando quiser.</p>
+      <div class="desistir-actions">
+        <button type="button" id="desistir-voltar" class="btn-secondary">Continuar meu cadastro</button>
+        <button type="button" id="desistir-confirmar" class="btn-danger">Sim, desistir</button>
+      </div>
+      <p id="desistir-erro" class="desistir-erro" hidden>Não consegui desconectar agora — tenta de novo em alguns segundos.</p>
     </div>
 
     {% if erro %}<p class="erro">{{ erro }}</p>{% endif %}
@@ -252,6 +286,9 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
       <form method="post" action="/signup/{{ signup_id }}/form" id="onboarding-form" data-gratuito="{{ 'true' if gratuito else 'false' }}" novalidate>
 
         <div class="step active" data-step="1">
+          {% if display_phone_number %}
+          <p class="confirm-banner">✅ Conectamos o número {{ display_phone_number }}{% if verified_name %} ({{ verified_name }}){% endif %}.</p>
+          {% endif %}
           <div class="step-eyebrow">Vamos começar</div>
           <h2>Me conta sobre o seu negócio</h2>
           <p class="lead">Só o básico, pra gente já ir montando a apresentação do seu assistente.</p>
@@ -438,6 +475,27 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
   </div>
 
   <script>
+    const signupId = {{ signup_id | tojson }};
+    const desistirLink = document.getElementById('desistir-link');
+    const desistirConfirm = document.getElementById('desistir-confirm');
+    desistirLink.addEventListener('click', () => { desistirConfirm.hidden = false; });
+    document.getElementById('desistir-voltar').addEventListener('click', () => { desistirConfirm.hidden = true; });
+    document.getElementById('desistir-confirmar').addEventListener('click', (e) => {
+      const btn = e.currentTarget;
+      const desistirErro = document.getElementById('desistir-erro');
+      desistirErro.hidden = true;
+      btn.disabled = true;
+      btn.textContent = 'Desconectando...';
+      fetch(`/signup/${signupId}/desistir`, { method: 'POST' })
+        .then((r) => { if (!r.ok) throw new Error('falhou'); return r.json(); })
+        .then((data) => { window.location.href = data.next; })
+        .catch(() => {
+          btn.disabled = false;
+          btn.textContent = 'Sim, desistir';
+          desistirErro.hidden = false;
+        });
+    });
+
     const gratuito = document.getElementById('onboarding-form').dataset.gratuito === 'true';
     const steps = Array.from(document.querySelectorAll('.step'));
     const dots = Array.from(document.querySelectorAll('.progress .dot'));

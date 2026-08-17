@@ -168,7 +168,7 @@ def parse_label_lines(text: str) -> dict:
 
 
 @app.get("/signup", response_class=HTMLResponse)
-def signup_page(request: Request, invite: str = ""):
+def signup_page(request: Request, invite: str = "", desistiu: str = ""):
     invite = invite.strip()
     invite_expired = False
     if invite:
@@ -180,7 +180,12 @@ def signup_page(request: Request, invite: str = ""):
     return templates.TemplateResponse(
         request,
         "signup.html",
-        {"app_id": APP_ID, "config_id": CONFIG_ID, "invite_expired": invite_expired},
+        {
+            "app_id": APP_ID,
+            "config_id": CONFIG_ID,
+            "invite_expired": invite_expired,
+            "desistiu": desistiu == "1",
+        },
     )
 
 
@@ -206,7 +211,17 @@ def signup_callback(payload: dict):
     except meta_client.MetaApiError as e:
         raise HTTPException(502, str(e))
 
-    signup_id = store.create_signup(waba_id, phone_number_id, access_token)
+    # Best-effort: só enriquece o cabeçalho de confirmação do Passo 1 do
+    # wizard (ver form_page) — uma falha aqui não pode travar o cadastro.
+    display_phone_number = verified_name = None
+    try:
+        details = meta_client.get_phone_number_details(phone_number_id, access_token)
+        display_phone_number = details.get("display_phone_number")
+        verified_name = details.get("verified_name")
+    except meta_client.MetaApiError as e:
+        print(f"[signup_callback] não consegui buscar dados do número {phone_number_id}: {e}", file=sys.stderr)
+
+    signup_id = store.create_signup(waba_id, phone_number_id, access_token, display_phone_number, verified_name)
     if invite_token:
         store.update_signup(signup_id, invite_token=invite_token)
     return {"signup_id": signup_id, "next": f"/signup/{signup_id}/form"}
@@ -218,7 +233,15 @@ def form_page(signup_id: str, request: Request, erro: str | None = None):
     if not signup:
         raise HTTPException(404, "Cadastro não encontrado")
     return templates.TemplateResponse(
-        request, "form.html", {"signup_id": signup_id, "erro": erro, "gratuito": bool(signup.get("invite_token"))}
+        request,
+        "form.html",
+        {
+            "signup_id": signup_id,
+            "erro": erro,
+            "gratuito": bool(signup.get("invite_token")),
+            "display_phone_number": signup.get("display_phone_number"),
+            "verified_name": signup.get("verified_name"),
+        },
     )
 
 
@@ -301,7 +324,13 @@ def submit_form(
         return templates.TemplateResponse(
             request,
             "form.html",
-            {"signup_id": signup_id, "erro": msg, "gratuito": bool(signup.get("invite_token"))},
+            {
+                "signup_id": signup_id,
+                "erro": msg,
+                "gratuito": bool(signup.get("invite_token")),
+                "display_phone_number": signup.get("display_phone_number"),
+                "verified_name": signup.get("verified_name"),
+            },
             status_code=400,
         )
 
@@ -438,6 +467,31 @@ def submit_form(
     return RedirectResponse(checkout["link"], status_code=303)
 
 
+@app.post("/signup/{signup_id}/desistir")
+def desistir(signup_id: str):
+    """Botão "Desistir do cadastro" do wizard de SOUL — só disponível
+    antes do formulário ser enviado (status code_exchanged), porque é o
+    único momento em que "desistir" significa só desconectar o Portfólio
+    Empresarial da Meta (revoke_access), sem assinatura nem tenant
+    provisionado envolvidos. Depois do formulário enviado, desistir vira
+    cancelamento de assinatura normal (ver admin_authorize_cancellation)."""
+    signup = store.get_signup(signup_id)
+    if not signup:
+        raise HTTPException(404, "Cadastro não encontrado")
+    if signup.get("status") != "code_exchanged":
+        raise HTTPException(409, f"Cadastro não pode mais desistir por aqui (status atual: {signup.get('status')})")
+
+    try:
+        meta_client.revoke_access(signup["access_token"])
+    except meta_client.MetaApiError as e:
+        # best-effort: o cliente quer sair mesmo que a Meta não confirme a
+        # revogação (ex.: token já expirado) — não trava o desistir por isso.
+        print(f"[desistir] {signup_id}: não consegui revogar acesso na Meta: {e}", file=sys.stderr)
+
+    store.update_signup(signup_id, status="desistiu")
+    return {"ok": True, "next": "/signup?desistiu=1"}
+
+
 @app.get("/signup/{signup_id}/aguardando", response_class=HTMLResponse)
 def aguardando_pagamento(signup_id: str, request: Request):
     signup = store.get_signup(signup_id)
@@ -531,6 +585,25 @@ def admin_create_free_token(payload: dict, request: Request):
     require_admin(request)
     nota = (payload.get("nota") or "").strip()
     token = store.create_free_token(nota=nota)
+    base_url = str(request.base_url).rstrip("/")
+    return {"token": token, "link": f"{base_url}/signup?invite={token}"}
+
+
+@app.post("/api/easter-egg/free-token")
+def easter_egg_create_free_token(payload: dict, request: Request):
+    """Atalho escondido em /signup (digitar "duda") pra Duda gerar um
+    convite de teste gratuito sem precisar abrir o admin-mcp. Gatilho
+    público de propósito — a segurança não está em ser difícil de achar,
+    está no PIN: mesmo `ADMIN_PIN` que o admin-mcp usa (ver `_check_pin`
+    em tools/admin-mcp/server.py), comparado aqui do mesmo jeito
+    (secrets.compare_digest, sem timing leak). Se alguém achar o atalho
+    sem saber o PIN, não sai nada daqui — a mensagem de erro não
+    diferencia "PIN errado" de "rota não deveria existir"."""
+    pin = (payload.get("pin") or "").strip()
+    if not secrets.compare_digest(pin, os.environ.get("ADMIN_PIN", "")):
+        raise HTTPException(403, "PIN incorreto.")
+    nota = (payload.get("nota") or "").strip() or "easter egg (teste)"
+    token = store.create_free_token(nota=nota, criado_por="duda-easter-egg")
     base_url = str(request.base_url).rstrip("/")
     return {"token": token, "link": f"{base_url}/signup?invite={token}"}
 
@@ -674,6 +747,22 @@ def admin_authorize_cancellation(signup_id: str, request: Request):
     set_tenant_enabled(signup["tenant_id"], False)
     store.mark_cancelled(signup_id)
     return {"ok": True, "signup_id": signup_id, "tenant_id": signup["tenant_id"]}
+
+
+@app.post("/api/admin/tenants/{tenant_id}/password-reset")
+def admin_authorize_password_reset(tenant_id: str, payload: dict, request: Request):
+    """'Esqueci minha senha' resolvido na hora pela Duda, na conversa com
+    o cliente — sem fila, sem PIN de admin. `payload["cpf_cnpj"]` é o
+    dado que a Duda pediu pro cliente confirmar; só segue se bater com
+    o CPF/CNPJ do cadastro (signups.cpf_cnpj). Se bater, apaga o
+    usuário/senha atual do painel — reabre o link de
+    /painel/setup?token=... de uso único (mesmo token do
+    provisionamento). Não apaga conversas nem outros dados."""
+    require_admin(request)
+    signup = store.authorize_password_reset(tenant_id, payload.get("cpf_cnpj", ""))
+    if not signup:
+        raise HTTPException(403, "Não foi possível confirmar o cadastro desse tenant")
+    return {"ok": True, "tenant_id": tenant_id, "panel_setup_url": signup.get("panel_setup_url")}
 
 
 @app.get("/health")

@@ -21,9 +21,16 @@ _client = MongoClient(MONGO_URI)
 _db = _client.get_default_database()
 _signups = _db["signups"]
 _free_tokens = _db["free_tokens"]
+_panel_auth = _db["panel_auth"]
 
 
-def create_signup(waba_id: str, phone_number_id: str, access_token: str) -> str:
+def create_signup(
+    waba_id: str,
+    phone_number_id: str,
+    access_token: str,
+    display_phone_number: str | None = None,
+    verified_name: str | None = None,
+) -> str:
     signup_id = uuid.uuid4().hex
     now = datetime.now(timezone.utc)
     _signups.insert_one(
@@ -32,6 +39,8 @@ def create_signup(waba_id: str, phone_number_id: str, access_token: str) -> str:
             "waba_id": waba_id,
             "phone_number_id": phone_number_id,
             "access_token": access_token,
+            "display_phone_number": display_phone_number,
+            "verified_name": verified_name,
             "tenant_id": None,
             "status": "code_exchanged",
             "plano": "trial",
@@ -167,6 +176,33 @@ def request_cancellation(tenant_id: str) -> None:
             "cancelamento_solicitado_em": datetime.now(timezone.utc),
         }},
     )
+
+
+# ── "Esqueci minha senha" — a Duda resolve na hora, na conversa ────────
+#
+# Sem fila, sem PIN de admin: o cliente pede o reset direto pra Duda no
+# WhatsApp, ela pede o CPF/CNPJ do cadastro e chama `resetar_senha`
+# (admin-mcp). A validação de identidade é esse dado batendo com
+# signups.cpf_cnpj — nunca a IA decidindo sozinha, é o servidor
+# comparando dígito a dígito (normalizado, sem pontuação).
+
+def _only_digits(valor: str) -> str:
+    return "".join(c for c in (valor or "") if c.isdigit())
+
+
+def authorize_password_reset(tenant_id: str, cpf_cnpj: str) -> dict | None:
+    """Confirma cpf_cnpj contra o cadastro do tenant; se bater, apaga o
+    usuário/senha atual do painel (reabre o link de setup de uso único)
+    e retorna o doc de signup (com panel_setup_url). Se não bater —
+    tenant inexistente ou CPF/CNPJ errado — retorna None sem dar pista
+    de qual dos dois foi."""
+    signup = _signups.find_one({"tenant_id": tenant_id, "status": "live"})
+    if not signup:
+        return None
+    if not secrets.compare_digest(_only_digits(cpf_cnpj), _only_digits(signup.get("cpf_cnpj", ""))):
+        return None
+    _panel_auth.delete_one({"_id": tenant_id})
+    return signup
 
 
 def mark_cancelled(signup_id: str) -> None:

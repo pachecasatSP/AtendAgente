@@ -253,7 +253,14 @@ def build_service_manifest() -> str:
     start_cmd = (
         f"{kubectl_install} && "
         "pip install --quiet --no-cache-dir -r /app/onboarding-service/requirements.txt && "
-        "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir /app/onboarding-service"
+        "python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir /app/onboarding-service "
+        # Sem isso, request.base_url (usado nos links de convite gratuito e
+        # nas URLs de retorno da Asaas) vem sempre como "http://" — o
+        # Traefik da Ingress manda X-Forwarded-Proto: https certinho, mas
+        # uvicorn só confia nesse header vindo de 127.0.0.1 por padrão, e o
+        # Traefik roda noutro pod. '*' é seguro aqui porque o Service só é
+        # alcançável de dentro do cluster (ClusterIP), sem exposição direta.
+        "--proxy-headers --forwarded-allow-ips='*'"
     )
     return f"""\
 apiVersion: apps/v1
