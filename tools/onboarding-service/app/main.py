@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -290,6 +290,7 @@ def _run_provisioning(signup_id: str, signup: dict) -> dict:
 def submit_form(
     signup_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     tenant_id: str = Form(...),
     nome_negocio: str = Form(...),
     nome_atendente: str = Form(""),
@@ -399,10 +400,15 @@ def submit_form(
     invite_token = signup.get("invite_token")
     if invite_token:
         # Cadastro gratuito (token gerado pela Duda) — pula a Asaas
-        # inteira e provisiona na hora, sem esperar webhook de pagamento.
+        # inteira. Provisiona em background (BackgroundTasks, rodado após a
+        # resposta): antes disso _run_provisioning rodava síncrono aqui
+        # dentro, então "Ativar meu atendimento" ficava girando pelo tempo
+        # inteiro do provisionamento (kubectl rollout, dezenas de segundos)
+        # antes do navegador sequer trocar de tela — agora o clique já leva
+        # pra /aguardando, que faz polling a cada 4s até sair "live".
         store.update_signup(
             signup_id,
-            status="payment_pending",  # _run_provisioning espera achar o signup com config já setado
+            status="provisioning",
             tenant_id=tenant_id,
             config=config,
             plano=plano,
@@ -417,11 +423,15 @@ def submit_form(
             comunicacoes_aceito=comunicacoes_ok,
         )
         store.mark_free_token_used(invite_token, signup_id)
-        signup = store.get_signup(signup_id)
-        try:
-            _run_provisioning(signup_id, signup)
-        except ProvisionError as e:
-            store.update_signup(signup_id, status="failed", erro=str(e))
+
+        def _provisionar_convite_gratuito() -> None:
+            fresh_signup = store.get_signup(signup_id)
+            try:
+                _run_provisioning(signup_id, fresh_signup)
+            except ProvisionError as e:
+                store.update_signup(signup_id, status="failed", erro=str(e))
+
+        background_tasks.add_task(_provisionar_convite_gratuito)
         return RedirectResponse(f"/signup/{signup_id}/aguardando", status_code=303)
 
     base_url = str(request.base_url).rstrip("/")
