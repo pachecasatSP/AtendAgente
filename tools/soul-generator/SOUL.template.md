@@ -27,6 +27,7 @@ ${tone_description}
 ${services_block}
 ${catalog_block}
 ${agenda_block}
+${payment_block}
 # Como a gente trabalha
 
 Informação genérica pra dar contexto na conversa — não é compromisso

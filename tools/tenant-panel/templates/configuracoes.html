@@ -62,19 +62,22 @@ h2 { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; mar
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 fieldset { border: none; padding: 0; margin: 0 0 1.4rem; }
 legend { font-family: var(--font-display); font-weight: 800; font-size: 0.95rem; margin-bottom: 0.5rem; padding: 0; }
+[hidden] { display: none !important; }
 label { display: block; margin-top: 1rem; font-weight: 800; font-size: 0.88rem; }
 label:first-of-type { margin-top: 0; }
+.checkbox-row { display: flex; align-items: center; gap: 0.5rem; }
+.checkbox-row input[type=checkbox] { width: auto; margin: 0; }
 .hint { font-weight: 500; color: var(--ink-faint); font-size: 0.78rem; margin-top: 0.2rem; }
 .conn-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.9rem; margin: 0; font-size: 0.68rem; color: var(--ink-soft); }
 .conn-info strong { color: var(--ink-faint); font-weight: 700; margin-right: 0.2rem; }
 .conn-info code { font-family: 'Courier New', monospace; font-size: 0.64rem; background: var(--paper); padding: 0.05rem 0.3rem; border-radius: 5px; }
-input[type=text], textarea {
+input[type=text], input[type=date], select, textarea {
   width: 100%; padding: 0.6rem 0.75rem; margin-top: 0.35rem;
   border: 1px solid var(--line); background: var(--paper); color: var(--ink);
   border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 0.94rem;
 }
 textarea { resize: vertical; min-height: 4.5rem; font-family: 'Courier New', monospace; font-size: 0.85rem; }
-input:focus, textarea:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
 .row { display: flex; gap: 0.8rem; align-items: flex-end; }
 .row > label { flex: 1; min-width: 0; margin-top: 0; }
 .row > label.field-narrow { flex: 0 0 96px; }
@@ -224,13 +227,25 @@ button.secondary {
         </label>
       </fieldset>
 
+      <fieldset>
+        <legend>Pagamento</legend>
+        <label class="checkbox-row">
+          <input type="checkbox" name="pagamento_pix_ativo" id="pix-ativo-field" {% if pagamento_pix_ativo %}checked{% endif %}>
+          Aceito pagamento via PIX
+        </label>
+        <label id="pix-chave-label" {% if not pagamento_pix_ativo %}hidden{% endif %}>Chave PIX
+          <input type="text" name="pagamento_pix_chave" maxlength="140" value="{{ pagamento_pix_chave }}">
+          <div class="hint">Com PIX ativo, quando o cliente perguntar sobre pagamento o bot pergunta PIX ou cartão: se for PIX, passa essa chave; se for cartão, avisa que a maquininha vai até o cliente.</div>
+        </label>
+      </fieldset>
+
       <button type="submit" id="save-btn">Salvar alterações</button>
     </form>
   </div>
 
   <div class="card">
-    <h1>Catálogo de produtos</h1>
-    <p class="lead">Cadastre o que você vende — o bot consulta pra responder preço e detalhes, e você pode mandar o link da vitrine pro cliente: <a class="vitrine-link" href="/vitrine" target="_blank" rel="noopener">/vitrine</a>.</p>
+    <h1>Catálogo</h1>
+    <p class="lead">Cadastre produtos, serviços ou eventos — o bot consulta pra responder preço e detalhes, e você pode mandar o link da vitrine pro cliente: <a class="vitrine-link" href="/vitrine" target="_blank" rel="noopener">/vitrine</a>.</p>
 
     <div id="catalogo-status" class="soul-status">
       <span id="catalogo-status-dot" class="soul-status-dot {{ 'erro' if catalogo_pending_error else ('pending' if catalogo_pending else 'ok') }}"></span>
@@ -253,15 +268,19 @@ button.secondary {
 
     <div id="produto-list" class="produto-list">
       {% for item in catalogo_itens %}
-        <div class="produto-row {{ '' if item.ativo else 'inativo' }}" data-id="{{ item.id }}" data-slug="{{ item.slug }}">
+        <div class="produto-row {{ '' if item.ativo else 'inativo' }}"
+             data-id="{{ item.id }}" data-slug="{{ item.slug }}" data-nome="{{ item.nome }}"
+             data-preco="{{ item.preco }}" data-categoria="{{ item.categoria }}"
+             data-descricao="{{ item.descricao }}" data-tipo="{{ item.tipo }}"
+             data-data-evento="{{ item.data_evento }}" data-horario-atendimento="{{ item.horario_atendimento }}">
           {% if item.foto_url %}
             <img class="produto-thumb" src="{{ item.foto_url }}" alt="">
           {% else %}
-            <div class="produto-thumb">📦</div>
+            <div class="produto-thumb">{{ {'produto': '📦', 'servico': '🛠️', 'evento': '📅'}[item.tipo] }}</div>
           {% endif %}
           <div class="produto-info">
             <p class="produto-nome">{{ item.nome }}{% if not item.ativo %} (inativo){% endif %}</p>
-            <p class="produto-meta">R$ {{ "%.2f"|format(item.preco or 0) }}{% if item.categoria %} · {{ item.categoria }}{% endif %} · {{ item.slug }}</p>
+            <p class="produto-meta">{{ {'produto': 'Produto', 'servico': 'Serviço', 'evento': 'Evento'}[item.tipo] }} · R$ {{ "%.2f"|format(item.preco or 0) }}{% if item.categoria %} · {{ item.categoria }}{% endif %}{% if item.tipo == 'evento' and item.data_evento %} · 📅 {{ item.data_evento | data_br }}{% endif %}{% if item.tipo == 'servico' and item.horario_atendimento %} · 🕒 {{ item.horario_atendimento }}{% endif %} · {{ item.slug }}</p>
           </div>
           <div class="produto-acoes">
             <label class="foto-upload-btn">
@@ -269,18 +288,27 @@ button.secondary {
               Foto
               <input type="file" accept="image/jpeg,image/png,image/webp" class="foto-input" {{ '' if fotos_configuradas else 'disabled' }}>
             </label>
+            <button type="button" class="editar">Editar</button>
             <button type="button" class="toggle-ativo">{{ 'Desativar' if item.ativo else 'Ativar' }}</button>
             <button type="button" class="excluir">Excluir</button>
           </div>
         </div>
       {% else %}
-        <p class="hint">Nenhum produto cadastrado ainda.</p>
+        <p class="hint">Nenhum item cadastrado ainda.</p>
       {% endfor %}
     </div>
 
     <fieldset>
-      <legend>Novo produto</legend>
+      <legend id="produto-form-legend">Novo item</legend>
       <form id="produto-form">
+        <input type="hidden" name="edit_item_id" value="">
+        <label>Tipo
+          <select name="tipo" id="produto-tipo-field">
+            <option value="produto">Produto</option>
+            <option value="servico">Serviço</option>
+            <option value="evento">Evento</option>
+          </select>
+        </label>
         <div class="row">
           <label>Nome
             <input type="text" name="nome" required maxlength="120">
@@ -292,16 +320,25 @@ button.secondary {
         <label>Categoria (opcional)
           <input type="text" name="categoria" maxlength="60">
         </label>
+        <label id="produto-data-evento-label" class="campo-tipo" hidden>Data do evento
+          <input type="date" name="data_evento">
+        </label>
+        <label id="produto-horario-label" class="campo-tipo" hidden>Horário de atendimento
+          <input type="text" name="horario_atendimento" maxlength="120" placeholder="Ex: seg a sex, 9h às 18h">
+        </label>
         <label>Descrição
           <textarea name="descricao" maxlength="400" rows="2"></textarea>
         </label>
-        <button type="submit" id="produto-save-btn">Adicionar produto</button>
+        <div class="row">
+          <button type="submit" id="produto-save-btn">Adicionar item</button>
+          <button type="button" id="produto-cancelar-edicao" class="secondary" hidden>Cancelar edição</button>
+        </div>
       </form>
     </fieldset>
 
     <fieldset>
       <legend>Import em massa</legend>
-      <label>Planilha CSV (colunas: nome, descricao, preco, categoria)
+      <label>Planilha CSV (colunas: nome, descricao, preco, categoria, tipo, data_evento, horario_atendimento — as três últimas são opcionais; tipo pode ser produto, servico ou evento)
         <div class="file-upload">
           <span class="file-upload-btn">
             <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
@@ -377,6 +414,13 @@ button.secondary {
     const statusText = document.getElementById('soul-status-text');
     const soulApplyMinutes = {{ soul_apply_minutes }};
     let pollTimer = null;
+
+    const pixAtivoField = document.getElementById('pix-ativo-field');
+    const pixChaveLabel = document.getElementById('pix-chave-label');
+    function updatePixChaveVisibility() {
+      pixChaveLabel.hidden = !pixAtivoField.checked;
+    }
+    pixAtivoField.addEventListener('change', updatePixChaveVisibility);
 
     function renderSoulStatus(s) {
       if (s.soul_pending_error) {
@@ -536,27 +580,73 @@ button.secondary {
     if (document.querySelector('#catalogo-status-dot.pending')) startCatalogoPolling();
 
     const produtoForm = document.getElementById('produto-form');
+    const produtoTipoField = document.getElementById('produto-tipo-field');
+    const produtoDataEventoLabel = document.getElementById('produto-data-evento-label');
+    const produtoHorarioLabel = document.getElementById('produto-horario-label');
+    const produtoFormLegend = document.getElementById('produto-form-legend');
+    const produtoSaveBtn = document.getElementById('produto-save-btn');
+    const produtoCancelarBtn = document.getElementById('produto-cancelar-edicao');
+    const produtoEditIdField = produtoForm.elements['edit_item_id'];
+
+    function updateProdutoTipoFields() {
+      const tipo = produtoTipoField.value;
+      produtoDataEventoLabel.hidden = tipo !== 'evento';
+      produtoHorarioLabel.hidden = tipo !== 'servico';
+    }
+    produtoTipoField.addEventListener('change', updateProdutoTipoFields);
+    updateProdutoTipoFields();
+
+    function resetProdutoForm() {
+      produtoForm.reset();
+      produtoEditIdField.value = '';
+      produtoFormLegend.textContent = 'Novo item';
+      produtoSaveBtn.textContent = 'Adicionar item';
+      produtoCancelarBtn.hidden = true;
+      updateProdutoTipoFields();
+    }
+    produtoCancelarBtn.addEventListener('click', resetProdutoForm);
+
+    document.querySelectorAll('.produto-row .editar').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const row = btn.closest('.produto-row');
+        produtoEditIdField.value = row.dataset.id;
+        produtoForm.elements['nome'].value = row.dataset.nome || '';
+        produtoForm.elements['preco'].value = row.dataset.preco || '';
+        produtoForm.elements['categoria'].value = row.dataset.categoria || '';
+        produtoForm.elements['descricao'].value = row.dataset.descricao || '';
+        produtoTipoField.value = row.dataset.tipo || 'produto';
+        produtoForm.elements['data_evento'].value = row.dataset.dataEvento || '';
+        produtoForm.elements['horario_atendimento'].value = row.dataset.horarioAtendimento || '';
+        updateProdutoTipoFields();
+        produtoFormLegend.textContent = `Editando "${row.dataset.nome}"`;
+        produtoSaveBtn.textContent = 'Salvar alterações';
+        produtoCancelarBtn.hidden = false;
+        produtoForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+
     produtoForm.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn = document.getElementById('produto-save-btn');
-      btn.disabled = true;
+      produtoSaveBtn.disabled = true;
       const data = Object.fromEntries(new FormData(produtoForm).entries());
       data.preco = (data.preco || '0').replace(',', '.');
+      const editId = data.edit_item_id;
+      delete data.edit_item_id;
       try {
-        const resp = await fetch('/painel/api/catalogo', {
-          method: 'POST',
+        const resp = await fetch(editId ? `/painel/api/catalogo/${editId}` : '/painel/api/catalogo', {
+          method: editId ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
         });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          throw new Error(err.detail || 'Não foi possível adicionar o produto');
+          throw new Error(err.detail || 'Não foi possível salvar o item');
         }
         location.reload();
       } catch (err) {
         alert(err.message);
       } finally {
-        btn.disabled = false;
+        produtoSaveBtn.disabled = false;
       }
     });
 

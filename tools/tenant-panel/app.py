@@ -199,6 +199,20 @@ def fmt_ts(ts) -> str:
         return str(ts)
 
 
+def fmt_data_br(iso: str) -> str:
+    """Item de tipo evento guarda data_evento como "YYYY-MM-DD" (formato
+    nativo de <input type=date>) — isso só formata pra exibição."""
+    if not iso:
+        return ""
+    try:
+        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    except ValueError:
+        return iso
+
+
+templates.env.filters["data_br"] = fmt_data_br
+
+
 @app.get("/painel", response_class=HTMLResponse)
 def panel_shell(request: Request):
     if not TENANT_ENABLED:
@@ -331,6 +345,9 @@ def _catalogo_itens_view() -> list[dict]:
             "descricao": i.get("descricao", ""),
             "preco": i.get("preco", 0),
             "categoria": i.get("categoria", ""),
+            "tipo": i.get("tipo") or "produto",
+            "data_evento": i.get("data_evento", ""),
+            "horario_atendimento": i.get("horario_atendimento", ""),
             "ativo": bool(i.get("ativo", True)),
             "foto_url": i.get("foto_url"),
         }
@@ -365,6 +382,8 @@ def configuracoes_page(request: Request):
             "whatsapp_numero": (signup or {}).get("display_phone_number"),
             "tom_descricao": tom.get("descricao", ""),
             "tom_emoji": tom.get("emoji", ""),
+            "pagamento_pix_ativo": bool(config.get("pagamento_pix_ativo")),
+            "pagamento_pix_chave": config.get("pagamento_pix_chave", ""),
             "escalacao_nome": escalacao.get("nome", ""),
             "escalacao_telefone": escalacao.get("telefone", ""),
             "escalacao_pronome": escalacao.get("pronome", "ele"),
@@ -405,6 +424,11 @@ def api_salvar_configuracoes(request: Request, payload: dict) -> dict:
     if not servicos:
         raise HTTPException(status_code=400, detail="Cadastre pelo menos um serviço")
 
+    pagamento_pix_ativo = bool(payload.get("pagamento_pix_ativo"))
+    pagamento_pix_chave = (payload.get("pagamento_pix_chave") or "").strip()
+    if pagamento_pix_ativo and not pagamento_pix_chave:
+        raise HTTPException(status_code=400, detail="Informe a chave PIX pra ativar pagamento via PIX")
+
     config = dict(signup["config"])
     config["tom"] = {"descricao": tom_descricao, "emoji": (payload.get("tom_emoji") or "").strip()}
     config["escalacao"] = {
@@ -415,6 +439,8 @@ def api_salvar_configuracoes(request: Request, payload: dict) -> dict:
     }
     config["servicos"] = servicos
     config["como_trabalhamos"] = _parse_label_lines(payload.get("como_trabalhamos") or "")
+    config["pagamento_pix_ativo"] = pagamento_pix_ativo
+    config["pagamento_pix_chave"] = pagamento_pix_chave if pagamento_pix_ativo else ""
 
     signups_col.update_one(
         {"_id": signup["_id"]},
@@ -487,6 +513,20 @@ def _mark_catalogo_pending() -> None:
     )
 
 
+TIPOS_CATALOGO = {"produto", "servico", "evento"}
+
+
+def _catalogo_tipo_fields(tipo: str, payload: dict) -> dict:
+    """Cada tipo só guarda o campo extra que faz sentido pra ele —
+    evento tem data_evento, serviço tem horario_atendimento, produto não
+    tem nenhum dos dois. Recalcula os dois de uma vez (nunca deixa lixo
+    de um tipo antigo depois de trocar o tipo do item)."""
+    return {
+        "data_evento": (payload.get("data_evento") or "").strip() if tipo == "evento" else "",
+        "horario_atendimento": (payload.get("horario_atendimento") or "").strip() if tipo == "servico" else "",
+    }
+
+
 def _find_produto(item_id: str) -> dict:
     try:
         oid = ObjectId(item_id)
@@ -523,6 +563,9 @@ def api_criar_produto(request: Request, payload: dict) -> dict:
         preco = float(payload.get("preco") or 0)
     except (TypeError, ValueError):
         raise HTTPException(status_code=400, detail="Preço inválido")
+    tipo = (payload.get("tipo") or "produto").strip().lower()
+    if tipo not in TIPOS_CATALOGO:
+        raise HTTPException(status_code=400, detail="Tipo inválido — use produto, servico ou evento")
 
     slug = _unique_slug(slugify(nome))
     now = datetime.now(timezone.utc)
@@ -533,6 +576,8 @@ def api_criar_produto(request: Request, payload: dict) -> dict:
         "descricao": (payload.get("descricao") or "").strip(),
         "preco": preco,
         "categoria": (payload.get("categoria") or "").strip(),
+        "tipo": tipo,
+        **_catalogo_tipo_fields(tipo, payload),
         "ativo": bool(payload.get("ativo", True)),
         "foto_url": None,
         "criado_em": now,
@@ -563,6 +608,12 @@ def api_editar_produto(item_id: str, request: Request, payload: dict) -> dict:
             raise HTTPException(status_code=400, detail="Preço inválido")
     if "categoria" in payload:
         update["categoria"] = (payload.get("categoria") or "").strip()
+    if "tipo" in payload:
+        tipo = (payload.get("tipo") or "produto").strip().lower()
+        if tipo not in TIPOS_CATALOGO:
+            raise HTTPException(status_code=400, detail="Tipo inválido — use produto, servico ou evento")
+        update["tipo"] = tipo
+        update.update(_catalogo_tipo_fields(tipo, payload))
     if "ativo" in payload:
         update["ativo"] = bool(payload.get("ativo"))
 
@@ -600,9 +651,10 @@ async def api_upload_foto_produto(item_id: str, request: Request, file: UploadFi
 
 @app.post("/painel/api/catalogo/import")
 async def api_importar_catalogo(request: Request, file: UploadFile = File(...)) -> dict:
-    """Import em massa via CSV (colunas nome,descricao,preco,categoria) —
-    devolve a lista nome->slug pro cliente nomear as fotos antes do
-    upload em massa (ver /painel/api/catalogo/fotos-bulk)."""
+    """Import em massa via CSV (colunas nome,descricao,preco,categoria,
+    tipo,data_evento,horario_atendimento — as três últimas são
+    opcionais) — devolve a lista nome->slug pro cliente nomear as fotos
+    antes do upload em massa (ver /painel/api/catalogo/fotos-bulk)."""
     require_session(request)
     raw = await file.read()
     try:
@@ -620,6 +672,9 @@ async def api_importar_catalogo(request: Request, file: UploadFile = File(...)) 
             preco = float((row.get("preco") or "0").replace(",", "."))
         except ValueError:
             preco = 0.0
+        tipo = (row.get("tipo") or "produto").strip().lower()
+        if tipo not in TIPOS_CATALOGO:
+            tipo = "produto"
         slug = _unique_slug(slugify(nome))
         catalogo_col.insert_one({
             "tenant_id": TENANT_ID,
@@ -628,6 +683,8 @@ async def api_importar_catalogo(request: Request, file: UploadFile = File(...)) 
             "descricao": (row.get("descricao") or "").strip(),
             "preco": preco,
             "categoria": (row.get("categoria") or "").strip(),
+            "tipo": tipo,
+            **_catalogo_tipo_fields(tipo, row),
             "ativo": True,
             "foto_url": None,
             "criado_em": now,

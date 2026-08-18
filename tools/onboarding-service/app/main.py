@@ -99,12 +99,23 @@ async def _start_soul_apply_loop() -> None:
 
 def _build_catalog_csv(tenant_id: str) -> str:
     """CSV enxuto pro `read_file` do bot — sem foto/slug, o bot não usa
-    isso pra responder (foto só aparece na /vitrine)."""
+    isso pra responder (foto só aparece na /vitrine). tipo/data_evento/
+    horario_atendimento seguem o mesmo esquema de tools/tenant-panel
+    (ver TIPOS_CATALOGO em app.py) — coluna vazia quando não se aplica
+    ao tipo do item."""
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["nome", "preco", "categoria", "descricao"])
+    writer.writerow(["nome", "tipo", "preco", "categoria", "data_evento", "horario_atendimento", "descricao"])
     for item in store.list_catalogo_ativos(tenant_id):
-        writer.writerow([item.get("nome", ""), item.get("preco", 0), item.get("categoria", ""), item.get("descricao", "")])
+        writer.writerow([
+            item.get("nome", ""),
+            item.get("tipo") or "produto",
+            item.get("preco", 0),
+            item.get("categoria", ""),
+            item.get("data_evento", ""),
+            item.get("horario_atendimento", ""),
+            item.get("descricao", ""),
+        ])
     return buf.getvalue()
 
 

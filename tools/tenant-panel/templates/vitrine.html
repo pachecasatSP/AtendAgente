@@ -50,6 +50,7 @@ h1 {
 .item-body { padding: 0.9rem 1rem 1.1rem; }
 .item-nome { font-weight: 800; font-size: 0.96rem; margin: 0 0 0.25rem; }
 .item-preco { font-family: var(--font-display); font-weight: 800; color: var(--leaf-deep); font-size: 1.05rem; margin: 0 0 0.4rem; }
+.item-quando { font-size: 0.82rem; font-weight: 700; color: var(--ink-faint); margin: 0 0 0.4rem; }
 .item-descricao { font-size: 0.85rem; color: var(--ink-soft); margin: 0; }
 .vazio { color: var(--ink-faint); text-align: center; padding: 3rem 1rem; }
 </style>
@@ -73,7 +74,7 @@ h1 {
 
   <div class="wrap">
     {% if not categorias %}
-      <p class="vazio">Ainda não há produtos cadastrados.</p>
+      <p class="vazio">Ainda não há itens cadastrados.</p>
     {% endif %}
     {% for categoria, itens in categorias.items() %}
       <div class="categoria">
@@ -89,6 +90,11 @@ h1 {
               <div class="item-body">
                 <p class="item-nome">{{ item.nome }}</p>
                 <p class="item-preco">R$ {{ "%.2f"|format(item.preco or 0) }}</p>
+                {% if item.tipo == "evento" and item.data_evento %}
+                  <p class="item-quando">📅 {{ item.data_evento | data_br }}</p>
+                {% elif item.tipo == "servico" and item.horario_atendimento %}
+                  <p class="item-quando">🕒 {{ item.horario_atendimento }}</p>
+                {% endif %}
                 {% if item.descricao %}<p class="item-descricao">{{ item.descricao }}</p>{% endif %}
               </div>
             </div>

@@ -69,16 +69,21 @@ def build_catalog_block(config: dict) -> str:
     dominio = config.get("dominio", "")
     vitrine_url = f"https://{dominio}/vitrine" if dominio else "/vitrine"
     return (
-        "\n## Catálogo de produtos\n"
-        "Você tem acesso a um catálogo de produtos/serviços em "
-        "`/opt/data/catalogo.csv` (nome, preço, categoria, descrição — "
-        "um por linha). Use a ferramenta de leitura de arquivo pra "
-        "consultar preços e detalhes quando o cliente perguntar sobre "
-        "algo específico. **Releia o arquivo toda vez que o assunto for "
-        "produto/preço, mesmo que já tenha lido antes na mesma conversa** "
-        "— o catálogo pode mudar a qualquer momento (item novo, preço "
-        "atualizado), e responder com uma leitura antiga é o mesmo erro "
-        "que inventar informação. Não invente item nem preço que não "
+        "\n## Catálogo\n"
+        "Você tem acesso a um catálogo em `/opt/data/catalogo.csv` (nome, "
+        "tipo, preço, categoria, data_evento, horario_atendimento, "
+        "descrição — um por linha). Cada item tem um tipo: **produto** "
+        "(venda normal), **serviço** (coluna horario_atendimento diz "
+        "quando ele é prestado) ou **evento** (coluna data_evento diz "
+        "quando acontece). Use a ferramenta de leitura de arquivo pra "
+        "consultar preço, horário ou data quando o cliente perguntar "
+        "sobre algo específico — pra um evento, sempre mencione a data; "
+        "pra um serviço, o horário de atendimento. **Releia o arquivo "
+        "toda vez que o assunto for produto/serviço/evento/preço, mesmo "
+        "que já tenha lido antes na mesma conversa** — o catálogo pode "
+        "mudar a qualquer momento (item novo, preço atualizado), e "
+        "responder com uma leitura antiga é o mesmo erro que inventar "
+        "informação. Não invente item, preço, data ou horário que não "
         "esteja lá — se não achar, diga que vai confirmar. Pra mostrar o "
         f"catálogo inteiro, pode mandar o link da vitrine: `{vitrine_url}`.\n"
     )
@@ -106,6 +111,25 @@ def build_agenda_block(config: dict) -> str:
         "Meet e o arquivo de convite (.ics) — esse último funciona em "
         "qualquer app de calendário, não só Google, então sempre mande "
         "junto quando disponível.\n"
+    )
+
+
+def build_payment_block(config: dict) -> str:
+    """Vazio até o tenant ativar pagamento via PIX no painel
+    (config.pagamento_pix_ativo, ver tools/tenant-panel/app.py) — sem
+    PIX ativo, o bot não tem nada de específico a dizer sobre forma de
+    pagamento, então o bloco some (fica no que o resto do SOUL já diz)."""
+    if not config.get("pagamento_pix_ativo") or not config.get("pagamento_pix_chave"):
+        return ""
+    chave = config["pagamento_pix_chave"]
+    return (
+        "\n## Pagamento\n"
+        "Se o cliente perguntar como pagar, pergunte se prefere PIX ou "
+        "cartão. Se escolher PIX, passe a chave: "
+        f"`{chave}`. Se escolher cartão, informe que a maquininha vai "
+        "até o cliente (paga na hora, sem precisar ir a lugar nenhum "
+        "antes). Nunca invente outra chave PIX nem outra forma de "
+        "pagamento além dessas duas.\n"
     )
 
 
@@ -143,6 +167,7 @@ def render(config: dict) -> str:
         "services_block": build_services_block(config.get("servicos", [])),
         "catalog_block": build_catalog_block(config),
         "agenda_block": build_agenda_block(config),
+        "payment_block": build_payment_block(config),
         "how_we_work_block": build_how_we_work_block(config.get("como_trabalhamos", {})),
         "unknown_gaps_block": build_unknown_gaps_block(config.get("lacunas_conhecidas", [])),
         "escalation_name": escalation["nome"],
