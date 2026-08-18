@@ -18,7 +18,7 @@ import urllib.request
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Mais barato disponível hoje — constante fixa de propósito (não expor
 # como env var ainda), troca aqui quando o preço mudar.
-MODEL = "openai/gpt-5-luna"
+MODEL = "openai/gpt-5.6-luna"
 
 
 class AiAssistError(RuntimeError):

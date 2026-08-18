@@ -74,9 +74,9 @@ Estilo: `urllib.request`/`urllib.error` puro (stdlib), mesmo padrão de
 `meta_client.py`/`asaas_client.py` — sem dependência nova no
 `requirements.txt`.
 
-**Modelo:** `openai/gpt-5-luna` via OpenRouter, fixo por enquanto (é o mais
+**Modelo:** `openai/gpt-5.6-luna` via OpenRouter, fixo por enquanto (é o mais
 barato disponível hoje) — não expor como env var configurável nessa v1,
-só uma constante `MODEL = "openai/gpt-5-luna"` no topo do módulo, fácil de
+só uma constante `MODEL = "openai/gpt-5.6-luna"` no topo do módulo, fácil de
 trocar quando o preço mudar.
 
 Prompt por campo (system prompt fixo por `field`, guarda no próprio
