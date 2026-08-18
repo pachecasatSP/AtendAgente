@@ -52,6 +52,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from pymongo import MongoClient
 
+import ai_assist
 import storage
 
 TENANT_ID = os.environ["TENANT_ID"]
@@ -450,6 +451,50 @@ def api_salvar_configuracoes(request: Request, payload: dict) -> dict:
         },
     )
     return {"ok": True, "soul_apply_minutes": SOUL_APPLY_MINUTES}
+
+
+@app.post("/painel/api/ai-assist")
+def api_ai_assist(request: Request, payload: dict) -> dict:
+    """Botão "Ajudar" nos campos difíceis de Configurações (ver
+    specs/assistente-ia-configuracoes.md). Diferente do wizard, aqui o
+    contexto vem do config já salvo no Mongo — o cliente já é um tenant
+    live, não um cadastro em andamento."""
+    require_session(request)
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    config = (signup or {}).get("config") or {}
+
+    field = (payload.get("field") or "").strip()
+    hint = (payload.get("hint") or "").strip()
+    context = {
+        "nome_negocio": config.get("nome_negocio", ""),
+        "descricao_negocio": config.get("descricao_negocio", ""),
+        "tom_descricao": (config.get("tom") or {}).get("descricao", ""),
+        "servicos": _format_pipe_lines(config.get("servicos"), ["nome", "descricao", "publico_alvo"]),
+        "como_trabalhamos": _format_label_lines(config.get("como_trabalhamos")),
+    }
+
+    try:
+        suggestion = ai_assist.suggest_field(field, context, hint)
+    except ai_assist.AiAssistError as e:
+        db["ai_assist_usage"].insert_one({
+            "signup_id": (signup or {}).get("_id"),
+            "tenant_id": TENANT_ID,
+            "origem": "painel",
+            "field": field,
+            "sucesso": False,
+            "criado_em": datetime.now(timezone.utc),
+        })
+        raise HTTPException(status_code=502, detail=str(e))
+
+    db["ai_assist_usage"].insert_one({
+        "signup_id": (signup or {}).get("_id"),
+        "tenant_id": TENANT_ID,
+        "origem": "painel",
+        "field": field,
+        "sucesso": True,
+        "criado_em": datetime.now(timezone.utc),
+    })
+    return {"suggestion": suggestion}
 
 
 @app.get("/painel/api/soul-status")

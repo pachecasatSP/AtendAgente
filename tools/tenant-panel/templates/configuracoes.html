@@ -67,6 +67,33 @@ label { display: block; margin-top: 1rem; font-weight: 800; font-size: 0.88rem; 
 label:first-of-type { margin-top: 0; }
 .checkbox-row { display: flex; align-items: center; gap: 0.5rem; }
 .checkbox-row input[type=checkbox] { width: auto; margin: 0; }
+
+.ai-assist-btn {
+  margin: 0.4rem 0 0; padding: 0.35rem 0.7rem; font-family: var(--font-body); font-weight: 700; font-size: 0.78rem;
+  background: var(--leaf-pale); color: var(--leaf-deep); border: none; border-radius: 999px; cursor: pointer;
+}
+.ai-assist-btn:hover { filter: brightness(0.96); }
+.ai-assist-box { margin-top: 0.6rem; padding: 0.8rem 0.9rem; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
+.ai-assist-hint {
+  width: 100%; box-sizing: border-box; font-family: var(--font-body); font-size: 0.86rem; padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line); border-radius: 8px; margin: 0 0 0.6rem; background: var(--paper-card); color: var(--ink);
+}
+.ai-assist-gerar {
+  margin: 0; font-family: var(--font-body); font-weight: 700; font-size: 0.82rem; padding: 0.45rem 0.9rem;
+  background: var(--leaf); color: #fff; border: none; border-radius: 999px; cursor: pointer;
+}
+.ai-assist-erro { margin: 0.6rem 0 0; font-size: 0.8rem; font-weight: 700; color: var(--error); }
+.ai-assist-resultado { margin-top: 0.7rem; }
+.ai-assist-texto {
+  margin: 0 0 0.6rem; font-size: 0.86rem; white-space: pre-wrap; background: var(--paper-card); border: 1px solid var(--line);
+  border-radius: 8px; padding: 0.6rem 0.7rem;
+}
+.ai-assist-acoes { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.ai-assist-usar, .ai-assist-descartar {
+  margin: 0; font-family: var(--font-body); font-weight: 700; font-size: 0.8rem; padding: 0.4rem 0.8rem; border-radius: 999px; cursor: pointer;
+}
+.ai-assist-usar { background: var(--leaf); color: #fff; border: none; }
+.ai-assist-descartar { background: var(--paper-card); color: var(--ink-soft); border: 1px solid var(--line); }
 .hint { font-weight: 500; color: var(--ink-faint); font-size: 0.78rem; margin-top: 0.2rem; }
 .conn-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.9rem; margin: 0; font-size: 0.68rem; color: var(--ink-soft); }
 .conn-info strong { color: var(--ink-faint); font-weight: 700; margin-right: 0.2rem; }
@@ -191,6 +218,19 @@ button.secondary {
           <textarea name="tom_descricao" required maxlength="600">{{ tom_descricao }}</textarea>
           <div class="hint">Ex: "Português do Brasil, tom cordial e direto."</div>
         </label>
+        <button type="button" class="ai-assist-btn" data-field="tom_descricao">✨ Ajudar a escrever</button>
+        <div class="ai-assist-box" data-for="tom_descricao" hidden>
+          <input type="text" class="ai-assist-hint" placeholder="ex: descontraído mas profissional">
+          <button type="button" class="ai-assist-gerar">Gerar sugestão</button>
+          <p class="ai-assist-erro" hidden></p>
+          <div class="ai-assist-resultado" hidden>
+            <p class="ai-assist-texto"></p>
+            <div class="ai-assist-acoes">
+              <button type="button" class="ai-assist-usar">Usar esta sugestão</button>
+              <button type="button" class="ai-assist-descartar">Descartar</button>
+            </div>
+          </div>
+        </div>
         <label>Uso de emoji
           <input type="text" name="tom_emoji" maxlength="120" value="{{ tom_emoji }}">
           <div class="hint">Ex: "com moderação — no máximo um, e nem sempre"</div>
@@ -217,6 +257,19 @@ button.secondary {
         <label>Um por linha: nome | descrição | público-alvo (opcional)
           <textarea name="servicos" required rows="4">{{ servicos }}</textarea>
         </label>
+        <button type="button" class="ai-assist-btn" data-field="servicos">✨ Ajudar a escrever</button>
+        <div class="ai-assist-box" data-for="servicos" hidden>
+          <input type="text" class="ai-assist-hint" placeholder="ex: corto cabelo e faço barba, atendo em domicílio">
+          <button type="button" class="ai-assist-gerar">Gerar sugestão</button>
+          <p class="ai-assist-erro" hidden></p>
+          <div class="ai-assist-resultado" hidden>
+            <p class="ai-assist-texto"></p>
+            <div class="ai-assist-acoes">
+              <button type="button" class="ai-assist-usar">Usar esta sugestão</button>
+              <button type="button" class="ai-assist-descartar">Descartar</button>
+            </div>
+          </div>
+        </div>
       </fieldset>
 
       <fieldset>
@@ -225,6 +278,19 @@ button.secondary {
           <textarea name="como_trabalhamos" rows="4">{{ como_trabalhamos }}</textarea>
           <div class="hint">Ex: "Prazo: normalmente respondemos em até 1 dia útil"</div>
         </label>
+        <button type="button" class="ai-assist-btn" data-field="como_trabalhamos">✨ Ajudar a escrever</button>
+        <div class="ai-assist-box" data-for="como_trabalhamos" hidden>
+          <input type="text" class="ai-assist-hint" placeholder="ex: atendemos seg a sáb, das 9h às 19h">
+          <button type="button" class="ai-assist-gerar">Gerar sugestão</button>
+          <p class="ai-assist-erro" hidden></p>
+          <div class="ai-assist-resultado" hidden>
+            <p class="ai-assist-texto"></p>
+            <div class="ai-assist-acoes">
+              <button type="button" class="ai-assist-usar">Usar esta sugestão</button>
+              <button type="button" class="ai-assist-descartar">Descartar</button>
+            </div>
+          </div>
+        </div>
       </fieldset>
 
       <fieldset>
@@ -756,6 +822,65 @@ button.secondary {
       } finally {
         e.target.value = '';
         fotosZipFilename.textContent = 'Nenhum arquivo escolhido';
+      }
+    });
+
+    // Botão "✨ Ajudar" nos campos difíceis (ver
+    // specs/assistente-ia-configuracoes.md) — delegação num listener só.
+    document.addEventListener('click', async (e) => {
+      const abrirBtn = e.target.closest('.ai-assist-btn');
+      if (abrirBtn) {
+        const box = document.querySelector(`.ai-assist-box[data-for="${abrirBtn.dataset.field}"]`);
+        if (box) box.hidden = !box.hidden;
+        return;
+      }
+
+      const gerarBtn = e.target.closest('.ai-assist-gerar');
+      if (gerarBtn) {
+        const box = gerarBtn.closest('.ai-assist-box');
+        const field = box.dataset.for;
+        const hint = box.querySelector('.ai-assist-hint').value;
+        const erroEl = box.querySelector('.ai-assist-erro');
+        const resultadoEl = box.querySelector('.ai-assist-resultado');
+        erroEl.hidden = true;
+        resultadoEl.hidden = true;
+        gerarBtn.disabled = true;
+        gerarBtn.textContent = 'Pensando...';
+        try {
+          const resp = await fetch('/painel/api/ai-assist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ field, hint }),
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || 'Não consegui gerar a sugestão.');
+          }
+          const data = await resp.json();
+          box.querySelector('.ai-assist-texto').textContent = data.suggestion;
+          resultadoEl.hidden = false;
+        } catch (err) {
+          erroEl.textContent = err.message;
+          erroEl.hidden = false;
+        } finally {
+          gerarBtn.disabled = false;
+          gerarBtn.textContent = 'Gerar sugestão';
+        }
+        return;
+      }
+
+      const usarBtn = e.target.closest('.ai-assist-usar');
+      if (usarBtn) {
+        const box = usarBtn.closest('.ai-assist-box');
+        const alvo = document.querySelector(`[name="${box.dataset.for}"]`);
+        if (alvo) alvo.value = box.querySelector('.ai-assist-texto').textContent;
+        box.hidden = true;
+        return;
+      }
+
+      const descartarBtn = e.target.closest('.ai-assist-descartar');
+      if (descartarBtn) {
+        descartarBtn.closest('.ai-assist-resultado').hidden = true;
       }
     });
   </script>

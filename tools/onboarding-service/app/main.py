@@ -22,13 +22,15 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-# /app é o hostPath de tools/ inteiro — provision-tenant/ e
-# soul-generator/ são diretórios irmãos deste (tools/onboarding-service/app/main.py).
+# /app é o hostPath de tools/ inteiro — provision-tenant/, soul-generator/
+# e ai-assist/ são diretórios irmãos deste (tools/onboarding-service/app/main.py).
 _TOOLS_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_TOOLS_DIR / "provision-tenant"))
 sys.path.insert(0, str(_TOOLS_DIR / "soul-generator"))
+sys.path.insert(0, str(_TOOLS_DIR / "ai-assist"))
 from provision_tenant import ProvisionError, provision, publish_catalog, publish_soul, set_tenant_enabled, subscribe_app_to_waba, tenant_exists  # noqa: E402
 from generate_soul import render as render_soul  # noqa: E402
+import ai_assist  # noqa: E402
 
 from app import asaas_client, meta_client, store  # noqa: E402
 
@@ -511,6 +513,32 @@ def desistir(signup_id: str):
 
     store.update_signup(signup_id, status="desistiu")
     return {"ok": True, "next": "/signup?desistiu=1"}
+
+
+@app.post("/signup/{signup_id}/ai-assist")
+def ai_assist_sugerir(signup_id: str, payload: dict):
+    """Botão "Ajudar" nos campos difíceis do wizard (ver
+    specs/assistente-ia-configuracoes.md). O form ainda não foi enviado
+    nesse ponto (signup sem config salva), então o contexto vem do que o
+    cliente já digitou no navegador — payload["context"], não do Mongo."""
+    signup = store.get_signup(signup_id)
+    if not signup:
+        raise HTTPException(404, "Cadastro não encontrado")
+
+    field = (payload.get("field") or "").strip()
+    hint = (payload.get("hint") or "").strip()
+    context = payload.get("context")
+    if not isinstance(context, dict):
+        context = {}
+
+    try:
+        suggestion = ai_assist.suggest_field(field, context, hint)
+    except ai_assist.AiAssistError as e:
+        store.log_ai_assist_usage(signup_id, signup.get("tenant_id"), "wizard", field, False)
+        raise HTTPException(502, str(e))
+
+    store.log_ai_assist_usage(signup_id, signup.get("tenant_id"), "wizard", field, True)
+    return {"suggestion": suggestion}
 
 
 @app.get("/signup/{signup_id}/aguardando", response_class=HTMLResponse)

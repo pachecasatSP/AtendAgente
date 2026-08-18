@@ -228,6 +228,21 @@ def list_catalogo_pending_signups() -> list[dict]:
     return list(_signups.find({"status": "live", "catalogo_pending": True}))
 
 
+def log_ai_assist_usage(signup_id: str, tenant_id: str | None, origem: str, field: str, sucesso: bool) -> None:
+    """1 documento por clique em "Gerar sugestão" (sucesso ou falha) — ver
+    specs/assistente-ia-configuracoes.md seção 6. Não limita nem cobra
+    nada ainda, só registra pra decidir preço/limite quando essa feature
+    virar um add-on pago."""
+    _db["ai_assist_usage"].insert_one({
+        "signup_id": signup_id,
+        "tenant_id": tenant_id,
+        "origem": origem,
+        "field": field,
+        "sucesso": sucesso,
+        "criado_em": datetime.now(timezone.utc),
+    })
+
+
 def list_catalogo_ativos(tenant_id: str) -> list[dict]:
     return list(
         _db["catalogo_itens"]
