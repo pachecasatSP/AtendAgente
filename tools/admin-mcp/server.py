@@ -3,14 +3,19 @@ conecta nele, via `hermes mcp add` com `--auth header` (Bearer
 MCP_AUTH_TOKEN). Expõe: criar token de gratuidade, listar tenants, medir
 recursos de um tenant, pausar/reativar um tenant, alertar sobre tenants
 perto do limite do plano, listar cadastros travados no provisionamento e
-refazer o provisionamento de um deles.
+refazer o provisionamento de um deles, autorizar cancelamentos e
+resetar a senha do painel de um tenant.
 
 Segurança em duas camadas independentes, nenhuma delas decidida pela IA:
 1. MCP_AUTH_TOKEN — Bearer estático checado por middleware antes de
    qualquer chamada chegar nas tools (protege o endpoint em si).
-2. ADMIN_PIN — cada tool exige esse PIN como argumento; comparado no
-   servidor (secrets.compare_digest), nunca a Duda "decidindo" que quem
-   está falando é confiável. Errar o PIN nunca revela nada, só nega.
+2. Por tool: a maioria exige ADMIN_PIN como argumento, comparado no
+   servidor (secrets.compare_digest) — nunca a Duda "decidindo" que
+   quem está falando é confiável, errar o PIN nunca revela nada, só
+   nega. Exceção é `resetar_senha`: ela fala direto com o cliente (não
+   com o admin), então a prova de identidade é um dado do próprio
+   cadastro do tenant (CPF/CNPJ), também comparado no servidor — mesma
+   lógica de "nunca a IA decide", só muda o que está sendo comparado.
 
 Esse servidor não fala com kubectl/Mongo diretamente — delega tudo pro
 onboarding-service (`/api/admin/*`), que já tem RBAC/kubeconfig restrito
@@ -156,6 +161,23 @@ def cancelar(pin: str, signup_id: str) -> dict:
     if erro:
         return {"erro": erro}
     return _admin_request("POST", f"/api/admin/signups/{signup_id}/cancelar")
+
+
+@mcp.tool()
+def resetar_senha(tenant_id: str, cpf_cnpj: str) -> dict:
+    """'Esqueci minha senha' — use direto na conversa quando o cliente
+    pedir, sem precisar de PIN de admin. Antes de chamar, peça pro
+    cliente confirmar o CPF/CNPJ do cadastro dele; passe exatamente o
+    que ele informou em `cpf_cnpj`. O servidor confere contra o
+    cadastro — se não bater, a chamada falha sem revelar mais nada (não
+    tente adivinhar ou repetir com variações). Se bater, apaga o
+    usuário/senha atual do painel e reabre o link de configuração de
+    uso único (o mesmo gerado no provisionamento) — a resposta traz
+    panel_setup_url, que é esse link pra mandar pro cliente. Não apaga
+    conversas nem outros dados."""
+    return _admin_request(
+        "POST", f"/api/admin/tenants/{tenant_id}/password-reset", json={"cpf_cnpj": cpf_cnpj}
+    )
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
