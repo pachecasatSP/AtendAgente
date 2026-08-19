@@ -331,7 +331,8 @@ h1, h2, h3, .display {
   font-family: var(--font-display);
   font-weight: 800;
 }
-.phone-head .name { font-weight: 800; font-size: 0.95rem; }
+.phone-head .name { font-weight: 800; font-size: 0.95rem; display: inline-flex; align-items: center; gap: 0.3rem; }
+.verified-badge { width: 14px; height: 14px; flex-shrink: 0; }
 .phone-head .status { font-size: 0.78rem; color: var(--leaf-deep); font-weight: 700; }
 .thread { display: flex; flex-direction: column; gap: 0.6rem; }
 .bubble {
@@ -708,7 +709,7 @@ footer {
       <div class="phone-head">
         <div class="phone-avatar">A</div>
         <div>
-          <div class="name">Studio da Ana</div>
+          <div class="name">Studio da Ana <svg class="verified-badge" viewBox="0 0 22 22" aria-label="Conta verificada"><path fill="#4FA6ED" d="M10.04 2.32a1.5 1.5 0 0 1 1.92 0l1.24 1.05a1.5 1.5 0 0 0 1.14.35l1.61-.2a1.5 1.5 0 0 1 1.63 1.03l.5 1.55a1.5 1.5 0 0 0 .78.9l1.45.71a1.5 1.5 0 0 1 .73 1.9l-.6 1.52a1.5 1.5 0 0 0 0 1.1l.6 1.52a1.5 1.5 0 0 1-.73 1.9l-1.45.71a1.5 1.5 0 0 0-.78.9l-.5 1.55a1.5 1.5 0 0 1-1.63 1.03l-1.61-.2a1.5 1.5 0 0 0-1.14.35l-1.24 1.05a1.5 1.5 0 0 1-1.92 0l-1.24-1.05a1.5 1.5 0 0 0-1.14-.35l-1.61.2a1.5 1.5 0 0 1-1.63-1.03l-.5-1.55a1.5 1.5 0 0 0-.78-.9l-1.45-.71a1.5 1.5 0 0 1-.73-1.9l.6-1.52a1.5 1.5 0 0 0 0-1.1l-.6-1.52a1.5 1.5 0 0 1 .73-1.9l1.45-.71a1.5 1.5 0 0 0 .78-.9l.5-1.55a1.5 1.5 0 0 1 1.63-1.03l1.61.2a1.5 1.5 0 0 0 1.14-.35z"/><path fill="#fff" d="M9.6 14.3 6.9 11.6l1.1-1.1 1.6 1.6 4-4 1.1 1.1z"/></svg></div>
           <div class="status">● online</div>
         </div>
       </div>
