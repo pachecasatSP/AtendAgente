@@ -47,7 +47,7 @@ SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from pymongo import MongoClient
@@ -692,6 +692,26 @@ async def api_upload_foto_produto(item_id: str, request: Request, file: UploadFi
     catalogo_col.update_one({"_id": item["_id"]}, {"$set": {"foto_url": foto_url, "atualizado_em": datetime.now(timezone.utc)}})
     _mark_catalogo_pending()
     return {"ok": True, "foto_url": foto_url}
+
+
+@app.get("/painel/api/catalogo/template.csv")
+def api_catalogo_template(request: Request) -> Response:
+    """Modelo de planilha pro import em massa (ver api_importar_catalogo
+    logo abaixo) — mesmas colunas, com uma linha de exemplo de cada tipo
+    pra deixar claro quais campos valem pra qual (data_evento só conta
+    pra evento, horario_atendimento só pra serviço)."""
+    require_session(request)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["nome", "descricao", "preco", "categoria", "tipo", "data_evento", "horario_atendimento"])
+    writer.writerow(["Produto exemplo", "Descrição do produto", "49,90", "Categoria", "produto", "", ""])
+    writer.writerow(["Serviço exemplo", "Descrição do serviço", "120,00", "Categoria", "servico", "", "seg a sex, 9h às 18h"])
+    writer.writerow(["Evento exemplo", "Descrição do evento", "80,00", "Categoria", "evento", "2026-12-24", ""])
+    return Response(
+        content="﻿" + buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=modelo-catalogo.csv"},
+    )
 
 
 @app.post("/painel/api/catalogo/import")
