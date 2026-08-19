@@ -233,6 +233,34 @@ def apply_display_defaults(prefix: str) -> None:
     if result.returncode != 0:
         raise ProvisionError(f"hermes config set (model.max_tokens) falhou:\n{result.stderr}")
 
+    # Sem isso, o tenant herda o default embutido na imagem
+    # nousresearch/hermes-agent:latest — que não é fixo (tag :latest) e
+    # em algum momento passou a ser um modelo pago da Anthropic
+    # (anthropic/claude-opus-4.6) em vez do modelo pretendido, sem
+    # provision_tenant.py nunca ter travado isso explicitamente.
+    # Descoberto 2026-08-19 comparando os 3 tenants live, todos rodando
+    # Opus pago silenciosamente há tempo indeterminado.
+    #
+    # Duas tentativas de SKU :free no mesmo dia não seguraram:
+    # meta-llama/llama-3.3-70b-instruct:free foi descontinuado pela
+    # OpenRouter (HTTP 404, "unavailable for free") e o substituto
+    # openai/gpt-oss-20b:free saiu ok tecnicamente mas deu qualidade de
+    # resposta ruim (além de rate-limit ocasional no pool compartilhado).
+    # Decisão final: mesmo modelo pago já usado pela Duda,
+    # openai/gpt-5.6-luna (ver infra_admin_mcp — trocado nela por causa
+    # de tool-calling não confiável em modelo :free) — custo real mas
+    # pequeno (centavos por conversa) e qualidade/confiabilidade
+    # consistente, o que passou a valer mais que economizar no modelo
+    # depois de perder tempo com dois SKUs grátis quebrados. **Nunca usar
+    # `gpt-5-luna` (sem o `.6`) — não existe, já derrubou produção antes.**
+    result = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
+         "hermes", "config", "set", "model.default", "openai/gpt-5.6-luna"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise ProvisionError(f"hermes config set (model.default) falhou:\n{result.stderr}")
+
 
 def publish_soul(tenant_id: str, config: dict) -> None:
     """Regenera o SOUL.md a partir de `config` e publica no pod do
