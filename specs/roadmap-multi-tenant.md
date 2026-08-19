@@ -255,6 +255,18 @@ logo após `provision()`; PIN de dois fatores gerado em
 funcionando de verdade via WhatsApp. Ver [[infra_whatsapp_phone_register]]
 na memória do projeto.
 
+**Bug corrigido — model.default nunca travado (2026-08-19):** todo
+tenant estava rodando `anthropic/claude-opus-4.6` (modelo pago) porque
+`provision_tenant.py` nunca definia `model.default` explicitamente — o
+valor vinha do default embutido na imagem `nousresearch/hermes-agent:
+latest` (tag não fixa). Duas tentativas de SKU `:free` da OpenRouter
+falharam no mesmo dia (`meta-llama/llama-3.3-70b-instruct:free` foi
+descontinuado; `openai/gpt-oss-20b:free` funcionava mas com qualidade
+ruim) antes de fixar em `openai/gpt-5.6-luna` (mesmo modelo pago já
+usado pela Duda, custo pequeno e confiável) — aplicado nos 3 tenants
+live e travado em `apply_display_defaults` pra todo tenant novo. Ver
+[[infra_model_default_drift]] na memória do projeto.
+
 ### Fase 5 — Espelho de conversas em MongoDB (dados) + painel por tenant (CONCLUÍDA, 2026-08-13)
 
 **Mudança de escopo decidida nesta sessão**: o painel deixou de ser um
