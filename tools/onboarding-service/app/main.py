@@ -28,7 +28,7 @@ _TOOLS_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_TOOLS_DIR / "provision-tenant"))
 sys.path.insert(0, str(_TOOLS_DIR / "soul-generator"))
 sys.path.insert(0, str(_TOOLS_DIR / "ai-assist"))
-from provision_tenant import ProvisionError, provision, publish_catalog, publish_soul, set_tenant_enabled, subscribe_app_to_waba, tenant_exists  # noqa: E402
+from provision_tenant import ProvisionError, provision, publish_catalog, publish_soul, scale_tenant, set_tenant_enabled, subscribe_app_to_waba, tenant_exists, wait_for_health  # noqa: E402
 from generate_soul import render as render_soul  # noqa: E402
 import ai_assist  # noqa: E402
 
@@ -285,6 +285,16 @@ def _run_provisioning(signup_id: str, signup: dict) -> dict:
 
     try:
         credentials = provision(tmp_path, env, dry_run=False)
+        # Sem isso o número fica em status "PENDING" na Cloud API — parece
+        # funcionar (code_verification_status já vem "VERIFIED" do
+        # Embedded Signup) mas só manda/recebe mensagem dos até 5
+        # destinatários de teste, nunca de clientes de verdade. Descoberto
+        # 2026-08-19: nenhum tenant passava por esse passo, um deles
+        # (novo-negocio) só estava "CONNECTED" por um registro manual feito
+        # numa depuração anterior e nunca trazido pro código.
+        meta_client.register_phone_number(
+            signup["phone_number_id"], signup["access_token"], credentials["two_step_pin"],
+        )
         subscribe_app_to_waba(
             signup["waba_id"],
             signup["access_token"],
@@ -297,6 +307,21 @@ def _run_provisioning(signup_id: str, signup: dict) -> dict:
     panel_setup_url = f"https://{dominio}/painel/setup?token={credentials['panel_setup_token']}"
     store.update_signup(signup_id, status="live", panel_setup_url=panel_setup_url)
     return credentials
+
+
+def _run_reactivation(signup_id: str, signup: dict, asaas_subscription_id: str | None) -> None:
+    """Restaura um tenant cancelado dentro da janela de 10 dias da lixeira
+    (Fase 9) — chamado só depois da Asaas confirmar o pagamento do novo
+    checkout (`reativar-checkout`), nunca direto. Não reprovisiona nada:
+    Secret/PVC/Ingress/DNS/TLS ficaram intactos desde o cancelamento
+    (`scale_tenant(..., 0)` só parou o pod), então restaurar é só religar.
+    Login do painel também continua valendo — só é apagado na exclusão
+    definitiva (ver `store.mark_deleted`)."""
+    tenant_id = signup["tenant_id"]
+    scale_tenant(tenant_id, 1)
+    wait_for_health(f"{tenant_id}-hermes")
+    wait_for_health(f"{tenant_id}-hermes-panel")
+    store.mark_reactivated(signup_id, asaas_subscription_id)
 
 
 @app.post("/signup/{signup_id}/form", response_class=HTMLResponse)
@@ -575,25 +600,38 @@ async def asaas_webhook(request: Request):
         return {"ok": True, "ignorado": "sem externalReference"}
 
     signup = store.get_signup(external_reference)
-    if not signup or signup.get("status") != "payment_pending":
+    status = signup.get("status") if signup else None
+    if not signup or status not in ("payment_pending", "reativacao_pendente"):
         # já processado (webhook duplicado) ou não é sobre um signup nosso
         return {"ok": True, "ignorado": "signup não encontrado ou já processado"}
 
     if event in CONFIRM_EVENTS:
         subscription_id = payload.get("payment", {}).get("subscription")
-        if subscription_id:
-            store.update_signup(external_reference, asaas_subscription_id=subscription_id)
-        try:
-            # _run_provisioning faz subprocess.run bloqueante (kubectl
-            # rollout status, até 120s) — numa def async isso travaria o
-            # event loop inteiro, derrubando até /health. Roda numa
-            # threadpool pra não bloquear outras requisições enquanto
-            # provisiona.
-            await run_in_threadpool(_run_provisioning, external_reference, signup)
-        except ProvisionError as e:
-            store.update_signup(external_reference, status="failed", erro=str(e))
+        if status == "payment_pending":
+            if subscription_id:
+                store.update_signup(external_reference, asaas_subscription_id=subscription_id)
+            try:
+                # _run_provisioning faz subprocess.run bloqueante (kubectl
+                # rollout status, até 120s) — numa def async isso travaria o
+                # event loop inteiro, derrubando até /health. Roda numa
+                # threadpool pra não bloquear outras requisições enquanto
+                # provisiona.
+                await run_in_threadpool(_run_provisioning, external_reference, signup)
+            except ProvisionError as e:
+                store.update_signup(external_reference, status="failed", erro=str(e))
+        else:  # reativacao_pendente — ver reativar-checkout/_run_reactivation
+            try:
+                await run_in_threadpool(_run_reactivation, external_reference, signup, subscription_id)
+            except ProvisionError as e:
+                # Volta pro estado "cancelado" (ainda dentro da lixeira, se
+                # o prazo não tiver vencido nesse meio-tempo) em vez de
+                # travar num status intermediário sem saída.
+                store.update_signup(external_reference, status="cancelado", erro=f"Reativação falhou: {e}")
     elif event in FAIL_EVENTS:
-        store.update_signup(external_reference, status="failed", erro=f"Pagamento: {event}")
+        if status == "payment_pending":
+            store.update_signup(external_reference, status="failed", erro=f"Pagamento: {event}")
+        else:
+            store.update_signup(external_reference, status="cancelado", erro=f"Pagamento da reativação: {event}")
 
     return {"ok": True}
 
@@ -776,9 +814,11 @@ def admin_list_cancellation_requests(request: Request):
 def admin_authorize_cancellation(signup_id: str, request: Request):
     """Autoriza um pedido de cancelamento (ver `admin_list_cancellation_
     requests`): cancela a assinatura recorrente na Asaas (não estorna
-    cobranças já feitas), desliga o WhatsApp do tenant (reversível, mesmo
-    mecanismo do 'pausar' — ver `set_tenant_enabled`) e marca o signup
-    como cancelado. Não apaga nada."""
+    cobranças já feitas) e para o pod do tenant (`scale_tenant(..., 0)` —
+    Secret/PVC/Ingress/DNS/TLS ficam intactos). A partir daqui o tenant
+    entra na "lixeira" (Fase 9): `LIXEIRA_DIAS` (store.py) pra pedir
+    restauração via `reativar-checkout` antes do CronJob `lixeira_watch.py`
+    apagar tudo de vez."""
     require_admin(request)
     signup = store.get_signup(signup_id)
     if not signup:
@@ -793,9 +833,89 @@ def admin_authorize_cancellation(signup_id: str, request: Request):
         except asaas_client.AsaasApiError as e:
             raise HTTPException(502, f"Cancelamento na Asaas falhou: {e}")
 
-    set_tenant_enabled(signup["tenant_id"], False)
+    scale_tenant(signup["tenant_id"], 0)
     store.mark_cancelled(signup_id)
-    return {"ok": True, "signup_id": signup_id, "tenant_id": signup["tenant_id"]}
+    return {"ok": True, "signup_id": signup_id, "tenant_id": signup["tenant_id"], "lixeira_dias": store.LIXEIRA_DIAS}
+
+
+@app.get("/api/admin/lixeira")
+def admin_list_lixeira(request: Request):
+    """Tenants cancelados: dentro ou fora da janela de `LIXEIRA_DIAS`
+    (ver store.py), mais os excluídos definitivamente nos últimos 30
+    dias — pra ferramenta `lixeira` da Duda responder "ainda dá pra
+    recuperar?" sem acesso direto ao cluster. Só consulta, não decide
+    nem executa nada."""
+    require_admin(request)
+    agora = datetime.now(timezone.utc)
+    cancelados = []
+    for s in store.list_lixeira():
+        autorizado_em = s.get("cancelamento_autorizado_em")
+        dias_restantes = None
+        if autorizado_em:
+            prazo = autorizado_em.replace(tzinfo=timezone.utc) if autorizado_em.tzinfo is None else autorizado_em
+            dias_restantes = round((store.LIXEIRA_DIAS - (agora - prazo).total_seconds() / 86400), 1)
+        cancelados.append({
+            "signup_id": s["_id"],
+            "tenant_id": s.get("tenant_id"),
+            "plano": s.get("plano"),
+            "cancelamento_autorizado_em": autorizado_em,
+            "dias_restantes": dias_restantes,
+        })
+    excluidos = [
+        {"signup_id": s["_id"], "tenant_id": s.get("tenant_id"), "excluido_em": s.get("excluido_em")}
+        for s in store.list_recently_deleted()
+    ]
+    return {"cancelados": cancelados, "excluidos_recentemente": excluidos}
+
+
+@app.post("/api/admin/signups/{signup_id}/reativar-checkout")
+def admin_reativar_checkout(signup_id: str, request: Request):
+    """Gera um novo checkout Asaas pra restaurar um tenant cancelado
+    dentro da janela da lixeira — a assinatura anterior foi cancelada de
+    verdade (`cancel_subscription` é irreversível do lado da Asaas), não
+    dá pra só "religar". O pod só volta (`_run_reactivation`, via
+    webhook) depois do pagamento confirmado — nunca antes."""
+    require_admin(request)
+    signup = store.get_signup(signup_id)
+    if not signup:
+        raise HTTPException(404, "Cadastro não encontrado")
+    if signup.get("status") != "cancelado":
+        raise HTTPException(409, f"Esse cadastro não está cancelado (status atual: {signup.get('status')})")
+
+    autorizado_em = signup.get("cancelamento_autorizado_em")
+    if autorizado_em:
+        prazo = autorizado_em.replace(tzinfo=timezone.utc) if autorizado_em.tzinfo is None else autorizado_em
+        if (datetime.now(timezone.utc) - prazo).days >= store.LIXEIRA_DIAS:
+            raise HTTPException(409, "Prazo de restauração já venceu — esse tenant está pra exclusão definitiva.")
+
+    plano = signup.get("plano")
+    if plano not in PLANOS or PLANOS[plano]["valor"] <= 0:
+        raise HTTPException(409, f"Plano '{plano}' não pode ser reativado por checkout automático.")
+
+    base_url = str(request.base_url).rstrip("/")
+    try:
+        checkout = asaas_client.create_subscription_checkout(
+            external_reference=signup_id,
+            plano_nome=PLANOS[plano]["nome"],
+            valor=PLANOS[plano]["valor"],
+            trial_dias=0,
+            nome_negocio=signup.get("config", {}).get("nome_negocio", signup["tenant_id"]),
+            email=signup.get("email", ""),
+            cpf_cnpj=signup.get("cpf_cnpj", ""),
+            telefone=signup.get("telefone_cobranca", ""),
+            endereco=signup.get("endereco", ""),
+            endereco_numero=signup.get("endereco_numero", ""),
+            cep=signup.get("cep", ""),
+            bairro=signup.get("bairro", ""),
+            success_url=f"{base_url}/signup/{signup_id}/aguardando",
+            cancel_url=f"{base_url}/signup/{signup_id}/aguardando",
+            expired_url=f"{base_url}/signup/{signup_id}/aguardando",
+        )
+    except asaas_client.AsaasApiError as e:
+        raise HTTPException(502, f"Não consegui gerar a cobrança de reativação: {e}")
+
+    store.mark_reactivation_pending(signup_id, checkout["id"])
+    return {"signup_id": signup_id, "tenant_id": signup["tenant_id"], "checkout_link": checkout["link"]}
 
 
 @app.post("/api/admin/tenants/{tenant_id}/password-reset")

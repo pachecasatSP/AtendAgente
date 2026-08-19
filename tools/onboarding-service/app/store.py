@@ -12,9 +12,18 @@ segredos.
 import os
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from pymongo import MongoClient
+
+# Janela de restauração da "lixeira" (Fase 9) — dias entre o cancelamento
+# autorizado (cancelamento_autorizado_em) e a exclusão definitiva
+# automática (ver tools/provision-tenant/lixeira_watch.py, CronJob). Esse
+# valor é duplicado lá de propósito (mesmo padrão de LIMITES em
+# usage_watch.py) — processos/deploys separados, preferível a um import
+# cross-serviço frágil por uma constante. Se mudar, atualizar nos dois
+# lugares.
+LIXEIRA_DIAS = 10
 
 MONGO_URI = os.environ["MONGO_URI"]
 _client = MongoClient(MONGO_URI)
@@ -214,6 +223,71 @@ def mark_cancelled(signup_id: str) -> None:
             "status": "cancelado",
         }},
     )
+
+
+# ── Lixeira (Fase 9): janela de 10 dias entre cancelamento e exclusão ──
+#
+# `cancelar` (admin-mcp) já para o pod (scale a 0) e marca
+# status="cancelado" acima. Dentro da janela, o cliente pode pedir
+# restauração (`reativar`/`reativar-checkout`, novo checkout Asaas —
+# assinatura cancelada não volta sozinha, ver asaas_client.
+# cancel_subscription). Passados os 10 dias sem restauração, o CronJob
+# `lixeira_watch.py` apaga a infra de verdade e chama `mark_deleted`.
+
+def list_lixeira() -> list[dict]:
+    """Tenants cancelados ainda dentro (ou não) da janela de restauração —
+    pra ferramenta `lixeira` da Duda calcular dias restantes. Não filtra
+    por prazo aqui: mostrar mesmo os já vencidos (aguardando o próximo
+    ciclo do CronJob) ajuda a responder "já foi apagado?" com precisão."""
+    return list(_signups.find({"status": "cancelado"}).sort("cancelamento_autorizado_em", 1))
+
+
+def list_recently_deleted(dias: int = 30) -> list[dict]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=dias)
+    return list(_signups.find({"status": "excluido", "excluido_em": {"$gte": cutoff}}).sort("excluido_em", -1))
+
+
+def list_pending_deletion() -> list[dict]:
+    """Cancelados cuja janela de `LIXEIRA_DIAS` já venceu — consumido só
+    pelo CronJob `lixeira_watch.py`, nunca pelas rotas admin."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=LIXEIRA_DIAS)
+    return list(_signups.find({"status": "cancelado", "cancelamento_autorizado_em": {"$lte": cutoff}}))
+
+
+def mark_reactivation_pending(signup_id: str, checkout_id: str) -> None:
+    _signups.update_one(
+        {"_id": signup_id},
+        {"$set": {"status": "reativacao_pendente", "reativacao_checkout_id": checkout_id}},
+    )
+
+
+def mark_reactivated(signup_id: str, asaas_subscription_id: str | None) -> None:
+    _signups.update_one(
+        {"_id": signup_id},
+        {
+            "$set": {
+                "status": "live",
+                "reativado_em": datetime.now(timezone.utc),
+                **({"asaas_subscription_id": asaas_subscription_id} if asaas_subscription_id else {}),
+            },
+            "$unset": {
+                "cancelamento_status": "", "cancelamento_autorizado_em": "",
+                "reativacao_checkout_id": "",
+            },
+        },
+    )
+
+
+def mark_deleted(signup_id: str, tenant_id: str) -> None:
+    """Exclusão definitiva confirmada (infra K8s/DNS já removida por
+    `provision_tenant.delete_tenant_infra`) — mantém o doc de `signups`
+    (auditoria/cobrança), só muda o status, e apaga o login do painel
+    (não faz mais sentido logar em nada)."""
+    _signups.update_one(
+        {"_id": signup_id},
+        {"$set": {"status": "excluido", "excluido_em": datetime.now(timezone.utc)}},
+    )
+    _panel_auth.delete_one({"_id": tenant_id})
 
 
 # ── Fila de alterações de Catálogo vindas do painel do cliente ─────────

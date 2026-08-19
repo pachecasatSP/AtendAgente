@@ -235,6 +235,26 @@ override realmente funciona ponta a ponta.
   `eula_aceito_em` gravado no signup) e checkbox opcional de
   consentimento de comunicações (`comunicacoes_aceito`, bool).
 
+**Bug corrigido — número nunca registrado na Cloud API (2026-08-19):**
+o Embedded Signup deixa `code_verification_status: VERIFIED` na Graph
+API, mas isso não é o mesmo que o número estar utilizável — faltava um
+`POST /{phone_number_id}/register` explícito (Cloud API, PIN de dois
+fatores). Sem ele, o número fica em `status: PENDING`: parece
+funcionar (o bot responde nos testes), mas só manda/recebe mensagem dos
+até 5 destinatários de teste do WABA — clientes reais não conseguem
+falar com o bot. Nenhum onboarding passava por esse passo; descoberto
+comparando dois tenants live (`novo-negocio` só estava `CONNECTED` por
+um registro manual de uma depuração anterior nunca trazido pro código;
+`linda-ana-calcados`, cuja WABA vive num portfólio empresarial do
+próprio cliente — não o da AC Soluções — estava `PENDING`). Corrigido:
+`meta_client.register_phone_number()` chamado em `_run_provisioning`
+logo após `provision()`; PIN de dois fatores gerado em
+`build_secret_manifest` e salvo no Secret do tenant
+(`WHATSAPP_CLOUD_TWO_STEP_PIN`) pra eventual re-registro futuro.
+`linda-ana-calcados` foi registrado manualmente via API e confirmado
+funcionando de verdade via WhatsApp. Ver [[infra_whatsapp_phone_register]]
+na memória do projeto.
+
 ### Fase 5 — Espelho de conversas em MongoDB (dados) + painel por tenant (CONCLUÍDA, 2026-08-13)
 
 **Mudança de escopo decidida nesta sessão**: o painel deixou de ser um
@@ -477,6 +497,114 @@ Cobrança automática do excedente (criar cobrança avulsa na Asaas
 quando `over`) fica pra uma Fase 8.2 futura, mais arriscada por mexer
 com dinheiro sem revisão — só depois desse v1 (visibilidade) validado
 com uso real.
+
+### Fase 9 — Lixeira de cancelamento (janela de restauração de 10 dias) — IMPLEMENTADA no código (2026-08-19), AGUARDANDO DEPLOY
+
+**Estado atual (pré-Fase 9):** `cancelar` (Fase 7, `admin-mcp`) cancela a
+assinatura na Asaas e desliga o WhatsApp (`set_tenant_enabled(False)` —
+só um Secret patch + restart, ver Fase 6), mas **não apaga nada**: pod
+continua `Running`, DNS/Ingress/PVC intactos indefinidamente. A exclusão
+de fato (DNS, Deployment/Service/Ingress/Secret/PVC, `panel_auth`) só
+acontecia manualmente, ritual ad-hoc sem prazo — primeira execução
+completa desse ritual foi o tenant `use-bisteco` em 2026-08-19, feita à
+mão via kubectl/API da Cloudflare.
+
+**Desenho novo:** entre o cancelamento e a exclusão definitiva existe uma
+janela de 10 dias ("lixeira") onde o tenant pode ser restaurado sem
+reprovisionar do zero.
+
+1. **Cancelamento (`cancelar`, ajustado):** além do que já faz hoje
+   (cancela assinatura Asaas, marca `status=cancelado` +
+   `cancelamento_autorizado_em` — esse timestamp vira a âncora da janela
+   de 10 dias), passa a **parar o pod de verdade**: `kubectl scale
+   --replicas=0` nos dois Deployments (`{tenant}-hermes` e
+   `{tenant}-hermes-panel`), em vez de só desligar
+   `WHATSAPP_CLOUD_ENABLED`. Zera custo de compute. Secret, PVC
+   (histórico de sessões/config), Ingress, TLS Secret e o registro DNS
+   na Cloudflare **ficam intactos** — é isso que torna a restauração
+   rápida (sem esperar novo cert Let's Encrypt nem propagação de DNS).
+
+2. **Restauração (dentro da janela, nova ferramenta admin-mcp
+   `restaurar`):** a assinatura Asaas cancelada não pode ser reativada
+   (irreversível do lado da Asaas — só dá pra criar uma nova). Fluxo
+   escolhido: Duda gera um **novo checkout** pro tenant já existente
+   (novo endpoint `POST /api/admin/signups/{id}/reativar-checkout` no
+   onboarding-service, reaproveitando a lógica de checkout da Asaas mas
+   sem reprovisionar — o tenant/Deployment/Secret já existem, só estão
+   escalados a zero). Confirmado o pagamento via webhook (mesmo
+   `CHECKOUT_PAID` de sempre), reaproveita o tenant: `kubectl scale
+   --replicas=1`, `set_tenant_enabled(True)`, `status=live`, limpa
+   `cancelamento_status`/`cancelamento_autorizado_em`, grava o novo
+   `asaas_subscription_id`. Cliente só recupera o WhatsApp depois do
+   pagamento confirmado — nunca antes (evita dar acesso sem cobrança
+   garantida).
+
+3. **Exclusão definitiva (passados 10 dias sem restauração):** CronJob
+   diário, mesmo padrão do `usage_watch.py` (Fase 8) — varre
+   `signups` com `status=cancelado` e `cancelamento_autorizado_em` mais
+   antigo que 10 dias, e executa sozinho o ritual completo: remove o
+   registro DNS na Cloudflare, deleta Deployment/Service/Ingress/Secret/
+   PVC (hermes + panel) e o doc de `panel_auth`. **Roda sem confirmação
+   humana** (decisão: é aplicação de uma política com prazo já
+   comunicado ao cliente no cancelamento, não uma decisão de IA em tempo
+   real — mesmo racional de não travar em PIN que o `usage_watch`
+   já usa pra só medir/sinalizar). Não deleta o doc de `signups`: marca
+   `status=excluido` + `excluido_em`, mantendo o registro pra auditoria/
+   cobrança.
+
+4. **Visibilidade (nova ferramenta admin-mcp `lixeira`):** lista tenants
+   em `status=cancelado` com dias restantes até a exclusão automática
+   (`cancelamento_autorizado_em + 10d - agora`) e tenants recém
+   `status=excluido`, pra Duda responder "ainda dá pra recuperar?" sem
+   precisar de acesso direto ao cluster. Só consulta — não decide nem
+   executa nada.
+
+**Implementado (código, 2026-08-19):**
+- `scale_tenant`/`delete_dns_record`/`delete_tenant_infra` em
+  `tools/provision-tenant/provision_tenant.py`.
+- `admin_authorize_cancellation` (onboarding-service) troca
+  `set_tenant_enabled(False)` por `scale_tenant(tenant_id, 0)`.
+- Novo `POST /api/admin/signups/{id}/reativar-checkout` (gera checkout
+  novo, rejeita se já passou de `LIXEIRA_DIAS` ou se o plano não tem
+  valor fixo) e `GET /api/admin/lixeira` (lista cancelados com dias
+  restantes + excluídos recentes).
+- `store.py` ganhou `LIXEIRA_DIAS=10`, `list_lixeira`,
+  `list_recently_deleted`, `list_pending_deletion`,
+  `mark_reactivation_pending`, `mark_reactivated`, `mark_deleted`.
+- Webhook da Asaas (`/api/asaas/webhook`) passa a tratar dois estados
+  possíveis (`payment_pending` → provisionamento normal,
+  `reativacao_pendente` → `_run_reactivation`, que só faz
+  `scale_tenant(..., 1)` + `wait_for_health` — nada é reprovisionado).
+- `tools/provision-tenant/lixeira_watch.py` (CronJob diário, mesmo
+  padrão de `usage_watch.py`) + `setup_lixeira_watch.py` — roda em
+  `atendagente-onboarding` pra reaproveitar o kubeconfig e o
+  `CLOUDFLARE_API_TOKEN` que já existem lá, sem duplicar RBAC.
+- RBAC do `onboarding-service` (`setup_onboarding_service.py`) ganhou o
+  verbo `delete` (Deployments/Services/Secrets/PVCs/Ingresses) — não
+  existia antes, nem pra `admin_authorize_cancellation`.
+- Ferramentas novas `lixeira`/`restaurar` no `admin-mcp/server.py`.
+- Painel do cliente (`configuracoes.html`) já avisa sobre os 10 dias no
+  pedido de cancelamento.
+
+**Falta pra ir ao ar (nenhum desses passos rodou ainda):**
+1. `python3 setup_onboarding_service.py` no servidor (reaplica o Role
+   com o verbo `delete` novo — idempotente, seguro rodar de novo).
+2. `python3 setup_lixeira_watch.py` (cria o CronJob).
+3. Reconectar a Duda ao admin-mcp (`hermes mcp remove admin` + `add`,
+   mesma dança de sempre — ver footgun de reconexão em
+   `infra_admin_mcp`) pra ela enxergar `lixeira`/`restaurar`, e
+   atualizar a seção "Ferramentas administrativas" do
+   `poc/SOUL-ac-solucoes.md` (prosa estática, não introspecção).
+4. Publicar o `tenant-panel` atualizado (build/redeploy).
+
+**Limitação conhecida, aceita por ora:** a tela `/aguardando` e o
+`/done` do onboarding-service foram desenhados só pro fluxo de
+cadastro novo — no fluxo de reativação eles funcionam (o polling de
+status funciona igual, o pagamento é processado igual) mas o texto/
+link mostrado (`panel_setup_url` de "configure agora") não faz sentido
+pra quem só está reativando (login do painel já existe, nunca foi
+apagado). Cosmético, não bloqueia o fluxo — ajustar se isso confundir
+clientes na prática.
 
 ---
 

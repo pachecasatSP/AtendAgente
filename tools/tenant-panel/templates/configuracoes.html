@@ -111,6 +111,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--leaf); outl
 @media (max-width: 420px) {
   .row { flex-direction: column; gap: 0; align-items: stretch; }
   .row > label.field-narrow { flex: 1; }
+  .produto-acoes { width: 100%; margin-left: 0; justify-content: flex-end; }
+  .produto-acoes button, .produto-acoes .foto-upload-btn { padding: 0.35rem 0.5rem; }
 }
 button {
   margin-top: 1.4rem; font-family: var(--font-body); font-weight: 800; font-size: 0.95rem;
@@ -132,7 +134,7 @@ button.secondary {
 }
 .produto-list { display: flex; flex-direction: column; gap: 0.6rem; margin: 1rem 0 1.6rem; }
 .produto-row {
-  display: flex; align-items: center; gap: 0.8rem; padding: 0.6rem 0.7rem;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 0.8rem; padding: 0.6rem 0.7rem;
   border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
 }
 .produto-row.inativo { opacity: 0.55; }
@@ -140,10 +142,10 @@ button.secondary {
   width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: var(--paper-soft);
   flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
 }
-.produto-info { flex: 1; min-width: 0; }
+.produto-info { flex: 1 1 160px; min-width: 0; }
 .produto-nome { font-weight: 800; font-size: 0.9rem; margin: 0; }
 .produto-meta { font-size: 0.78rem; color: var(--ink-faint); margin: 0.1rem 0 0; }
-.produto-acoes { display: flex; gap: 0.4rem; flex-shrink: 0; }
+.produto-acoes { display: flex; flex-wrap: wrap; gap: 0.4rem; flex-shrink: 0; margin-left: auto; }
 .produto-acoes button, .produto-acoes .foto-upload-btn {
   margin: 0; padding: 0.4rem 0.6rem; font-size: 0.78rem; background: var(--paper-soft); color: var(--ink-soft);
   box-shadow: none; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
@@ -465,6 +467,7 @@ button.secondary {
   <div class="card danger-card">
     <h2>Cancelar assinatura</h2>
     <p class="lead">Isso registra um pedido de cancelamento — nossa equipe confirma e finaliza o cancelamento na cobrança. Cobranças já feitas não são estornadas.</p>
+    <p class="lead">Ao confirmar, o atendimento automático é desligado na hora, mas seus dados (conversas, catálogo, configurações) ficam guardados por <strong>10 dias</strong>. Se pedir a reativação nesse prazo, restauramos o mesmo atendimento (mediante um novo pagamento). Passados os 10 dias sem pedido de restauração, atendimento e dados são apagados definitivamente e não podem mais ser recuperados.</p>
     <div id="cancel-banner" class="banner {{ 'pending' if cancelamento_status == 'solicitado' else '' }}" {% if cancelamento_status != 'solicitado' %}style="display:none"{% endif %}>
       {% if cancelamento_status == 'solicitado' %}Pedido de cancelamento registrado — nossa equipe vai confirmar em breve.{% endif %}
     </div>
@@ -553,7 +556,7 @@ button.secondary {
     const cancelBtn = document.getElementById('cancel-btn');
     const cancelBanner = document.getElementById('cancel-banner');
     cancelBtn.addEventListener('click', async () => {
-      if (!confirm('Tem certeza que quer cancelar sua assinatura? Isso vai encerrar o atendimento automático assim que nossa equipe confirmar.')) return;
+      if (!confirm('Tem certeza que quer cancelar sua assinatura? O atendimento automático será desligado assim que nossa equipe confirmar. Seus dados ficam guardados por 10 dias, caso queira reativar — depois disso são apagados definitivamente.')) return;
       cancelBtn.disabled = true;
       try {
         const resp = await fetch('/painel/api/cancelar-assinatura', { method: 'POST' });

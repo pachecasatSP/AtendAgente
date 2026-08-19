@@ -98,6 +98,87 @@ def set_tenant_enabled(tenant_id: str, enabled: bool) -> None:
     subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}-panel"], check=True)
 
 
+def scale_tenant(tenant_id: str, replicas: int) -> None:
+    """Sobe/desce o número de réplicas dos dois Deployments de um tenant
+    (hermes + painel) — pra Fase 9 (lixeira): `cancelar` escala pra 0 (pod
+    para de verdade, custo de compute zerado) e `reativar` escala de volta
+    pra 1. Diferente de `set_tenant_enabled`: não mexe no Secret nem no
+    flag WHATSAPP_CLOUD_ENABLED, só no número de réplicas — Secret/PVC/
+    Ingress/DNS/TLS ficam intactos, é isso que torna a restauração rápida
+    (sem esperar novo certificado Let's Encrypt nem propagação de DNS)."""
+    prefix = f"{tenant_id}-hermes"
+    for deploy in (prefix, f"{prefix}-panel"):
+        result = subprocess.run(
+            ["kubectl", "-n", NAMESPACE, "scale", f"deploy/{deploy}", f"--replicas={replicas}"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise ProvisionError(f"kubectl scale {deploy} --replicas={replicas} falhou:\n{result.stderr}")
+
+
+def delete_dns_record(subdomain_host: str, token: str, zone_id: str) -> None:
+    """Contraparte de `create_dns_record` — usada na exclusão definitiva
+    (Fase 9, passados os 10 dias de lixeira sem restauração). Busca o
+    registro pelo nome (a API não aceita delete por nome direto, só por
+    id) e apaga; se não existir mais (já removido manualmente, ex:
+    `use-bisteco` em 2026-08-19), não é erro — só segue."""
+    zone_url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
+    req = urllib.request.Request(
+        f"{zone_url}?name={subdomain_host}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise ProvisionError(f"Cloudflare API HTTP {e.code} ao buscar {subdomain_host}: {e.read().decode()}") from e
+
+    records = body.get("result") or []
+    if not records:
+        print(f"  (registro DNS de {subdomain_host} já não existia, seguindo)")
+        return
+
+    for record in records:
+        del_req = urllib.request.Request(
+            f"{zone_url}/{record['id']}", method="DELETE",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        try:
+            with urllib.request.urlopen(del_req) as resp:
+                json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            raise ProvisionError(f"Cloudflare API HTTP {e.code} ao apagar {subdomain_host}: {e.read().decode()}") from e
+    print(f"  DNS removido: {subdomain_host}")
+
+
+def delete_tenant_infra(tenant_id: str, host: str, cloudflare_token: str, cloudflare_zone: str) -> None:
+    """Exclusão definitiva de um tenant cancelado (Fase 9, disparada pelo
+    CronJob `lixeira_watch.py` passados os 10 dias sem pedido de
+    restauração) — remove o registro DNS na Cloudflare e todos os
+    recursos K8s do tenant (Deployment/Service/Ingress/Secret/PVC, hermes
+    + painel). Não apaga o doc de `signups` no Mongo nem `panel_auth` —
+    isso é responsabilidade de quem chama (mantém o registro pra
+    auditoria/cobrança, ver `store.mark_deleted`). Irreversível: depois
+    disso só reprovisionando do zero."""
+    prefix = f"{tenant_id}-hermes"
+    delete_dns_record(host, cloudflare_token, cloudflare_zone)
+    for kind, names in (
+        ("ingress", [prefix]),
+        ("deploy", [prefix, f"{prefix}-panel"]),
+        ("svc", [prefix, f"{prefix}-panel"]),
+        ("secret", [f"{prefix}-env", f"{prefix}-tls"]),
+        ("pvc", [f"{prefix}-data"]),
+    ):
+        for name in names:
+            result = subprocess.run(
+                ["kubectl", "-n", NAMESPACE, "delete", kind, name, "--ignore-not-found"],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                raise ProvisionError(f"kubectl delete {kind}/{name} falhou:\n{result.stderr}")
+    print(f"  Infra K8s de '{tenant_id}' removida.")
+
+
 def apply_display_defaults(prefix: str) -> None:
     """`display.memory_notifications` (Hermes default: "on") faz o
     processo de revisão em segundo plano do agente imprimir "💾 Memory
@@ -466,6 +547,11 @@ def build_secret_manifest(
 ) -> tuple[str, dict]:
     prefix = f"{tenant_id}-hermes"
     verify_token = secrets.token_urlsafe(24)
+    # PIN de verificação em duas etapas exigido pela Cloud API pra
+    # registrar o número (`POST /{id}/register`, ver meta_client.
+    # register_phone_number) — gerado aqui e guardado no Secret pro caso
+    # de precisar re-registrar o número depois (troca de app, etc.).
+    two_step_pin = f"{secrets.randbelow(1_000_000):06d}"
     home_channel = normalize_br_phone(escalacao["telefone"])
     home_channel_name = escalacao["nome"]
     # O cliente cadastra o próprio usuário/senha do painel na primeira
@@ -501,11 +587,13 @@ stringData:
   PANEL_SETUP_TOKEN: "{panel_setup_token}"
   PANEL_SESSION_SECRET: "{panel_session_secret}"
   CALENDAR_MCP_TOKEN: "{calendar_mcp_token}"
+  WHATSAPP_CLOUD_TWO_STEP_PIN: "{two_step_pin}"
 """
     credentials = {
         "verify_token": verify_token,
         "panel_setup_token": panel_setup_token,
         "calendar_mcp_token": calendar_mcp_token,
+        "two_step_pin": two_step_pin,
     }
     return manifest, credentials
 
@@ -570,7 +658,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
     if dry_run:
         print("--- Secret (valores sensíveis mascarados) ---")
         for line in secret_yaml.splitlines():
-            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "VERIFY_TOKEN", "PANEL_SETUP_TOKEN", "PANEL_SESSION_SECRET", "CALENDAR_MCP_TOKEN")):
+            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "VERIFY_TOKEN", "PANEL_SETUP_TOKEN", "PANEL_SESSION_SECRET", "CALENDAR_MCP_TOKEN", "TWO_STEP_PIN")):
                 key = line.split(":", 1)[0]
                 print(f"{key}: <mascarado>")
             else:

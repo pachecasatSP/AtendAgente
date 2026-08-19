@@ -3,8 +3,9 @@ conecta nele, via `hermes mcp add` com `--auth header` (Bearer
 MCP_AUTH_TOKEN). Expõe: criar token de gratuidade, listar tenants, medir
 recursos de um tenant, pausar/reativar um tenant, alertar sobre tenants
 perto do limite do plano, listar cadastros travados no provisionamento e
-refazer o provisionamento de um deles, autorizar cancelamentos e
-resetar a senha do painel de um tenant.
+refazer o provisionamento de um deles, autorizar cancelamentos, resetar
+a senha do painel de um tenant, e (Fase 9) consultar a lixeira de
+cancelados e restaurar um tenant dentro da janela de 10 dias.
 
 Segurança em duas camadas independentes, nenhuma delas decidida pela IA:
 1. MCP_AUTH_TOKEN — Bearer estático checado por middleware antes de
@@ -153,14 +154,43 @@ def cancelamentos(pin: str) -> dict:
 @mcp.tool()
 def cancelar(pin: str, signup_id: str) -> dict:
     """Autoriza um pedido de cancelamento (veja `cancelamentos`): cancela
-    a cobrança recorrente na Asaas (não estorna o que já foi cobrado),
-    desliga o WhatsApp do tenant e marca o cadastro como cancelado. Não
-    apaga conversas nem dados — reversível na parte do WhatsApp, mas a
-    assinatura cancelada na Asaas não volta sozinha."""
+    a cobrança recorrente na Asaas (não estorna o que já foi cobrado) e
+    para o pod do tenant. Não apaga conversas nem dados — o tenant entra
+    numa "lixeira" de 10 dias (ver `lixeira`), onde ainda dá pra
+    restaurar via `restaurar`. Passados os 10 dias sem restauração, um
+    processo automático apaga tudo de vez (DNS, infra, dados) — sem
+    volta."""
     erro = _check_pin(pin)
     if erro:
         return {"erro": erro}
     return _admin_request("POST", f"/api/admin/signups/{signup_id}/cancelar")
+
+
+@mcp.tool()
+def lixeira(pin: str) -> dict:
+    """Lista tenants cancelados: quanto tempo falta (em dias) até a
+    exclusão definitiva automática, e os que já foram excluídos nos
+    últimos 30 dias. Use pra responder "ainda dá pra recuperar?" — não
+    executa nem decide nada."""
+    erro = _check_pin(pin)
+    if erro:
+        return {"erro": erro}
+    return _admin_request("GET", "/api/admin/lixeira")
+
+
+@mcp.tool()
+def restaurar(pin: str, signup_id: str) -> dict:
+    """Gera um link de pagamento novo pra restaurar um tenant cancelado
+    que ainda está dentro da janela de 10 dias (veja `lixeira`). A
+    assinatura antiga foi cancelada de verdade na Asaas — não tem como só
+    "religar", precisa de uma cobrança nova. Manda esse link pro cliente;
+    o atendimento só volta depois que ele confirmar o pagamento (nunca
+    antes). Depois dos 10 dias, essa ferramenta para de funcionar — o
+    tenant já foi ou está prestes a ser excluído de vez."""
+    erro = _check_pin(pin)
+    if erro:
+        return {"erro": erro}
+    return _admin_request("POST", f"/api/admin/signups/{signup_id}/reativar-checkout")
 
 
 @mcp.tool()

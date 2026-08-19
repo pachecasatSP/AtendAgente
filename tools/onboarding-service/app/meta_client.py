@@ -60,6 +60,38 @@ def revoke_access(access_token: str) -> None:
         ) from e
 
 
+def register_phone_number(phone_number_id: str, access_token: str, pin: str) -> None:
+    """Registra o número na Cloud API (`POST /{id}/register`) — passo que
+    o Embedded Signup NÃO faz sozinho apesar do `code_verification_status`
+    já vir "VERIFIED": sem isso o número fica em `status: PENDING` (não
+    "CONNECTED") e não manda/recebe mensagem de gente de verdade, só
+    aparenta funcionar pros até 5 destinatários de teste. Descoberto
+    2026-08-19 comparando dois tenants live: `novo-negocio` estava
+    CONNECTED (registrado manualmente numa depuração anterior, nunca
+    trazido pro código) e `linda-ana-calcados` ficou PENDING — todo
+    onboarding por Embedded Signup passava por esse buraco. `pin` é o PIN
+    de verificação em duas etapas (6 dígitos) que a Cloud API exige pra
+    registrar; qualquer PIN novo serve na primeira vez, mas precisa ficar
+    salvo (Secret do tenant) pra caso o número precise ser re-registrado
+    depois (troca de app, etc.)."""
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{phone_number_id}/register"
+    payload = json.dumps({"messaging_product": "whatsapp", "pin": pin}).encode()
+    req = urllib.request.Request(
+        url, data=payload, method="POST",
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise MetaApiError(
+            f"Falha ao registrar o número {phone_number_id} na Cloud API: "
+            f"HTTP {e.code}: {e.read().decode()}"
+        ) from e
+    if not body.get("success"):
+        raise MetaApiError(f"Meta não confirmou o registro do número {phone_number_id}: {body}")
+
+
 def get_phone_number_details(phone_number_id: str, access_token: str) -> dict:
     """Busca o número visível e o nome verificado do WABA recém-conectado —
     só pra mostrar "conectamos o número X" no Passo 1 do wizard de SOUL.
