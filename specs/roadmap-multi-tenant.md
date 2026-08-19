@@ -606,6 +606,89 @@ pra quem só está reativando (login do painel já existe, nunca foi
 apagado). Cosmético, não bloqueia o fluxo — ajustar se isso confundir
 clientes na prática.
 
+### Fase 10 — Troca de número de WhatsApp em tenant já configurado — PLANEJADA (2026-08-19)
+
+**Motivação:** tenants provisionados via Embedded Signup ficam presos ao
+número gratuito de teste da Meta (`+1 555-...`) até o cliente registrar
+um número real na própria WABA. Enquanto isso, todo envio esbarra no
+erro `131037` ("WhatsApp provided number needs display name approval
+before message can be sent") — exigência exclusiva dos números `555`,
+que não se aplica a um número real (achado 2026-08-19, ver
+[[infra_whatsapp_phone_register]] e o caso `linda-ana-calcados`/
+`novo-negocio`). Falta uma forma do cliente trocar pro número real sem
+depender de alguém mexer manualmente no Secret do tenant.
+
+**Restrição de arquitetura que molda o desenho:** o `tenant-panel` não
+tem `kubectl` — só o `onboarding-service` tem o kubeconfig namespace-
+scoped (ver Fase 4). Qualquer ação que troque o Secret do tenant e
+reinicie o pod precisa passar por lá, não pode ser feita direto pelo
+painel. Isso divide a funcionalidade em duas partes:
+
+**Parte 1 — Validação (síncrona, só o painel, sem tocar em
+Kubernetes).** O painel já recebe o `WHATSAPP_CLOUD_ACCESS_TOKEN` da
+WABA do tenant no mesmo Secret (`envFrom` no manifesto de infra, ver
+Fase 3) — dá pra chamar a Graph API direto daí, sem depender do
+onboarding-service:
+1. `GET /painel/api/whatsapp/numeros` — lista os números da WABA do
+   cliente (`GET /{waba_id}/phone_numbers`, mesma chamada usada em
+   2026-08-19 pra diagnosticar o `linda-ana-calcados`), excluindo o
+   `phone_number_id` já ativo. O cliente precisa ter adicionado o
+   número real na WABA pelo lado da Meta antes disso — fora do nosso
+   sistema, mesma limitação já discutida pro caso de destinatário de
+   teste.
+2. `POST /painel/api/whatsapp/testar-numero` (payload
+   `phone_number_id`) — chama `meta_client.register_phone_number`
+   (mesma função da Fase 4/correção de 2026-08-19, reaproveitando o
+   `WHATSAPP_CLOUD_TWO_STEP_PIN` já salvo no Secret do tenant), confere
+   `GET /{phone_number_id}?fields=status` até vir `CONNECTED`, e manda
+   uma mensagem de teste de verdade pro telefone de escalação
+   (`config.escalacao.telefone`, já cadastrado) usando esse
+   `phone_number_id`. Responde na hora se passou ou falhou — nada é
+   trocado ainda.
+
+**Parte 2 — Corte (assíncrono, via onboarding-service, mesmo padrão do
+SOUL/catálogo).** Só depois de um teste bem-sucedido:
+3. `POST /painel/api/whatsapp/confirmar-troca` grava um flag
+   `whatsapp_numero_pending: {phone_number_id, solicitado_em}` no doc
+   do signup (Mongo puro, sem kubectl).
+4. Loop novo no onboarding-service (`_whatsapp_numero_apply_loop`,
+   mesmo padrão do `_soul_apply_loop`/`_catalogo_apply_loop`, mas com
+   `WHATSAPP_NUMERO_APPLY_INTERVAL_SECONDS` bem mais curto — ~20-30s em
+   vez de 5min, já que o cliente fica esperando na tela) detecta o
+   flag, faz `kubectl patch secret` (só `WHATSAPP_CLOUD_PHONE_NUMBER_ID`
+   muda — `waba_id`/`access_token` continuam os mesmos, é a mesma WABA)
+   e `rollout restart` só do `deploy/{tenant}-hermes` (painel não usa
+   esse valor pra nada funcional, não precisa reiniciar), depois marca
+   `whatsapp_numero_pending: False` + resultado.
+5. Painel faz polling de `GET /painel/api/whatsapp/status-troca`
+   (mesmo padrão do indicador de status do SOUL, `#soul-status-dot`)
+   até mostrar "Número trocado ✅" ou o erro.
+
+**Por que não precisa mexer no webhook:** a inscrição do App na WABA
+(`subscribe_app_to_waba`, Fase 4) é por WABA inteira, não por número —
+mensagens do número novo já chegam no mesmo webhook do tenant
+automaticamente. Só o `WHATSAPP_CLOUD_PHONE_NUMBER_ID` no Secret decide
+qual número o Hermes usa pra enviar e reconhecer mensagens recebidas.
+
+**Por que a validação vem antes do corte:** evita que o bot fique sem
+WhatsApp por causa de um número com problema — o `/register` e o envio
+de teste rodam contra o número novo sem afetar o número em produção;
+só depois de passar é que o Secret é trocado de verdade.
+
+**Escopo explicitamente fora (decisão 2026-08-19):** troca de WABA
+inteira (reconectar via Embedded Signup do zero, o que também trocaria
+`waba_id` e `access_token`) fica de fora — cobre só o caso real que
+motivou isso, adicionar um número real numa WABA já conectada.
+
+**Peças a construir (nada implementado ainda):** `meta_client.
+list_waba_phone_numbers`, `meta_client.send_test_message`;
+`/painel/api/whatsapp/numeros`, `/testar-numero`, `/confirmar-troca`,
+`/status-troca` em `tools/tenant-panel/app.py`; `_whatsapp_numero_apply_
+loop` + `store.list_whatsapp_numero_pending_signups`/`mark_whatsapp_
+numero_*` em `tools/onboarding-service`; seção nova em Configurações
+(`configuracoes.html`) pro fluxo de 3 passos (listar → testar →
+confirmar).
+
 ---
 
 ## Riscos / decisões a revisitar cedo

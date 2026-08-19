@@ -290,6 +290,50 @@ def mark_deleted(signup_id: str, tenant_id: str) -> None:
     _panel_auth.delete_one({"_id": tenant_id})
 
 
+# ── Troca de número de WhatsApp (Fase 9... 10) ──────────────────────────
+#
+# O painel já valida o número novo direto com a Meta (register + envio
+# de teste, tudo com o access_token do próprio tenant, sem precisar de
+# kubectl) — só o corte de verdade (Secret + restart do pod) precisa
+# passar por aqui, mesmo padrão assíncrono do soul_pending/
+# catalogo_pending, só que com um loop bem mais curto (ver
+# WHATSAPP_NUMERO_APPLY_INTERVAL_SECONDS em main.py) porque o cliente
+# fica esperando na tela, não é uma alteração de fundo.
+
+def list_whatsapp_numero_pending_signups() -> list[dict]:
+    return list(_signups.find({"status": "live", "whatsapp_numero_pending": {"$exists": True}}))
+
+
+def request_whatsapp_numero_troca(tenant_id: str, phone_number_id: str) -> None:
+    _signups.update_one(
+        {"tenant_id": tenant_id, "status": "live"},
+        {"$set": {
+            "whatsapp_numero_pending": {"phone_number_id": phone_number_id, "solicitado_em": datetime.now(timezone.utc)},
+        }, "$unset": {"whatsapp_numero_erro": ""}},
+    )
+
+
+def mark_whatsapp_numero_aplicado(signup_id: str, phone_number_id: str) -> None:
+    _signups.update_one(
+        {"_id": signup_id},
+        {
+            "$set": {"whatsapp_numero_aplicado_em": datetime.now(timezone.utc)},
+            "$unset": {"whatsapp_numero_pending": "", "whatsapp_numero_erro": ""},
+        },
+    )
+    # phone_number_id do próprio doc fica desatualizado (o de verdade é
+    # só o que está no Secret) — não é a fonte de roteamento de nada,
+    # mas atualizar evita confundir quem olhar o Mongo depois.
+    _signups.update_one({"_id": signup_id}, {"$set": {"phone_number_id": phone_number_id}})
+
+
+def mark_whatsapp_numero_falhou(signup_id: str, erro: str) -> None:
+    _signups.update_one(
+        {"_id": signup_id},
+        {"$set": {"whatsapp_numero_erro": erro}, "$unset": {"whatsapp_numero_pending": ""}},
+    )
+
+
 # ── Fila de alterações de Catálogo vindas do painel do cliente ─────────
 #
 # Mesmo padrão da fila de SOUL (ver acima): o painel do tenant não tem

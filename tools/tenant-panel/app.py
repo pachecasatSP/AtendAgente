@@ -61,7 +61,10 @@ PANEL_SETUP_TOKEN = os.environ["PANEL_SETUP_TOKEN"]
 PANEL_SESSION_SECRET = os.environ["PANEL_SESSION_SECRET"]
 ACCESS_TOKEN = os.environ.get("WHATSAPP_CLOUD_ACCESS_TOKEN", "")
 PHONE_NUMBER_ID = os.environ.get("WHATSAPP_CLOUD_PHONE_NUMBER_ID", "")
+WABA_ID = os.environ.get("WHATSAPP_CLOUD_WABA_ID", "")
+TWO_STEP_PIN = os.environ.get("WHATSAPP_CLOUD_TWO_STEP_PIN", "")
 WHATSAPP_API_VERSION = os.environ.get("WHATSAPP_API_VERSION", "v20.0")
+GRAPH_API_VERSION = "v21.0"  # troca de número (Fase 10) usa endpoints mais novos (register) que não existem no v20.0 do envio de mensagem
 TENANT_ENABLED = os.environ.get("WHATSAPP_CLOUD_ENABLED", "true").strip().lower() != "false"
 CALENDAR_MCP_TOKEN = os.environ.get("CALENDAR_MCP_TOKEN", "")
 CALENDAR_MCP_BASE_URL = os.environ.get("CALENDAR_MCP_BASE_URL", "http://calendar-mcp.atendagente.svc.cluster.local:8000")
@@ -381,6 +384,8 @@ def configuracoes_page(request: Request):
             "whatsapp_waba_id": (config.get("whatsapp") or {}).get("waba_id"),
             "whatsapp_phone_number_id": (config.get("whatsapp") or {}).get("phone_number_id"),
             "whatsapp_numero": (signup or {}).get("display_phone_number"),
+            "whatsapp_numero_pending": bool((signup or {}).get("whatsapp_numero_pending")),
+            "whatsapp_numero_erro": (signup or {}).get("whatsapp_numero_erro"),
             "tom_descricao": tom.get("descricao", ""),
             "tom_emoji": tom.get("emoji", ""),
             "pagamento_pix_ativo": bool(config.get("pagamento_pix_ativo")),
@@ -931,6 +936,142 @@ def api_cancelar_assinatura(request: Request) -> dict:
         }},
     )
     return {"ok": True, "cancelamento_status": "solicitado"}
+
+
+# ── Troca de número de WhatsApp (Fase 10) ───────────────────────────────
+#
+# Listar/testar é tudo direto com a Graph API usando o access_token do
+# próprio tenant (já vem no Secret) — não precisa de kubectl. Só o corte
+# de verdade (Secret + restart) passa pelo onboarding-service, via um
+# flag no Mongo (ver store.request_whatsapp_numero_troca), mesmo padrão
+# assíncrono do soul_pending/catalogo_pending.
+
+def _graph_get(path: str, params: dict) -> dict:
+    query = urllib.parse.urlencode({**params, "access_token": ACCESS_TOKEN})
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path}?{query}"
+    try:
+        with urllib.request.urlopen(url, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=502, detail=f"WhatsApp API falhou: HTTP {exc.code}: {detail}")
+
+
+def _graph_post(path: str, payload: dict) -> dict:
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path}"
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(status_code=502, detail=f"WhatsApp API falhou: HTTP {exc.code}: {detail}")
+
+
+@app.get("/painel/api/whatsapp/numeros")
+def api_whatsapp_numeros(request: Request) -> dict:
+    """Números cadastrados na WABA do tenant, menos o que já está ativo —
+    o cliente precisa ter adicionado o número real na WABA pelo lado da
+    Meta antes disso (fora do nosso sistema)."""
+    require_session(request)
+    if not ACCESS_TOKEN or not WABA_ID:
+        raise HTTPException(status_code=500, detail="WABA não configurada para este tenant")
+    body = _graph_get(f"{WABA_ID}/phone_numbers", {"fields": "display_phone_number,verified_name,status,id"})
+    numeros = [n for n in (body.get("data") or []) if n.get("id") != PHONE_NUMBER_ID]
+    return {"numeros": numeros}
+
+
+@app.post("/painel/api/whatsapp/testar-numero")
+def api_whatsapp_testar_numero(request: Request, payload: dict) -> dict:
+    """Registra o número candidato na Cloud API e manda uma mensagem de
+    teste pro telefone de escalação — nada é trocado ainda, só valida.
+    Fica ok pra chamar de novo em cima do mesmo número (register é
+    idempotente do lado da Meta)."""
+    require_session(request)
+    phone_number_id = (payload.get("phone_number_id") or "").strip()
+    if not phone_number_id:
+        raise HTTPException(status_code=400, detail="phone_number_id é obrigatório")
+    if not TWO_STEP_PIN:
+        raise HTTPException(status_code=500, detail="PIN de dois fatores não configurado para este tenant")
+
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    telefone_escalacao = ((signup or {}).get("config") or {}).get("escalacao", {}).get("telefone")
+    if not telefone_escalacao:
+        raise HTTPException(status_code=400, detail="Telefone de escalação não cadastrado — não dá pra testar sem um destinatário")
+
+    _graph_post(f"{phone_number_id}/register", {"messaging_product": "whatsapp", "pin": TWO_STEP_PIN})
+
+    status = None
+    for _ in range(6):
+        status = _graph_get(phone_number_id, {"fields": "status"}).get("status")
+        if status == "CONNECTED":
+            break
+        time.sleep(2)
+    if status != "CONNECTED":
+        return {"ok": False, "erro": f"Número registrado, mas status ainda é '{status}' (esperado CONNECTED) — tenta de novo em instantes."}
+
+    to = normalize_br_phone(telefone_escalacao)
+    try:
+        _graph_post(f"{phone_number_id}/messages", {
+            "messaging_product": "whatsapp", "to": to, "type": "text",
+            "text": {"body": "Teste de conexão do número novo do AtendPraGente — se você recebeu essa mensagem, o número está pronto pra ser confirmado no painel."},
+        })
+    except HTTPException as exc:
+        return {"ok": False, "erro": f"Número registrado, mas o envio de teste falhou: {exc.detail}"}
+
+    return {"ok": True}
+
+
+def normalize_br_phone(raw: str) -> str:
+    digits = "".join(c for c in (raw or "") if c.isdigit())
+    if digits.startswith("55") and len(digits) >= 12:
+        return digits
+    return f"55{digits}"
+
+
+@app.post("/painel/api/whatsapp/confirmar-troca")
+def api_whatsapp_confirmar_troca(request: Request, payload: dict) -> dict:
+    """Só grava o pedido — quem troca de verdade (Secret + restart) é o
+    loop `_whatsapp_numero_apply_loop` no onboarding-service, em até
+    WHATSAPP_NUMERO_APPLY_INTERVAL_SECONDS. Não valida de novo aqui: se o
+    cliente pulou o `testar-numero`, a troca ainda assim é tentada — o
+    corte só falha (e fica registrado o erro) se o número realmente não
+    funcionar, não é uma trava a mais pro fluxo normal (testar →
+    confirmar) travar duas vezes."""
+    require_session(request)
+    phone_number_id = (payload.get("phone_number_id") or "").strip()
+    if not phone_number_id:
+        raise HTTPException(status_code=400, detail="phone_number_id é obrigatório")
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not signup:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado")
+    signups_col.update_one(
+        {"_id": signup["_id"]},
+        {"$set": {"whatsapp_numero_pending": {"phone_number_id": phone_number_id, "solicitado_em": datetime.now(timezone.utc)}},
+         "$unset": {"whatsapp_numero_erro": ""}},
+    )
+    return {"ok": True}
+
+
+@app.get("/painel/api/whatsapp/status-troca")
+def api_whatsapp_status_troca(request: Request) -> dict:
+    """Pro painel fazer polling enquanto a troca está pendente (mesmo
+    padrão do soul-status)."""
+    require_session(request)
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not signup:
+        raise HTTPException(status_code=404, detail="Tenant não encontrado")
+    aplicado_em = signup.get("whatsapp_numero_aplicado_em")
+    return {
+        "pending": bool(signup.get("whatsapp_numero_pending")),
+        "erro": signup.get("whatsapp_numero_erro"),
+        "aplicado_em_fmt": fmt_ts(aplicado_em.timestamp()) if aplicado_em else None,
+        "phone_number_id_ativo": PHONE_NUMBER_ID,
+    }
 
 
 DISPLAY_ROLES = ["user", "assistant", "operator"]

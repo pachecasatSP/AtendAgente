@@ -98,6 +98,29 @@ def set_tenant_enabled(tenant_id: str, enabled: bool) -> None:
     subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}-panel"], check=True)
 
 
+def set_tenant_phone_number(tenant_id: str, phone_number_id: str) -> None:
+    """Troca o WHATSAPP_CLOUD_PHONE_NUMBER_ID de um tenant já configurado
+    (Fase 10) — waba_id/access_token continuam os mesmos (mesma WABA, só
+    outro número dela). Só reinicia o Hermes: o painel recebe esse valor
+    no mesmo Secret mas não usa pra nada funcional (não manda mensagem
+    nem decide roteamento), reiniciar ele também só aumentaria o tempo
+    de corte à toa. A inscrição do App na WABA é por WABA inteira (ver
+    subscribe_app_to_waba), não por número — não precisa mexer em
+    webhook nenhum aqui."""
+    prefix = f"{tenant_id}-hermes"
+    value_b64 = base64.b64encode(phone_number_id.encode()).decode()
+    patch = json.dumps([{"op": "replace", "path": "/data/WHATSAPP_CLOUD_PHONE_NUMBER_ID", "value": value_b64}])
+    result = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "patch", "secret", f"{prefix}-env", "--type=json", "-p", patch],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise ProvisionError(f"kubectl patch (phone_number_id) falhou:\n{result.stderr}")
+    subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
+    if not wait_for_health(prefix):
+        raise ProvisionError(f"Pod de '{tenant_id}' não ficou pronto a tempo depois da troca de número.")
+
+
 def scale_tenant(tenant_id: str, replicas: int) -> None:
     """Sobe/desce o número de réplicas dos dois Deployments de um tenant
     (hermes + painel) — pra Fase 9 (lixeira): `cancelar` escala pra 0 (pod

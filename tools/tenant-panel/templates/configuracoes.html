@@ -190,6 +190,22 @@ button.secondary {
       <span class="conn-item"><strong>Phone Number ID:</strong> <code>{{ whatsapp_phone_number_id or "—" }}</code></span>
       <span class="conn-item"><strong>WABA ID:</strong> <code>{{ whatsapp_waba_id or "—" }}</code></span>
     </div>
+
+    <button type="button" id="whatsapp-trocar-btn" class="secondary" style="margin-top:0.8rem" {{ 'disabled' if whatsapp_numero_pending else '' }}>
+      {{ 'Troca em andamento…' if whatsapp_numero_pending else 'Trocar número de WhatsApp' }}
+    </button>
+
+    <div id="whatsapp-troca-box" class="ai-assist-box" {% if not whatsapp_numero_pending %}hidden{% endif %} style="margin-top:0.8rem">
+      <p class="hint">O número novo precisa já estar cadastrado na sua WABA (pelo lado da Meta) antes de aparecer aqui. Escolha, teste, e só depois confirme a troca.</p>
+      <div id="whatsapp-numeros-lista"></div>
+      <div id="whatsapp-troca-status" class="banner {{ 'erro' if whatsapp_numero_erro else 'pending' }}" {% if not whatsapp_numero_pending and not whatsapp_numero_erro %}style="display:none"{% endif %}>
+        {%- if whatsapp_numero_erro -%}
+          A troca falhou: {{ whatsapp_numero_erro }}
+        {%- elif whatsapp_numero_pending -%}
+          Troca confirmada, aplicando em instantes…
+        {%- endif -%}
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -553,6 +569,116 @@ button.secondary {
         saveBtn.textContent = 'Salvar alterações';
       }
     });
+
+    // ── Troca de número de WhatsApp ────────────────────────────────────
+    const whatsappTrocarBtn = document.getElementById('whatsapp-trocar-btn');
+    const whatsappTrocaBox = document.getElementById('whatsapp-troca-box');
+    const whatsappNumerosLista = document.getElementById('whatsapp-numeros-lista');
+    const whatsappTrocaStatus = document.getElementById('whatsapp-troca-status');
+    let whatsappPollTimer = null;
+
+    async function carregarNumerosWhatsapp() {
+      whatsappNumerosLista.textContent = 'Buscando números da sua WABA…';
+      try {
+        const resp = await fetch('/painel/api/whatsapp/numeros');
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || 'Falha ao buscar números');
+        if (!data.numeros.length) {
+          whatsappNumerosLista.textContent = 'Nenhum número novo encontrado na sua WABA. Adicione o número real pelo WhatsApp Manager da Meta primeiro, depois volte aqui.';
+          return;
+        }
+        whatsappNumerosLista.innerHTML = '';
+        data.numeros.forEach((n) => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex; align-items:center; gap:0.6rem; margin-bottom:0.5rem; flex-wrap:wrap;';
+          row.innerHTML = `
+            <span style="flex:1; min-width:160px;">${n.display_phone_number || n.id} ${n.verified_name ? '— ' + n.verified_name : ''}</span>
+            <button type="button" class="secondary whatsapp-testar" data-id="${n.id}">Testar</button>
+            <button type="button" class="whatsapp-confirmar" data-id="${n.id}" disabled>Confirmar troca</button>
+          `;
+          whatsappNumerosLista.appendChild(row);
+        });
+      } catch (err) {
+        whatsappNumerosLista.textContent = err.message;
+      }
+    }
+
+    function pollWhatsappStatus() {
+      if (whatsappPollTimer) return;
+      whatsappPollTimer = setInterval(async () => {
+        const resp = await fetch('/painel/api/whatsapp/status-troca');
+        const data = await resp.json();
+        if (data.pending) return;
+        clearInterval(whatsappPollTimer);
+        whatsappPollTimer = null;
+        whatsappTrocaStatus.style.display = 'block';
+        if (data.erro) {
+          whatsappTrocaStatus.className = 'banner erro';
+          whatsappTrocaStatus.textContent = 'A troca falhou: ' + data.erro;
+          whatsappTrocarBtn.disabled = false;
+          whatsappTrocarBtn.textContent = 'Trocar número de WhatsApp';
+        } else if (data.aplicado_em_fmt) {
+          whatsappTrocaStatus.className = 'banner ok';
+          whatsappTrocaStatus.textContent = 'Número trocado com sucesso em ' + data.aplicado_em_fmt + ' — recarregue a página pra ver o número atualizado.';
+        }
+      }, 4000);
+    }
+
+    if (whatsappTrocarBtn) {
+      whatsappTrocarBtn.addEventListener('click', () => {
+        whatsappTrocaBox.hidden = false;
+        carregarNumerosWhatsapp();
+      });
+
+      whatsappNumerosLista?.addEventListener('click', async (e) => {
+        const id = e.target.dataset.id;
+        if (!id) return;
+
+        if (e.target.classList.contains('whatsapp-testar')) {
+          e.target.disabled = true;
+          e.target.textContent = 'Testando…';
+          try {
+            const resp = await fetch('/painel/api/whatsapp/testar-numero', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone_number_id: id }),
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.ok) throw new Error(data.erro || data.detail || 'Teste falhou');
+            e.target.textContent = 'Testado ✓';
+            const confirmarBtn = e.target.closest('div').querySelector('.whatsapp-confirmar');
+            confirmarBtn.disabled = false;
+          } catch (err) {
+            e.target.disabled = false;
+            e.target.textContent = 'Testar';
+            alert(err.message);
+          }
+        }
+
+        if (e.target.classList.contains('whatsapp-confirmar')) {
+          if (!confirm('Confirmar a troca pra esse número? O atendimento passa a usar ele em instantes.')) return;
+          e.target.disabled = true;
+          try {
+            const resp = await fetch('/painel/api/whatsapp/confirmar-troca', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ phone_number_id: id }),
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || 'Falha ao confirmar');
+            whatsappTrocarBtn.disabled = true;
+            whatsappTrocarBtn.textContent = 'Troca em andamento…';
+            whatsappTrocaStatus.className = 'banner pending';
+            whatsappTrocaStatus.style.display = 'block';
+            whatsappTrocaStatus.textContent = 'Troca confirmada, aplicando em instantes…';
+            pollWhatsappStatus();
+          } catch (err) {
+            e.target.disabled = false;
+            alert(err.message);
+          }
+        }
+      });
+
+      if (whatsappTrocaBox && !whatsappTrocaBox.hidden) pollWhatsappStatus();
+    }
 
     const cancelBtn = document.getElementById('cancel-btn');
     const cancelBanner = document.getElementById('cancel-banner');

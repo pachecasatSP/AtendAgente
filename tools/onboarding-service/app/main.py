@@ -28,7 +28,7 @@ _TOOLS_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(_TOOLS_DIR / "provision-tenant"))
 sys.path.insert(0, str(_TOOLS_DIR / "soul-generator"))
 sys.path.insert(0, str(_TOOLS_DIR / "ai-assist"))
-from provision_tenant import ProvisionError, provision, publish_catalog, publish_soul, scale_tenant, set_tenant_enabled, subscribe_app_to_waba, tenant_exists, wait_for_health  # noqa: E402
+from provision_tenant import ProvisionError, provision, publish_catalog, publish_soul, scale_tenant, set_tenant_enabled, set_tenant_phone_number, subscribe_app_to_waba, tenant_exists, wait_for_health  # noqa: E402
 from generate_soul import render as render_soul  # noqa: E402
 import ai_assist  # noqa: E402
 
@@ -69,6 +69,11 @@ SOUL_APPLY_INTERVAL_SECONDS = int(os.environ.get("SOUL_APPLY_INTERVAL_SECONDS", 
 # Mesmo intervalo do soul-apply por padrão (mostrado ao cliente em
 # catalogo_apply_minutes, ver tools/tenant-panel/templates/configuracoes.html).
 CATALOGO_APPLY_INTERVAL_SECONDS = int(os.environ.get("CATALOGO_APPLY_INTERVAL_SECONDS", "300"))
+
+# Bem mais curto que os dois acima (Fase 10) — o cliente fica esperando
+# na tela do painel o corte pro número novo, não é uma alteração de
+# fundo como SOUL/catálogo.
+WHATSAPP_NUMERO_APPLY_INTERVAL_SECONDS = int(os.environ.get("WHATSAPP_NUMERO_APPLY_INTERVAL_SECONDS", "20"))
 
 app = FastAPI(title="AtendAgente — Onboarding")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -142,6 +147,34 @@ async def _catalogo_apply_loop() -> None:
 @app.on_event("startup")
 async def _start_catalogo_apply_loop() -> None:
     asyncio.create_task(_catalogo_apply_loop())
+
+
+async def _whatsapp_numero_apply_loop() -> None:
+    """Corta pro número de WhatsApp novo (Fase 10) — o painel já validou
+    o número (register + mensagem de teste, direto com a Meta, sem
+    kubectl) antes de gravar `whatsapp_numero_pending`; aqui só falta
+    trocar o Secret e reiniciar o Hermes (`set_tenant_phone_number`,
+    mesmo padrão do rollout restart de sempre)."""
+    while True:
+        await asyncio.sleep(WHATSAPP_NUMERO_APPLY_INTERVAL_SECONDS)
+        for signup in await run_in_threadpool(store.list_whatsapp_numero_pending_signups):
+            tenant_id = signup.get("tenant_id")
+            pending = signup.get("whatsapp_numero_pending") or {}
+            phone_number_id = pending.get("phone_number_id")
+            if not tenant_id or not phone_number_id:
+                continue
+            try:
+                await run_in_threadpool(set_tenant_phone_number, tenant_id, phone_number_id)
+                await run_in_threadpool(store.mark_whatsapp_numero_aplicado, signup["_id"], phone_number_id)
+                print(f"[whatsapp-numero-apply] {tenant_id}: trocado pra {phone_number_id}")
+            except Exception as e:
+                await run_in_threadpool(store.mark_whatsapp_numero_falhou, signup["_id"], str(e))
+                print(f"[whatsapp-numero-apply] {tenant_id}: falhou: {e}", file=sys.stderr)
+
+
+@app.on_event("startup")
+async def _start_whatsapp_numero_apply_loop() -> None:
+    asyncio.create_task(_whatsapp_numero_apply_loop())
 
 
 def provisioning_env() -> dict:

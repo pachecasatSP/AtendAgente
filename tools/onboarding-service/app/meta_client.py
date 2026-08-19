@@ -92,6 +92,64 @@ def register_phone_number(phone_number_id: str, access_token: str, pin: str) -> 
         raise MetaApiError(f"Meta não confirmou o registro do número {phone_number_id}: {body}")
 
 
+def list_waba_phone_numbers(waba_id: str, access_token: str) -> list[dict]:
+    """Lista os números cadastrados numa WABA (Fase 10 — troca de número
+    de um tenant já configurado). Mesma chamada usada em 2026-08-19 pra
+    diagnosticar o status do `linda-ana-calcados` na Graph API."""
+    params = urllib.parse.urlencode(
+        {"fields": "display_phone_number,verified_name,status,id", "access_token": access_token}
+    )
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{waba_id}/phone_numbers?{params}"
+    try:
+        with urllib.request.urlopen(url) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise MetaApiError(
+            f"Falha ao listar números da WABA {waba_id}: HTTP {e.code}: {e.read().decode()}"
+        ) from e
+    return body.get("data") or []
+
+
+def get_phone_number_status(phone_number_id: str, access_token: str) -> str | None:
+    """Só o campo `status` (PENDING/CONNECTED/...) — usado pra confirmar
+    que um número recém-registrado (Fase 10) já propagou antes de mandar
+    a mensagem de teste."""
+    params = urllib.parse.urlencode({"fields": "status", "access_token": access_token})
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{phone_number_id}?{params}"
+    try:
+        with urllib.request.urlopen(url) as resp:
+            body = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise MetaApiError(
+            f"Falha ao consultar status do número {phone_number_id}: HTTP {e.code}: {e.read().decode()}"
+        ) from e
+    return body.get("status")
+
+
+def send_text_message(phone_number_id: str, access_token: str, to: str, text: str) -> None:
+    """Manda uma mensagem de texto simples a partir de um número
+    específico (Fase 10 — teste de um número candidato antes de trocar o
+    Secret do tenant pra ele de vez). Mensagem business-initiated fora da
+    janela de 24h pode ser rejeitada pela Meta dependendo do histórico de
+    conversa com `to` — quem chama trata a falha como "teste não passou",
+    não como erro de sistema."""
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{phone_number_id}/messages"
+    payload = json.dumps(
+        {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": text}}
+    ).encode()
+    req = urllib.request.Request(
+        url, data=payload, method="POST",
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise MetaApiError(
+            f"Falha ao mandar mensagem de teste via {phone_number_id}: HTTP {e.code}: {e.read().decode()}"
+        ) from e
+
+
 def get_phone_number_details(phone_number_id: str, access_token: str) -> dict:
     """Busca o número visível e o nome verificado do WABA recém-conectado —
     só pra mostrar "conectamos o número X" no Passo 1 do wizard de SOUL.

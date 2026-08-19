@@ -37,6 +37,13 @@
       --bubble-out: #D9FDD3;
       --font-display: 'Baloo 2', ui-rounded, 'Segoe UI Rounded', sans-serif;
       --font-body: 'Nunito', ui-rounded, 'Segoe UI', sans-serif;
+      /* Marca d'água repetida no fundo da thread — mesmo glifo do
+         brand-mark (ver .brand-mark abaixo), só o traço/pontos, sem o
+         quadrado de fundo. Precisa de uma cor "queimada" na própria
+         SVG (não dá pra usar var() dentro de um data URI), por isso o
+         claro/escuro são duas strings diferentes em vez de reaproveitar
+         os tokens de cor de cima. */
+      --thread-watermark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Csymbol id='m' viewBox='0 0 512 512'%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%2317231D' stroke-width='34'/%3E%3Cpath d='M166 210C180 120 312 120 330 215' fill='none' stroke='%2317231D' stroke-width='28'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%2317231D'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%2317231D'/%3E%3Cpath d='M330 215C400 235 400 320 270 365' fill='none' stroke='%2317231D' stroke-width='24'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%2317231D'/%3E%3C/symbol%3E%3Cg opacity='0.05'%3E%3Cuse href='%23m' width='58' height='58' x='8' y='12'/%3E%3Cuse href='%23m' width='40' height='40' x='125' y='95' transform='rotate(18 145 115)'/%3E%3Cuse href='%23m' width='46' height='46' x='28' y='148' transform='rotate(-12 51 171)'/%3E%3C/g%3E%3C/svg%3E");
     }
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
@@ -44,6 +51,7 @@
         --ink-faint: #7C8B81; --leaf: #35C878; --leaf-deep: #7EE3AC; --leaf-pale: #1A3324;
         --spark: #FFD666; --line: #24352B; --sidebar-bg: #12201A; --thread-bg: #0C1710;
         --bubble-in: #1E332A; --bubble-out: #17421F;
+        --thread-watermark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Csymbol id='m' viewBox='0 0 512 512'%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%23F3F6F1' stroke-width='34'/%3E%3Cpath d='M166 210C180 120 312 120 330 215' fill='none' stroke='%23F3F6F1' stroke-width='28'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%23F3F6F1'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%23F3F6F1'/%3E%3Cpath d='M330 215C400 235 400 320 270 365' fill='none' stroke='%23F3F6F1' stroke-width='24'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%23F3F6F1'/%3E%3C/symbol%3E%3Cg opacity='0.06'%3E%3Cuse href='%23m' width='58' height='58' x='8' y='12'/%3E%3Cuse href='%23m' width='40' height='40' x='125' y='95' transform='rotate(18 145 115)'/%3E%3Cuse href='%23m' width='46' height='46' x='28' y='148' transform='rotate(-12 51 171)'/%3E%3C/g%3E%3C/svg%3E");
       }
     }
     :root[data-theme="dark"] {
@@ -51,6 +59,7 @@
       --ink-faint: #7C8B81; --leaf: #35C878; --leaf-deep: #7EE3AC; --leaf-pale: #1A3324;
       --spark: #FFD666; --line: #24352B; --sidebar-bg: #12201A; --thread-bg: #0C1710;
       --bubble-in: #1E332A; --bubble-out: #17421F;
+      --thread-watermark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Csymbol id='m' viewBox='0 0 512 512'%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%23F3F6F1' stroke-width='34'/%3E%3Cpath d='M166 210C180 120 312 120 330 215' fill='none' stroke='%23F3F6F1' stroke-width='28'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%23F3F6F1'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%23F3F6F1'/%3E%3Cpath d='M330 215C400 235 400 320 270 365' fill='none' stroke='%23F3F6F1' stroke-width='24'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%23F3F6F1'/%3E%3C/symbol%3E%3Cg opacity='0.06'%3E%3Cuse href='%23m' width='58' height='58' x='8' y='12'/%3E%3Cuse href='%23m' width='40' height='40' x='125' y='95' transform='rotate(18 145 115)'/%3E%3Cuse href='%23m' width='46' height='46' x='28' y='148' transform='rotate(-12 51 171)'/%3E%3C/g%3E%3C/svg%3E");
     }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: var(--font-body); color: var(--ink); background: var(--paper); overflow-x: hidden; }
@@ -82,7 +91,10 @@
     .conv-time { font-size: 0.75rem; color: var(--ink-faint); margin-top: 0.15rem; font-weight: 600; }
     .badge { background: var(--leaf); color: #fff; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.75rem; font-weight: 800; min-width: 1.4rem; text-align: center; flex-shrink: 0; }
     .empty { padding: 1rem; color: var(--ink-faint); font-size: 0.9rem; }
-    .main { flex: 1; display: flex; flex-direction: column; background: var(--thread-bg); }
+    .main {
+      flex: 1; display: flex; flex-direction: column; background-color: var(--thread-bg);
+      background-image: var(--thread-watermark); background-repeat: repeat; background-size: 220px 220px;
+    }
     .main-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--ink-faint); font-weight: 700; }
     .thread-header {
       display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
@@ -116,7 +128,10 @@
       font-family: var(--font-body); font-weight: 800; font-size: 0.76rem; border: none; border-radius: 999px;
       padding: 0.35rem 0.8rem; cursor: pointer; flex-shrink: 0; background: #fff; color: var(--error, #9a3412);
     }
-    .thread { flex: 1; overflow-y: auto; padding: 0.5rem 0.6rem; background: var(--thread-bg); }
+    .thread {
+      flex: 1; overflow-y: auto; padding: 0.5rem 0.6rem; background-color: var(--thread-bg);
+      background-image: var(--thread-watermark); background-repeat: repeat; background-size: 220px 220px;
+    }
     .compose { display: flex; gap: 0.5rem; padding: 0.7rem 1rem; background: var(--paper-card); border-top: 1px solid var(--line); flex-shrink: 0; }
     .compose input {
       flex: 1; font-family: var(--font-body); font-size: 0.9rem; padding: 0.55rem 0.8rem; border-radius: 999px;
