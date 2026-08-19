@@ -193,21 +193,17 @@ h1, h2, h3, .display {
   color: var(--ink);
 }
 .brand-word .pra { color: var(--leaf-deep); }
+.brand-text { display: flex; flex-direction: column; gap: 0.15rem; }
 .nav-badge {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  font-size: 0.76rem;
+  gap: 0.3rem;
+  font-size: 0.62rem;
   font-weight: 800;
-  color: var(--ink-soft);
-  background: var(--leaf-pale);
-  border: 1px solid color-mix(in srgb, var(--leaf) 40%, transparent);
-  padding: 0.35rem 0.75rem;
-  border-radius: 999px;
+  color: var(--ink-faint);
   white-space: nowrap;
 }
-.nav-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--leaf); flex-shrink: 0; }
-@media (max-width: 720px) { .nav-badge { display: none; } }
+.nav-badge .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--leaf); flex-shrink: 0; }
 .nav-links { display: flex; align-items: center; gap: 1.6rem; }
 .nav-link { text-decoration: none; font-weight: 800; font-size: 0.95rem; color: var(--ink-soft); }
 .nav-link:hover { color: var(--leaf-deep); }
@@ -679,9 +675,11 @@ footer {
         <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="var(--paper-card)" stroke-width="28" stroke-linecap="round"/>
         <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
       </svg>
-      <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
+      <div class="brand-text">
+        <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
+        <span class="nav-badge"><span class="dot"></span>Meta Tech Provider</span>
+      </div>
     </a>
-    <span class="nav-badge"><span class="dot"></span>Meta Tech Provider aprovado</span>
     <div class="nav-links">
       <a class="nav-link" href="#planos">Planos</a>
       <a class="nav-cta" href="https://wa.me/5511920081743?text=Quero%20conhecer%20o%20AtendPraGente" target="_blank" rel="noopener">Falar com a Duda</a>
