@@ -569,6 +569,20 @@ spec:
                 name: {prefix}-panel
                 port:
                   number: 8000
+          - path: /configuracoes
+            pathType: Prefix
+            backend:
+              service:
+                name: {prefix}-panel
+                port:
+                  number: 8000
+          - path: /agenda
+            pathType: Prefix
+            backend:
+              service:
+                name: {prefix}-panel
+                port:
+                  number: 8000
           - path: /
             pathType: Prefix
             backend:

@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agenda — Painel {{ tenant_id }}</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='124' fill='%231FAE5C'/%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%23FFFCF5' stroke-width='44'/%3E%3Cpath d='M 166 210 C 180 120, 312 120, 330 215' fill='none' stroke='%23FFFCF5' stroke-width='34' stroke-linecap='round'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%23FFFCF5'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%23FFFCF5'/%3E%3Cpath d='M 330 215 C 400 235, 400 320, 270 365' fill='none' stroke='%23FFFCF5' stroke-width='28' stroke-linecap='round'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%23FFC93C'/%3E%3C/svg%3E">
+<style>
+:root {
+  --paper: #FFFCF5; --paper-card: #FFFFFF; --paper-soft: #FFF6E2; --leaf-pale: #E3F7EA;
+  --ink: #17231D; --ink-soft: #4A5A50; --ink-faint: #8A9690;
+  --leaf: #1FAE5C; --leaf-deep: #0E7A3D; --spark: #FFC93C; --line: #E4E0D0;
+  --error: #C0392B; --error-bg: #FBE9E7; --danger: #D64545; --danger-bg: #FCE9E8;
+  --font-display: ui-rounded, 'Segoe UI Rounded', 'Baloo 2', sans-serif;
+  --font-body: ui-rounded, 'Segoe UI', 'Nunito', sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
+    --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
+    --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
+    --error: #FF8A75; --error-bg: #3A1712; --danger: #FF8A75; --danger-bg: #3A1712;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
+  --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
+  --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
+  --error: #FF8A75; --error-bg: #3A1712; --danger: #FF8A75; --danger-bg: #3A1712;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-weight: 500; line-height: 1.6;
+  padding: 2.5rem 1.25rem 5rem; display: flex; flex-direction: column; align-items: center;
+}
+.top { width: 100%; max-width: 640px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.6rem; }
+.brand { display: inline-flex; align-items: center; gap: 0.55rem; }
+.brand-mark { width: 30px; height: 30px; flex-shrink: 0; }
+.brand-word { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; color: var(--ink); }
+.brand-word .pra { color: var(--leaf-deep); }
+.back-link { color: var(--ink-faint); text-decoration: none; font-weight: 800; font-size: 0.85rem; }
+.back-link:hover { color: var(--leaf-deep); }
+.card {
+  background: var(--paper-card); border: 1px solid var(--line); border-radius: 20px;
+  padding: 1.8rem 1.8rem 2rem; max-width: 640px; width: 100%; margin-bottom: 1.5rem;
+  box-shadow: 0 20px 50px -30px rgba(23,35,29,0.2);
+}
+h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; margin: 0 0 0.35rem; }
+.lead { color: var(--ink-soft); margin: 0 0 1.4rem; font-size: 0.92rem; }
+.hint { font-weight: 500; color: var(--ink-faint); font-size: 0.85rem; text-align: center; padding: 1.5rem 0; }
+.banner { padding: 0.7rem 0.9rem; border-radius: 10px; margin-bottom: 1.2rem; font-weight: 700; font-size: 0.86rem; }
+.banner.erro { background: var(--error-bg); color: var(--error); }
+.evento-list { display: flex; flex-direction: column; gap: 0.6rem; }
+.evento-row {
+  display: flex; flex-direction: column; gap: 0.15rem; padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
+}
+.evento-titulo { font-weight: 800; font-size: 0.94rem; }
+.evento-quando { font-size: 0.82rem; color: var(--ink-soft); }
+.evento-links { display: flex; gap: 0.8rem; margin-top: 0.3rem; }
+.evento-links a { font-size: 0.78rem; font-weight: 800; color: var(--leaf-deep); text-decoration: none; }
+.evento-links a:hover { text-decoration: underline; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
+        <rect x="0" y="0" width="512" height="512" rx="124" fill="var(--leaf)"/>
+        <circle cx="246" cy="225" r="80" fill="none" stroke="var(--paper-card)" stroke-width="44"/>
+        <path d="M 166 210 C 180 120, 312 120, 330 215" fill="none" stroke="var(--paper-card)" stroke-width="34" stroke-linecap="round"/>
+        <circle cx="166" cy="215" r="34" fill="var(--paper-card)"/>
+        <circle cx="330" cy="215" r="34" fill="var(--paper-card)"/>
+        <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="var(--paper-card)" stroke-width="28" stroke-linecap="round"/>
+        <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
+      </svg>
+      <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
+    </div>
+    <a href="/painel" class="back-link">&larr; Voltar pras conversas</a>
+  </div>
+
+  <div class="card">
+    <h1>Agenda</h1>
+    <p class="lead">Próximos compromissos marcados pelo bot na sua Google Agenda.</p>
+    <div id="agenda-erro" class="banner erro" hidden></div>
+    <div id="agenda-lista" class="evento-list"></div>
+  </div>
+
+  <script>
+    async function carregarEventos() {
+      const listaEl = document.getElementById('agenda-lista');
+      const erroEl = document.getElementById('agenda-erro');
+      listaEl.innerHTML = '<p class="hint">Carregando…</p>';
+      try {
+        const resp = await fetch('/painel/api/agenda/eventos');
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || 'Não consegui buscar os eventos.');
+        if (!data.eventos.length) {
+          listaEl.innerHTML = '<p class="hint">Nenhum compromisso marcado ainda.</p>';
+          return;
+        }
+        listaEl.innerHTML = '';
+        data.eventos.forEach((ev) => {
+          const row = document.createElement('div');
+          row.className = 'evento-row';
+          const quando = ev.inicio ? new Date(ev.inicio).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+          row.innerHTML = `
+            <span class="evento-titulo"></span>
+            <span class="evento-quando">${quando}</span>
+            <div class="evento-links">
+              ${ev.link_evento ? `<a href="${ev.link_evento}" target="_blank" rel="noopener">Ver na agenda</a>` : ''}
+              ${ev.link_meet ? `<a href="${ev.link_meet}" target="_blank" rel="noopener">Google Meet</a>` : ''}
+            </div>
+          `;
+          row.querySelector('.evento-titulo').textContent = ev.titulo;
+          listaEl.appendChild(row);
+        });
+      } catch (err) {
+        listaEl.innerHTML = '';
+        erroEl.textContent = err.message;
+        erroEl.hidden = false;
+      }
+    }
+    carregarEventos();
+  </script>
+</body>
+</html>

@@ -107,10 +107,11 @@ def build_agenda_block(config: dict) -> str:
         "horário que ela quer. Se a ferramenta disser que o horário está "
         "ocupado, avise e peça outro horário — nunca insista no mesmo "
         "nem invente disponibilidade. Depois de agendar com sucesso, "
-        "mande o link do evento e, se vierem preenchidos, o do Google "
-        "Meet e o arquivo de convite (.ics) — esse último funciona em "
-        "qualquer app de calendário, não só Google, então sempre mande "
-        "junto quando disponível.\n"
+        "mande só o arquivo de convite (.ics) — funciona em qualquer app "
+        "de calendário, não só Google. Não precisa mandar o link do "
+        "evento nem o do Google Meet: a gente já vê o compromisso "
+        "marcado na nossa própria agenda, não faz sentido mandar esse "
+        "link pra quem está do outro lado da conversa.\n"
     )
 
 

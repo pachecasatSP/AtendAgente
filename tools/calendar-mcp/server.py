@@ -25,6 +25,9 @@ com erro claro (`sem_acesso_a_agenda`), nada quebra silenciosamente.
 import contextvars
 import json
 import os
+import secrets
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -57,6 +60,17 @@ OBJECT_STORAGE_ACCESS_KEY = os.environ.get("OBJECT_STORAGE_ACCESS_KEY", "")
 OBJECT_STORAGE_SECRET_KEY = os.environ.get("OBJECT_STORAGE_SECRET_KEY", "")
 OBJECT_STORAGE_CDN_BASE_URL = os.environ.get("OBJECT_STORAGE_CDN_BASE_URL", "").rstrip("/")
 ICS_PREFIX = os.environ.get("OBJECT_STORAGE_ICS_PREFIX", "atendpragente-agenda-ics").strip("/")
+
+# Encurtador de link do .ics (Fase 10, 2026-08-19) — Worker + KV própria
+# na Cloudflare (tools/calendar-mcp/shortlink-worker.js), pra não mandar pro
+# cliente uma URL de 90+ caracteres com UUID de 32 dígitos. Best-effort
+# igual o resto do fluxo de .ics: se não estiver configurado ou a
+# chamada falhar, cai pra URL longa direto do object storage — nunca
+# bloqueia o agendamento por causa disso.
+CLOUDFLARE_KV_TOKEN = os.environ.get("CLOUDFLARE_KV_TOKEN", "")
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_KV_NAMESPACE_ID = os.environ.get("CLOUDFLARE_KV_NAMESPACE_ID", "")
+SHORTLINK_BASE_URL = os.environ.get("SHORTLINK_BASE_URL", "https://link.atendpragente.com.br").rstrip("/")
 
 _mongo = MongoClient(MONGO_URI)
 _db = _mongo.get_default_database()
@@ -129,6 +143,36 @@ def upload_ics(tenant_id: str, ics_bytes: bytes) -> str | None:
     except Exception:
         return None
     return f"{OBJECT_STORAGE_CDN_BASE_URL}/{key}"
+
+
+def _shortlink_configured() -> bool:
+    return bool(CLOUDFLARE_KV_TOKEN and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_KV_NAMESPACE_ID)
+
+
+def shorten_url(long_url: str) -> str:
+    """Grava `long_url` na KV do Worker de shortlinks (id curto de 8
+    caracteres) e devolve o link em link.atendpragente.com.br — best
+    effort, devolve `long_url` sem alterar se não estiver configurado ou
+    a chamada falhar (nunca trava o agendamento por causa disso)."""
+    if not _shortlink_configured():
+        return long_url
+    short_id = secrets.token_urlsafe(6)
+    url = (
+        f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}"
+        f"/storage/kv/namespaces/{CLOUDFLARE_KV_NAMESPACE_ID}/values/{short_id}"
+    )
+    req = urllib.request.Request(
+        url, data=long_url.encode("utf-8"), method="PUT",
+        headers={"Authorization": f"Bearer {CLOUDFLARE_KV_TOKEN}", "Content-Type": "text/plain"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            body = json.loads(resp.read())
+    except Exception:
+        return long_url
+    if not body.get("success"):
+        return long_url
+    return f"{SHORTLINK_BASE_URL}/{short_id}"
 
 
 def _load_service_account_info() -> dict | None:
@@ -223,6 +267,8 @@ def check_and_book(calendar_email: str, start: datetime, duration_minutes: int, 
 
     ics_bytes = build_ics(created.get("id", uuid.uuid4().hex), titulo, start, end)
     link_ics = upload_ics(tenant_id, ics_bytes)
+    if link_ics:
+        link_ics = shorten_url(link_ics)
 
     return {
         "ok": True,
@@ -331,6 +377,45 @@ async def testar_conexao_route(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+async def listar_eventos_route(request: Request) -> JSONResponse:
+    """Próximos eventos da agenda do tenant — leitura, nunca cria/altera
+    nada (ver criar_agendamento pra isso). Usada pela página /agenda do
+    painel (ver tools/tenant-panel/app.py)."""
+    tenant = request.state.tenant
+    config = tenant.get("config") or {}
+    calendar_email = config.get("google_calendar_email")
+    if not calendar_email:
+        return JSONResponse({"ok": False, "motivo": "agenda_nao_configurada"})
+
+    try:
+        service = _get_calendar_service()
+        now = datetime.now(SAO_PAULO_TZ)
+        result = service.events().list(
+            calendarId=calendar_email,
+            timeMin=now.isoformat(),
+            maxResults=25,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+    except HttpError as e:
+        if e.resp.status in (403, 404):
+            return JSONResponse({"ok": False, "motivo": "sem_acesso_a_agenda"})
+        return JSONResponse({"ok": False, "motivo": "erro_google", "detalhe": str(e)})
+    except RuntimeError as e:
+        return JSONResponse({"ok": False, "motivo": "nao_configurado", "detalhe": str(e)}, status_code=500)
+
+    eventos = [
+        {
+            "titulo": ev.get("summary") or "(sem título)",
+            "inicio": (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date"),
+            "link_evento": ev.get("htmlLink"),
+            "link_meet": ev.get("hangoutLink"),
+        }
+        for ev in result.get("items", [])
+    ]
+    return JSONResponse({"ok": True, "eventos": eventos})
+
+
 _ALLOWED_HOSTS_BASE = ["calendar-mcp.atendagente.svc.cluster.local", "calendar-mcp", "localhost", "127.0.0.1"]
 
 app = mcp.streamable_http_app(
@@ -346,6 +431,7 @@ app = mcp.streamable_http_app(
 app.add_middleware(TenantAuthMiddleware)
 app.add_route("/service-account-email", service_account_email_route, methods=["GET"])
 app.add_route("/testar-conexao", testar_conexao_route, methods=["POST"])
+app.add_route("/listar-eventos", listar_eventos_route, methods=["GET"])
 
 if __name__ == "__main__":
     import uvicorn

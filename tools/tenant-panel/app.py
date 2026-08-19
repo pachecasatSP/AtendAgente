@@ -223,7 +223,9 @@ def panel_shell(request: Request):
         return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
     if not request.session.get("username"):
         return RedirectResponse("/painel/login")
-    return templates.TemplateResponse(request, "index.html", {"tenant_id": TENANT_ID})
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    agenda_disponivel = bool(CALENDAR_MCP_TOKEN) and bool(((signup or {}).get("config") or {}).get("agendamento_ativo"))
+    return templates.TemplateResponse(request, "index.html", {"tenant_id": TENANT_ID, "agenda_disponivel": agenda_disponivel})
 
 
 @app.get("/painel/api/usage")
@@ -359,7 +361,7 @@ def _catalogo_itens_view() -> list[dict]:
     ]
 
 
-@app.get("/painel/configuracoes", response_class=HTMLResponse)
+@app.get("/configuracoes", response_class=HTMLResponse)
 def configuracoes_page(request: Request):
     if not TENANT_ENABLED:
         return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
@@ -856,6 +858,23 @@ def _calendar_mcp_post(path: str, payload: dict) -> dict:
         return {"ok": False, "motivo": "calendar_mcp_indisponivel"}
 
 
+def _calendar_mcp_get(path: str) -> dict:
+    req = urllib.request.Request(
+        f"{CALENDAR_MCP_BASE_URL}{path}",
+        headers={"Authorization": f"Bearer {CALENDAR_MCP_TOKEN}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            return json.loads(exc.read())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {"ok": False, "motivo": "erro_desconhecido"}
+    except urllib.error.URLError:
+        return {"ok": False, "motivo": "calendar_mcp_indisponivel"}
+
+
 def _calendar_mcp_service_account_email() -> str | None:
     """Melhor esforço — se o calendar-mcp ainda não estiver no ar (ex:
     infra da Google não provisionada ainda), a tela de Configurações
@@ -872,6 +891,7 @@ AGENDA_ERRO_MENSAGENS = {
     "calendar_mcp_indisponivel": "Serviço de agenda indisponível no momento — tenta de novo em instantes.",
     "nao_configurado": "Agendamento ainda não está disponível neste servidor.",
     "email_vazio": "Informe o e-mail da Google Agenda.",
+    "agenda_nao_configurada": "Configure sua Google Agenda em Configurações antes de ver os eventos aqui.",
 }
 
 
@@ -917,6 +937,30 @@ def api_salvar_agenda(request: Request, payload: dict) -> dict:
         op["$unset"] = {"soul_pending_error": ""}
     signups_col.update_one({"_id": signup["_id"]}, op)
     return {"ok": True}
+
+
+@app.get("/agenda", response_class=HTMLResponse)
+def agenda_page(request: Request):
+    if not TENANT_ENABLED:
+        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+    if not request.session.get("username"):
+        return RedirectResponse("/painel/login")
+    return templates.TemplateResponse(request, "agenda.html", {"tenant_id": TENANT_ID})
+
+
+@app.get("/painel/api/agenda/eventos")
+def api_agenda_eventos(request: Request) -> dict:
+    require_session(request)
+    if not CALENDAR_MCP_TOKEN:
+        raise HTTPException(status_code=500, detail="Agendamento ainda não está disponível neste servidor")
+    resultado = _calendar_mcp_get("/listar-eventos")
+    if not resultado.get("ok"):
+        motivo = resultado.get("motivo", "erro_desconhecido")
+        raise HTTPException(
+            status_code=400,
+            detail=AGENDA_ERRO_MENSAGENS.get(motivo, f"Não consegui buscar os eventos ({motivo})"),
+        )
+    return {"eventos": resultado.get("eventos") or []}
 
 
 @app.post("/painel/api/cancelar-assinatura")
