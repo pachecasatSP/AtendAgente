@@ -28,10 +28,10 @@ MONGO_URI = os.environ["MONGO_URI"]
 # frágil por um dict de 2 linhas. Se os planos mudarem, atualizar nos
 # dois lugares.
 LIMITES = {
-    "entrada": 500,
+    "entrada": 100,  # revisado 2026-08-19 (era 500)
     "comecando": 1000,
     "crescendo": 5000,
-    "gratuito": 500,  # cadastro por convite, mesmo limite do Entrada
+    "gratuito": 100,  # cadastro por convite, mesmo limite do Entrada
 }
 WARNING_PCT = 0.8
 

@@ -42,7 +42,11 @@ TENANT_ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}[a-z0-9]$")
 # Só planos com valor fixo entram no checkout automático — "Sem limite"
 # é sob consulta e não aparece no wizard (ver PLANOS no form.html).
 PLANOS = {
-    "entrada": {"nome": "Entrada", "valor": 84.90, "valor_de": 105.90, "limite": 500},
+    # limite revisado 2026-08-19: 500 -> 100 conversas/mês (preço mantido
+    # por ora — deixa de bater com a lógica de escada por conversa
+    # documentada em specs/roadmap-multi-tenant.md Fase 6, decisão
+    # consciente, revisar preço depois se fizer sentido).
+    "entrada": {"nome": "Entrada", "valor": 84.90, "valor_de": 105.90, "limite": 100},
     "comecando": {"nome": "Começando", "valor": 157.90, "valor_de": 197.00, "limite": 1000},
     "crescendo": {"nome": "Crescendo", "valor": 717.90, "valor_de": 897.00, "limite": 5000},
     # Não aparece no wizard nem em nenhuma peça pública — só existe pra
@@ -50,7 +54,7 @@ PLANOS = {
     # submit_form) como gratuito de verdade, em vez de gravar um plano
     # pago falso (ex: "entrada") só pra passar na validação. Mesmo
     # limite de conversas do Entrada.
-    "gratuito": {"nome": "Gratuito (convite)", "valor": 0.0, "valor_de": 0.0, "limite": 500},
+    "gratuito": {"nome": "Gratuito (convite)", "valor": 0.0, "valor_de": 0.0, "limite": 100},
 }
 TRIAL_DIAS = 7
 CONFIRM_EVENTS = {"CHECKOUT_PAID", "PAYMENT_CONFIRMED", "PAYMENT_RECEIVED"}

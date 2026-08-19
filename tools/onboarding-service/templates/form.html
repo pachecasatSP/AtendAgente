@@ -239,6 +239,20 @@ textarea { min-height: 4rem; resize: vertical; }
   position: relative;
 }
 .plan-card:has(input:checked) { border-color: var(--leaf); background: var(--leaf-pale); }
+.plan-card.featured::before {
+  content: "mais escolhido";
+  position: absolute;
+  top: -11px;
+  left: 1rem;
+  background: var(--spark, #FFC93C);
+  color: #211500;
+  font-weight: 800;
+  font-size: 0.64rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+}
 .plan-card input[type=radio] { position: absolute; top: 1rem; right: 1rem; accent-color: var(--leaf); width: 18px; height: 18px; margin: 0; }
 .plan-card .plan-name { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; color: var(--ink); }
 .plan-card .plan-volume { font-size: 0.8rem; color: var(--ink-faint); font-weight: 700; }
@@ -484,13 +498,13 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
         <div class="step" data-step="6"{% if gratuito %} data-skip-if-gratuito{% endif %}>
           <div class="step-eyebrow">Quase lá</div>
           <h2>Escolha seu plano</h2>
-          <p class="lead">7 dias grátis em qualquer um, sem compromisso.</p>
+          <p class="lead">7 dias grátis em qualquer um, sem compromisso. "Conversa" é cada contato diferente que fala com você no mês — não cada mensagem nem cada sessão.</p>
 
           <div class="plan-grid">
             <label class="plan-card">
-              <input type="radio" name="plano" value="entrada" required{% if gratuito %} checked{% endif %}>
+              <input type="radio" name="plano" value="entrada" required>
               <span class="plan-name">Entrada</span>
-              <span class="plan-volume">até 500 conversas/mês</span>
+              <span class="plan-volume">até 100 conversas/mês</span>
               <span class="plan-price-de">de R$ 105,90</span>
               <span class="plan-price">R$ 84,90<small>/mês</small></span>
             </label>
@@ -501,8 +515,8 @@ button { font-family: var(--font-body); cursor: pointer; border: none; }
               <span class="plan-price-de">de R$ 197,00</span>
               <span class="plan-price">R$ 157,90<small>/mês</small></span>
             </label>
-            <label class="plan-card">
-              <input type="radio" name="plano" value="crescendo" required>
+            <label class="plan-card featured">
+              <input type="radio" name="plano" value="crescendo" required checked>
               <span class="plan-name">Crescendo</span>
               <span class="plan-volume">até 5.000 conversas/mês</span>
               <span class="plan-price-de">de R$ 897,00</span>

@@ -376,6 +376,21 @@ a ordem correta (quem compromete menos paga mais por conversa):
 Entrada (0,170) > Começando (0,158) > Crescendo (0,144). Começando e
 Crescendo não mudaram de valor.
 
+**Limite do Entrada/Gratuito revisado pra 100 conversas/mês
+(2026-08-19)**, preço mantido em R$84,90 — decisão consciente de negócio,
+não uma correção técnica. **Isso quebra a lógica de escada acima**:
+R$84,90/100 = R$0,85/conversa, bem acima do Começando (0,158) e
+Crescendo (0,144) — não foi reequilibrado ainda, revisar se isso virar
+objeção real de venda. `PLANOS` (`onboarding-service/app/main.py`) e o
+`LIMITES` duplicado (`usage_watch.py`) foram atualizados juntos.
+Aproveitado pra deixar explícito em toda peça pública (landing page,
+wizard de cadastro) o que conta como "conversa": contato único
+(`chat_id` distinto) no mês, não mensagem nem sessão — mesma definição
+da Fase 8, só que agora visível pro cliente antes de assinar. O plano
+Crescendo também passou a ser marcado como "mais escolhido" (landing
+page já tinha esse destaque; o wizard de cadastro não tinha — agora tem,
+inclusive pré-selecionado por padrão em vez do Entrada).
+
 **Rollout Asaas pra produção — CONCLUÍDA (2026-08-15):** `ASAAS_BASE_URL`
 trocado de `api-sandbox.asaas.com` pra `api.asaas.com`, `ASAAS_API_KEY`
 de produção e `ASAAS_WEBHOOK_TOKEN` novo (nunca reaproveitar o de
