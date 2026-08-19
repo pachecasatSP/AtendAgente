@@ -193,6 +193,21 @@ h1, h2, h3, .display {
   color: var(--ink);
 }
 .brand-word .pra { color: var(--leaf-deep); }
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: var(--ink-soft);
+  background: var(--leaf-pale);
+  border: 1px solid color-mix(in srgb, var(--leaf) 40%, transparent);
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.nav-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--leaf); flex-shrink: 0; }
+@media (max-width: 720px) { .nav-badge { display: none; } }
 .nav-links { display: flex; align-items: center; gap: 1.6rem; }
 .nav-link { text-decoration: none; font-weight: 800; font-size: 0.95rem; color: var(--ink-soft); }
 .nav-link:hover { color: var(--leaf-deep); }
@@ -215,7 +230,7 @@ h1, h2, h3, .display {
 
 /* ---------- Hero ---------- */
 .hero {
-  padding: 4.5rem 0 5rem;
+  padding: 1.75rem 0 5rem;
 }
 .hero-grid {
   display: grid;
@@ -665,6 +680,7 @@ footer {
       </svg>
       <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
     </a>
+    <span class="nav-badge"><span class="dot"></span>Meta Tech Provider aprovado</span>
     <div class="nav-links">
       <a class="nav-link" href="#planos">Planos</a>
       <a class="nav-cta" href="https://wa.me/5511920081743?text=Quero%20conhecer%20o%20AtendPraGente" target="_blank" rel="noopener">Falar com a Duda</a>
