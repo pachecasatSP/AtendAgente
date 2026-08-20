@@ -930,6 +930,110 @@ horário realmente reaberto.
 
 ---
 
+### Fase 12 — Fechamento de vendas (vitrine + Pix) — PLANEJADA (2026-08-20)
+
+**Objetivo:** hoje a vitrine (`/vitrine`) é só leitura — mostra o
+catálogo, sem interação — e o pagamento via Pix é uma chave estática
+que o bot recita em texto quando perguntado (`config.pagamento_pix_
+chave`, ver `build_payment_block` em `generate_soul.py`). As duas
+pontas nunca se encontram: ninguém sabe quais itens o cliente quer, o
+valor fica por conta do cliente digitar certo, e não há confirmação de
+pagamento nenhuma. Esta fase conecta as duas pontas com um conceito de
+**pedido**, sem introduzir um gateway de pagamento (PSP) — o dinheiro
+continua indo direto do cliente pra conta do tenant via Pix, a
+AtendPraGente nunca fica no meio do fluxo financeiro.
+
+**Descartado nesta fase (decisão explícita, registrada pra não
+reabrir sem motivo):**
+- **QR code Pix** — descartado a favor do **Pix copia e cola em
+  texto**: o cliente está dentro do WhatsApp quando recebe a cobrança,
+  não teria uma segunda câmera pra escanear QR. O payload EMV (BR
+  Code) é o mesmo de qualquer forma — só não vira imagem, vai como
+  texto puro (bloco de código, fácil de copiar) com instrução curta
+  ("abre o Pix do banco → Copia e Cola → cola esse código → confirma o
+  valor e envia").
+- **Comissão/take rate automática** — o usuário confirmou que quer
+  cobrar comissão de verdade no futuro, mas isso exige o dinheiro
+  passar por um PSP com split (ex: Asaas, que a plataforma já usa pra
+  cobrar a assinatura dos tenants — ver `feedback_asaas_producao` nas
+  memórias) — contradiz a decisão de Pix direto sem intermediário desta
+  fase. Fica registrado como evolução futura, não implementado agora.
+  Alternativa sem comissão (descartada por ora também, mas mais barata
+  de implementar): usar o volume de `pedidos` com `status: "pago"` só
+  como **gatilho de desconto** no plano (mesmo padrão de metering do
+  `usage_watch.py`), sem cobrar nada — decidir se vale a pena quando
+  chegar a hora.
+- **Confirmação via leitura automática do comprovante (visão)** —
+  descartado por ora porque não está confirmado que o perfil WhatsApp
+  do tenant tem modelo com suporte a imagem habilitado (só o perfil
+  `agent-api-vision`, não-WhatsApp, tem isso hoje — ver
+  `infra_hermes_profiles` nas memórias). Mesmo que tivesse, comprovante
+  é falsificável (print editado) — não deveria fechar o pedido sozinho
+  de qualquer forma. Confirmação fica manual.
+
+**Desenho:**
+
+1. **Vitrine ganha um botão "Pedir" por item** (1 item por pedido pra
+   começar, sem carrinho multi-item — cobre a maioria dos casos de
+   negócio pequeno, evita ter que construir carrinho com localStorage).
+   Clicar grava um `pedido` novo (coleção Mongo `pedidos`: tenant_id,
+   item, quantidade, valor_total, status, chat_id [nulo até o cliente
+   confirmar pela conversa], criado_em) e abre o WhatsApp
+   (`wa.me/...?text=...`) com uma mensagem pré-preenchida referenciando
+   o id do pedido.
+
+2. **Pix copia e cola gerado na hora** — payload EMV (BR Code) montado
+   a partir da chave Pix do tenant (`config.pagamento_pix_chave`, já
+   existe) + valor do pedido, sem gateway nenhum (formato público,
+   implementável só com string formatting + CRC16, sem chamada de
+   rede). Mandado como texto na conversa quando o bot processa o pedido
+   referenciado, com a instrução de uso.
+
+3. **Confirmação manual via comprovante:**
+   - Cliente manda foto/PDF do comprovante na própria conversa.
+   - Novo ponto de interceptação no webhook patchado
+     (`whatsapp_cloud_patched.py`, mesmo padrão da Fase 11 Peça 3) —
+     detecta mensagem de imagem/documento numa conversa com pedido em
+     `status: "aguardando_pagamento"` pra aquele chat_id.
+     **Sem pedido correspondente, a imagem é ignorada — segue o fluxo
+     normal da conversa, sem tratamento especial.**
+   - Baixa a mídia via Graph API (mesmo padrão do upload de foto de
+     produto já existente no tenant-panel) e sobe pro object storage
+     **num prefixo separado das fotos do catálogo/`.ics`, sem
+     `ACL: public-read`** — diferente do resto do bucket, que é público
+     de propósito (a vitrine é pública). Comprovante é dado financeiro/
+     pessoal, só pode ser acessado autenticado, via endpoint do painel
+     (`require_session`), nunca por link CDN direto.
+   - Pedido vira `status: "comprovante_recebido"`; sessão marcada como
+     precisando de atenção reaproveitando o mecanismo de handoff já
+     existente (`needs_operator`/`handoff`, Fase 5) — sem inventar
+     notificação nova.
+
+4. **`/pedidos`** — rota nova no tenant-panel, mesmo padrão de
+   `/agenda` (rota própria, ícone no menu). Lista pedidos por status
+   (aberto / aguardando pagamento / comprovante recebido / pago /
+   cancelado), link autenticado pra abrir o comprovante, botão manual
+   "marcar como pago" (mesma UX do botão "Confirmar" da agenda).
+
+5. **LGPD — retenção com prazo, mesmo padrão da lixeira (Fase 9):**
+   - **Comprovante**: apagado do object storage **30 dias** depois de
+     recebido — dado financeiro/pessoal, minimização de finalidade
+     (art. 6º) e direito à eliminação (art. 15/16) depois que a
+     finalidade (confirmar aquele pagamento específico) se esgota. Não
+     há obrigação legal de retenção mais longa aplicável aqui
+     (comprovante de Pix entre duas pessoas não é nota fiscal).
+   - **Pedido órfão**: `pedidos` sem conclusão (nunca chegou a
+     `status: "pago"`) em **30 dias** viram `status: "cancelado"`
+     automaticamente — mitiga carrinho abandonado sem deixar lixo
+     acumulando. Mesmo esqueleto do `lixeira_watch.py`: um cronjob de
+     varredura, não implementado nesta fase (só o campo `status` +
+     `criado_em` já ficam prontos pra isso desde o início).
+
+**Nada implementado ainda** — só o desenho, discutido e fechado nesta
+sessão (2026-08-20), pra quando decidirem priorizar.
+
+---
+
 ## Riscos / decisões a revisitar cedo
 
 - **Capacidade do cluster novo**: 8.2GB livres / 8 vCPU hoje, mas o
