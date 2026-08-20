@@ -156,6 +156,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       }
       if (p.status === 'pago' && p.chat_id) {
         acoes.push('<button type="button" class="pedido-btn" data-acao-especial="reenviar-rastreio">Reenviar aviso de rastreio</button>');
+        acoes.push('<button type="button" class="pedido-btn" data-acao-copiar="1">Copiar texto de rastreio</button>');
       }
 
       const nomesItens = escapeHtml((p.itens || []).map((i) => i.item_nome).join(', '));
@@ -178,8 +179,24 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       row.querySelectorAll('.pedido-btn[data-acao-especial]').forEach((btn) => {
         btn.addEventListener('click', () => reenviarRastreio(p.id, btn));
       });
+      row.querySelectorAll('.pedido-btn[data-acao-copiar]').forEach((btn) => {
+        btn.addEventListener('click', () => copiarTextoRastreio(p, btn));
+      });
 
       return row;
+    }
+
+    async function copiarTextoRastreio(p, btn) {
+      const texto = `Qual o status do meu pedido #${p.numero_exibicao}?`;
+      const textoOriginal = btn.textContent;
+      try {
+        await navigator.clipboard.writeText(texto);
+        btn.textContent = 'Copiado ✓';
+      } catch (err) {
+        window.prompt('Copie o texto abaixo:', texto);
+      } finally {
+        setTimeout(() => { btn.textContent = textoOriginal; }, 2500);
+      }
     }
 
     async function reenviarRastreio(id, btn) {

@@ -152,7 +152,10 @@ def _sufixo_tenant() -> str:
 
 
 def _numero_exibicao(numero: int) -> str:
-    return f"{numero}-{_sufixo_tenant()}"
+    # Hífen é obrigatório — sem ele, o sufixo hex pode começar com
+    # dígito (0-9) e colar no número sequencial, quebrando
+    # PEDIDO_NUMERO_REGEX (\d+ não teria onde parar).
+    return f"{numero}-{_sufixo_tenant().upper()}"
 
 
 def _pedido_sugestoes(chat_id: str) -> list:

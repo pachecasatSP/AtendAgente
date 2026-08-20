@@ -974,7 +974,11 @@ def _sufixo_tenant() -> str:
 
 
 def _numero_exibicao(numero_pedido: int) -> str:
-    return f"{numero_pedido}-{_sufixo_tenant()}"
+    # Hífen é obrigatório aqui — sem ele, o sufixo hex pode começar com
+    # dígito (0-9) e colar no número sequencial, quebrando o regex de
+    # extração (\d+ não teria onde parar). Ver PEDIDO_NUMERO_REGEX em
+    # mongo_sync/sync_conversations.py.
+    return f"{numero_pedido}-{_sufixo_tenant().upper()}"
 
 
 MAX_ITENS_CARRINHO = 20
