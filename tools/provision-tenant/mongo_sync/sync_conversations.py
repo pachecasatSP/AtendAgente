@@ -48,12 +48,17 @@ OBJECT_STORAGE_SECRET_KEY = os.environ.get("OBJECT_STORAGE_SECRET_KEY", "")
 COMPROVANTE_PREFIX = os.environ.get("OBJECT_STORAGE_COMPROVANTE_PREFIX", "atendpragente-comprovantes").strip("/")
 _s3_client = None
 
-# Frase-gatilho que o SOUL instrui o bot a usar, sempre igual, quando
-# decide escalar pra um humano — ver "Quando encaminhar para o Adolfo"
-# em poc/SOUL-ac-solucoes.md. Detectada aqui (não via tool-call, que se
+# Frases-gatilho que o SOUL instrui o bot a usar, sempre iguais, quando
+# decide escalar pra um humano. Detectadas aqui (não via tool-call, que se
 # mostrou pouco confiável nesse modelo — ver feedback_hermes_mcp_tool_calling)
-# pra marcar a sessão como precisando de atenção manual no painel.
-ESCALATION_MARKER = "acionar o adolfo"
+# pra marcar a sessão como precisando de atenção manual no painel — sem
+# depender de nenhuma mensagem separada pro cliente com telefone nenhum.
+# "acionar o adolfo": SOUL da AC Soluções (Duda), ver "Quando encaminhar
+# para o Adolfo" em poc/SOUL-ac-solucoes.md.
+# "vai te atender rapidinho": SOUL.template.md dos tenants AtendPraGente
+# (genérico, não depende do nome de quem escala — ver seção "Quando
+# encaminhar", revisado 2026-08-20 pra nunca mais ditar telefone).
+ESCALATION_MARKERS = ("acionar o adolfo", "vai te atender rapidinho")
 
 # Chat IDs currently under manual handoff (operador assumiu a conversa pelo
 # painel). Refeito do zero a cada ciclo de sync — ver refresh_handoff_cache.
@@ -661,7 +666,7 @@ def sync_once(conn: sqlite3.Connection, db, cursor: dict) -> dict:
             UpdateOne({"_id": f"{TENANT_ID}:{mid}"}, {"$set": doc}, upsert=True)
         )
         max_message_id = max(max_message_id, mid)
-        if role == "assistant" and content and ESCALATION_MARKER in content.lower():
+        if role == "assistant" and content and any(m in content.lower() for m in ESCALATION_MARKERS):
             escalated_session_ids.add(session_id)
     if message_ops:
         messages_coll.bulk_write(message_ops, ordered=False)
