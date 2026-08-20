@@ -760,17 +760,35 @@ Graph API do Google toda hora — mais rápido, e resolve de vez o ponto
 que ficava em aberto na Peça 4 (webhook não tem credencial Google pra
 atualizar status lá — atualizar o Mongo local não tem esse problema).
 
-**Peça 1 — Vincular o agendamento ao contato.** `criar_agendamento`
-ainda precisa saber o telefone do cliente pra gravar no `agendamentos`.
-Duas rotas:
-- **(a) Parâmetro explícito** — a tool ganha `telefone_cliente`,
-  preenchido pelo modelo a partir da conversa (mesmo padrão de confiança
-  já usado pra PIX/escalação no SOUL).
-- **(b) Automático** — se o Hermes expõe o `chat_id` do remetente pro
-  agente de forma acessível, capturaria sem depender do LLM escrever
-  certo. **Não confirmado** — Hermes é imagem vendorizada
-  (`nousresearch/hermes-agent`), precisa testar numa conversa real
-  antes de decidir a interface final da tool.
+**Peça 1 — Vincular o agendamento ao contato — CONCLUÍDA (2026-08-20).**
+Tentativa inicial foi a rota (a): `criar_agendamento` ganhou
+`telefone_cliente`, com o SOUL instruindo o modelo a preencher a partir
+da conversa. **Testado com agendamento real via WhatsApp e não
+funcionou** — o campo chegou vazio (`chat_id: None` no Mongo) mesmo com
+a instrução explícita; o modelo simplesmente não preenchia.
+
+Investigação encontrou a rota (b): o Hermes (`nousresearch/hermes-agent`,
+vendorizado) tem um **sistema de plugins nativo** — hook `pre_llm_call`
+recebe `sender_id` (o `chat_id` de quem mandou a mensagem, vindo de
+`gateway/turn_context.py`) em todo turno, e o retorno do hook
+(`{"context": "..."}`) é injetado direto no contexto que o modelo lê.
+Plugin de usuário fica em `{HERMES_HOME}/plugins/<nome>/` — aqui,
+`/opt/data/plugins/` (mesmo volume do SOUL.md/config.yaml) — descoberto
+automaticamente, **sem precisar patchar arquivo vendorizado nenhum**
+(diferente do overlay `whatsapp_cloud_patched.py` da Fase 5). Só
+precisa ser habilitado via `plugins.enabled` em config.yaml (opt-in por
+padrão).
+
+Implementado `tools/provision-tenant/provision_tenant.py:
+enable_agendamento_context_plugin` — publica `plugin.yaml` +
+`__init__.py` (hook que devolve `sender_id` como
+`"[Sistema] telefone/chat_id do contato desta conversa: {sender_id}"`)
+e habilita no config.yaml. Chamado no passo 5/5 do provisionamento
+(junto de `enable_calendar_mcp`) pra todo tenant novo; aplicado
+manualmente nos 2 tenants live com agenda ativa. **Confirmado com
+agendamento real via WhatsApp** (2026-08-20): `chat_id` chegou
+corretamente preenchido no espelho Mongo, sem o modelo precisar
+escrever nada.
 
 **Peça 2 — Template por tenant** (decisão: um por tenant, não genérico
 compartilhado — Message Templates da Meta são presos à WABA de cada

@@ -688,6 +688,65 @@ def enable_calendar_mcp(tenant_id: str, calendar_mcp_token: str) -> None:
     kubectl_exec_stdin(prefix, ["sh", "-c", "cat >> /opt/data/.env"], env_line)
 
 
+AGENDAMENTO_CONTEXTO_PLUGIN_YAML = """\
+name: agendamento_contexto
+version: "1.0.0"
+description: "Injeta o telefone/chat_id do contato atual no contexto de cada turno — a ferramenta criar_agendamento (calendar-mcp) precisa desse dado pra vincular o compromisso ao cliente, e depender do LLM escrever o número certo não é confiável."
+author: AtendPraGente
+hooks:
+  - pre_llm_call
+"""
+
+AGENDAMENTO_CONTEXTO_PLUGIN_INIT = '''\
+"""Injeta o chat_id do remetente atual no contexto de cada turno (Fase 11,
+2026-08-20) — sender_id vem do próprio Hermes (gateway/turn_context.py,
+hook pre_llm_call), não depende do LLM "lembrar" ou escrever o número
+certo (testado 2026-08-20: sem isso, telefone_cliente chegava sempre
+vazio na tool). Usado por criar_agendamento (calendar-mcp) pra vincular
+o compromisso ao telefone do cliente."""
+
+
+def on_pre_llm_call(*, sender_id: str = "", **_):
+    if not sender_id:
+        return None
+    return {"context": f"[Sistema] telefone/chat_id do contato desta conversa: {sender_id}"}
+
+
+def register(ctx) -> None:
+    ctx.register_hook("pre_llm_call", on_pre_llm_call)
+'''
+
+
+def enable_agendamento_context_plugin(tenant_id: str) -> None:
+    """Publica o plugin de usuário do Hermes que injeta o chat_id do
+    remetente em todo turno (ver AGENDAMENTO_CONTEXTO_PLUGIN_* acima) —
+    resolve o telefone_cliente vazio de criar_agendamento sem depender do
+    LLM. Plugins de usuário do Hermes ficam em
+    `{HERMES_HOME}/plugins/<nome>/` (aqui, `/opt/data/plugins/`,
+    descoberto automaticamente — nada de patch em arquivo vendorizado) e
+    são opt-in via `plugins.enabled` em config.yaml. Não reinicia o pod —
+    mesma convenção de enable_calendar_mcp."""
+    prefix = f"{tenant_id}-hermes"
+    kubectl_exec_stdin(
+        prefix,
+        ["sh", "-c", "mkdir -p /opt/data/plugins/agendamento_contexto && cat > /opt/data/plugins/agendamento_contexto/plugin.yaml"],
+        AGENDAMENTO_CONTEXTO_PLUGIN_YAML,
+    )
+    kubectl_exec_stdin(
+        prefix,
+        ["sh", "-c", "cat > /opt/data/plugins/agendamento_contexto/__init__.py"],
+        AGENDAMENTO_CONTEXTO_PLUGIN_INIT,
+    )
+    already_enabled = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
+         "grep", "-q", "agendamento_contexto", "/opt/data/config.yaml"],
+        capture_output=True, text=True,
+    )
+    if already_enabled.returncode != 0:
+        plugins_block = "\nplugins:\n  enabled:\n    - agendamento_contexto\n"
+        kubectl_exec_stdin(prefix, ["sh", "-c", "cat >> /opt/data/config.yaml"], plugins_block)
+
+
 def wait_for_health(deployment: str, timeout_s: int = 120) -> bool:
     prefix = deployment
     result = subprocess.run(
@@ -759,6 +818,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
     kubectl_exec_stdin(prefix, ["sh", "-c", "cat > /opt/data/SOUL.md"], soul_text)
     apply_display_defaults(prefix)
     enable_calendar_mcp(tenant_id, credentials["calendar_mcp_token"])
+    enable_agendamento_context_plugin(tenant_id)
     subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
     wait_for_health(prefix)
 
