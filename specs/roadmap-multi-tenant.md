@@ -1024,16 +1024,28 @@ tem (bot direciona pro combinado direto com o lojista).
    AtendPraGente, ex: `Quero fechar o pedido #47 (Camiseta Azul - R$
    89,90)`. Novo ponto de interceptação no webhook patchado
    (`whatsapp_cloud_patched.py`) roda em **toda mensagem de texto
-   recebida** (não só a primeira) buscando o padrão `#(\d+)`:
-   - **Casou o número** → busca o pedido `#N` daquele tenant. Se
-     existir e estiver `aberto` (ou já vinculado a esse mesmo chat_id,
-     pra permitir reenvio/retry) → vincula `chat_id`, muda pra
+   recebida** (não só a primeira) buscando o padrão **da frase-gatilho
+   junto com o número** (ex: `pedido #(\d+)`, não `#(\d+)` sozinho) —
+   exigir o pedaço de frase, não só o hashtag, evita falso positivo de
+   uma mensagem qualquer que por coincidência contenha "#47" sem
+   nenhuma relação com fechar pedido:
+   - **Casou o padrão** → busca o pedido `#N` **daquele tenant**
+     (chat_id sozinho não é suficiente pra identificar o pedido — o
+     mesmo número de telefone pode estar conversando com bots de
+     tenants diferentes, então tenant_id sempre entra no filtro,
+     nunca só chat_id). Se existir e estiver `aberto` ou
+     `aguardando_pagamento` vinculado a esse mesmo chat_id (permite
+     reenvio/retry) → vincula `chat_id`, muda pra
      `aguardando_pagamento`, gera o Pix copia-e-cola (payload EMV/BR
      Code, string formatting + CRC16, sem chamada de rede, valor
      travado no passo 1) e responde direto — sem passar pelo LLM.
+     **Se o pedido já estiver `pago` ou `cancelado`, não reenvia
+     cobrança nenhuma** — responde algo fixo tipo "esse pedido já
+     está confirmado como pago, obrigado!" (evita reenviar Pix de algo
+     já quitado, ou pior, alguém tentando extrair a cobrança de novo).
    - **Número não casou, ou pedido não está elegível** (não existe,
      já pago, cancelado, de outro tenant) → **camada de fallback 1**:
-     busca por `chat_id` (não pelo número) outros pedidos desse mesmo
+     busca por `chat_id`+`tenant_id` outros pedidos desse mesmo
      cliente ainda `aberto`/`aguardando_pagamento` — se achar, sugere
      ("não achei o pedido #47, mas você tem esses em aberto: #45 —
      Camiseta Azul, #52 — Ingresso do evento. É algum desses?"). Só
@@ -1049,11 +1061,12 @@ tem (bot direciona pro combinado direto com o lojista).
 3. **Confirmação manual via comprovante:**
    - Cliente manda foto/PDF do comprovante na própria conversa.
      Mesmo princípio de bypass do passo 2: se houver **exatamente um**
-     pedido `aguardando_pagamento` pra esse chat_id, o webhook vincula
-     o comprovante a ele automaticamente. **Havendo mais de um em
-     aberto, o webhook manda uma resposta fixa pedindo o número** antes
-     de aceitar — mesma lógica determinística do passo 2, não uma
-     pergunta gerada pelo LLM.
+     pedido `aguardando_pagamento` pra esse chat_id **dentro daquele
+     tenant** (mesmo cuidado de escopo do passo 2 — nunca só chat_id),
+     o webhook vincula o comprovante a ele automaticamente. **Havendo
+     mais de um em aberto, o webhook manda uma resposta fixa pedindo o
+     número** antes de aceitar — mesma lógica determinística do passo
+     2, não uma pergunta gerada pelo LLM.
    - Novo ponto de interceptação no webhook patchado
      (`whatsapp_cloud_patched.py`, mesmo padrão da Fase 11 Peça 3) —
      detecta mensagem de imagem/documento numa conversa com pedido em
@@ -1095,6 +1108,14 @@ tem (bot direciona pro combinado direto com o lojista).
      acumulando. Mesmo esqueleto do `lixeira_watch.py`: um cronjob de
      varredura, não implementado nesta fase (só o campo `status` +
      `criado_em` já ficam prontos pra isso desde o início).
+
+**Risco a revisitar: abuso do endpoint público "Pedir".** A vitrine
+(`/vitrine`) é pública, sem login — nada impede um bot/scraper clicar
+repetidamente e encher `pedidos` de lixo (`aberto`, nunca vinculado a
+chat_id nenhum). Não é bloqueante pra desenhar o resto da fase, mas
+merece rate limit (por IP, por exemplo) antes de ir pra produção —
+mesmo espírito da seção "Riscos / decisões a revisitar cedo" no fim
+deste documento.
 
 **Previsto, mas não implementado agora: lembrete de carrinho
 abandonado.** Mesmo espírito do CronJob `agenda-lembrete` (Fase 11) —
