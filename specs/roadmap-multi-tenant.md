@@ -930,7 +930,7 @@ horário realmente reaberto.
 
 ---
 
-### Fase 12 — Fechamento de vendas (vitrine + Pix) — PLANEJADA (2026-08-20)
+### Fase 12 — Fechamento de vendas (vitrine + Pix) — IMPLEMENTADA (2026-08-20)
 
 **Objetivo:** hoje a vitrine (`/vitrine`) é só leitura — mostra o
 catálogo, sem interação — e o pagamento via Pix é uma chave estática
@@ -1150,8 +1150,44 @@ explícita: **não implementar nesta rodada**, mas deixar o campo
 `status`/`criado_em` do pedido já pronto pra suportar isso sem
 migração de schema quando for priorizado.
 
-**Nada implementado ainda** — só o desenho, discutido e fechado nesta
-sessão (2026-08-20), pra quando decidirem priorizar.
+**Implementado e publicado (2026-08-20), 5 peças:**
+1. Vitrine segmentada por tipo + scroll infinito + botão "Pedir" +
+   criação do pedido (`tools/tenant-panel/app.py`,
+   `templates/vitrine.html`) — numeração sequencial por tenant, preço
+   travado, link `wa.me` com texto fixo.
+2. Gatilho de fechamento + geração de Pix, sem passar pelo LLM
+   (`mongo_sync/sync_conversations.py`: `pedido_fechar`, `pedido_
+   status`, gerador de payload EMV/BR Code com CRC16 próprio;
+   `whatsapp_cloud_patched.py`: interceptação antes do dispatch de
+   texto). Fallback em 2 camadas testado, pedido já pago não reenvia
+   cobrança.
+3. `/pedidos` no painel (scroll infinito, marcar como pago/cancelar) +
+   aviso automático de rastreamento manual ao confirmar pagamento.
+4. Comprovante — download da Graph API + upload pro object storage
+   num prefixo **privado** (sem `ACL: public-read`), servido só
+   autenticado pelo painel. mongo-sync ganhou boto3 + credencial do
+   storage (`provision_tenant.py`, container spec do mongo-sync).
+5. CronJob `pedido-retencao` (1x/dia): cancela pedido órfão de
+   verdade (`aberto`/`aguardando_pagamento`, >30 dias) e apaga
+   comprovante vencido (>30 dias) — **nunca** cancela
+   `comprovante_recebido` (cliente já pagou, só falta confirmação
+   manual).
+
+**Testado de ponta a ponta contra infra real** (tenant
+linda-ana-calcados): pedido criado na vitrine real → fechado via texto
+real → Pix gerado com a chave Pix real do tenant (payload EMV validado
+por parse-back + CRC16 contra vetor de teste padrão) → fallbacks
+(pedido já pago, número errado com/sem sugestão) → `/pedidos` listando
+e marcando pago → upload privado no bucket real confirmado sem grant
+público → cronjob de retenção testado com dados sintéticos (achou e
+corrigiu um bug real: a query original cancelaria `comprovante_
+recebido` também, corrigido antes de publicar). Download real de mídia
+via Graph API não testado (precisa de uma mensagem de WhatsApp de
+verdade com anexo, não reproduzível sinteticamente).
+
+**Não coberto por este teste:** o laço 100% real (cliente de verdade
+mandando a mensagem no WhatsApp, foto de comprovante de verdade) —
+válido testar assim que o fluxo receber uso real.
 
 ---
 
