@@ -1293,27 +1293,6 @@ def api_pedido_avancar_rastreio(request: Request, pedido_id: str) -> dict:
     return {"ok": True, "rastreio_status": novo_estado}
 
 
-@app.post("/painel/api/pedidos/{pedido_id}/reenviar-rastreio")
-def api_pedido_reenviar_rastreio(request: Request, pedido_id: str) -> dict:
-    """Botão manual em /pedidos — reenvia a mesma mensagem de
-    rastreamento (a mesma que sai sozinha ao marcar como pago), pra
-    quando o cliente perdeu/não recebeu ou o tenant quer lembrar."""
-    require_session(request)
-    try:
-        oid = ObjectId(pedido_id)
-    except InvalidId:
-        raise HTTPException(status_code=400, detail="Id inválido")
-    pedido = pedidos_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
-    if not pedido:
-        raise HTTPException(status_code=404, detail="Pedido não encontrado")
-    lote = _lote_do_pedido(pedido)
-    if not lote[0].get("chat_id"):
-        raise HTTPException(status_code=400, detail="Esse pedido não tem um contato de WhatsApp vinculado")
-    if not _avisar_rastreamento_manual(lote):
-        raise HTTPException(status_code=502, detail="Não consegui mandar a mensagem agora — tenta de novo em instantes")
-    return {"ok": True}
-
-
 @app.post("/painel/api/pedidos/{pedido_id}/cancelar")
 def api_pedido_cancelar(request: Request, pedido_id: str) -> dict:
     require_session(request)

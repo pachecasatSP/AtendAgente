@@ -163,9 +163,6 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         acoes.push('<button type="button" class="pedido-btn pagar" data-acao="pago">Marcar como pago</button>');
         acoes.push('<button type="button" class="pedido-btn cancelar" data-acao="cancelar">Cancelar</button>');
       }
-      if (p.status === 'pago' && p.chat_id) {
-        acoes.push('<button type="button" class="pedido-btn" data-acao-especial="reenviar-rastreio">Reenviar aviso de rastreio</button>');
-      }
       if (p.status === 'pago') {
         const rastreioAtual = p.rastreio_status || RASTREIO_SEQUENCIA[0];
         const indiceAtual = RASTREIO_SEQUENCIA.indexOf(rastreioAtual);
@@ -194,31 +191,11 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       row.querySelectorAll('.pedido-btn[data-acao]').forEach((btn) => {
         btn.addEventListener('click', () => executarAcao(p.id, btn.dataset.acao, btn, row));
       });
-      row.querySelectorAll('.pedido-btn[data-acao-especial="reenviar-rastreio"]').forEach((btn) => {
-        btn.addEventListener('click', () => reenviarRastreio(p.id, btn));
-      });
       row.querySelectorAll('.pedido-btn[data-acao-especial="avancar-rastreio"]').forEach((btn) => {
         btn.addEventListener('click', () => avancarRastreio(p.id, btn));
       });
 
       return row;
-    }
-
-    async function reenviarRastreio(id, btn) {
-      btn.disabled = true;
-      const textoOriginal = btn.textContent;
-      btn.textContent = 'Enviando…';
-      try {
-        const resp = await fetch(`/painel/api/pedidos/${id}/reenviar-rastreio`, { method: 'POST' });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(data.detail || 'Não consegui mandar a mensagem.');
-        btn.textContent = 'Enviado ✓';
-        setTimeout(() => { btn.textContent = textoOriginal; btn.disabled = false; }, 2500);
-      } catch (err) {
-        alert(err.message);
-        btn.textContent = textoOriginal;
-        btn.disabled = false;
-      }
     }
 
     async function avancarRastreio(id, btn) {
