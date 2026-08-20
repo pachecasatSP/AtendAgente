@@ -10,6 +10,7 @@ nunca escrever ali.
 """
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -52,6 +53,180 @@ _handoff_lock = threading.Lock()
 # não fala com o Mongo diretamente, só este sidecar.
 _agendamentos_coll = None
 _signups_coll = None
+
+# `pedidos`/`sessions` (referência própria, além da local em main()) —
+# usadas pelos endpoints /pedido-fechar e /pedido-status (Fase 12).
+_pedidos_coll = None
+_sessions_coll = None
+
+PEDIDO_NUMERO_REGEX = re.compile(r"pedido\D{0,10}#?\s*(\d+)", re.IGNORECASE)
+PEDIDO_STATUS_KEYWORDS = ("status", "andamento", "rastre")
+PEDIDO_STATUS_TERMINAIS = ("pago", "cancelado")
+
+
+def _crc16_ccitt(payload: str) -> str:
+    crc = 0xFFFF
+    for byte in payload.encode("utf-8"):
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return format(crc, "04X")
+
+
+def _emv_campo(id_: str, valor: str) -> str:
+    return f"{id_}{len(valor):02d}{valor}"
+
+
+def montar_payload_pix(chave: str, valor: float, nome_recebedor: str, cidade: str, txid: str) -> str:
+    """Monta o payload EMV (BR Code) do "Pix Copia e Cola" — formato
+    público do Banco Central, sem gateway/PSP nenhum envolvido (Fase 12,
+    decisão explícita de não usar QR: o cliente está dentro do WhatsApp,
+    sem segunda câmera pra escanear). `valor` fixo (travado no momento
+    do pedido, nunca recalculado depois)."""
+    nome_recebedor = (nome_recebedor or "AtendPraGente")[:25]
+    cidade = (cidade or "BRASIL")[:15]
+    txid = (txid or "***")[:25]
+    merchant_account = _emv_campo("00", "br.gov.bcb.pix") + _emv_campo("01", chave)
+    payload = (
+        _emv_campo("00", "01")
+        + _emv_campo("26", merchant_account)
+        + _emv_campo("52", "0000")
+        + _emv_campo("53", "986")
+        + _emv_campo("54", f"{valor:.2f}")
+        + _emv_campo("58", "BR")
+        + _emv_campo("59", nome_recebedor)
+        + _emv_campo("60", cidade)
+        + _emv_campo("62", _emv_campo("05", txid))
+    )
+    payload_com_id_crc = payload + "6304"
+    return payload_com_id_crc + _crc16_ccitt(payload_com_id_crc)
+
+
+def _pedido_extrair_numero(texto: str) -> int | None:
+    match = PEDIDO_NUMERO_REGEX.search(texto or "")
+    return int(match.group(1)) if match else None
+
+
+def _pedido_sugestoes(chat_id: str) -> list:
+    if _pedidos_coll is None:
+        return []
+    return list(_pedidos_coll.find(
+        {"tenant_id": TENANT_ID, "chat_id": chat_id, "status": {"$in": ["aberto", "aguardando_pagamento"]}}
+    ).sort("numero", 1))
+
+
+def _pedido_formatar_sugestoes(pedidos: list) -> str:
+    linhas = [f"#{p['numero']} — {p['item_nome']}" for p in pedidos]
+    return (
+        "Não encontrei esse pedido, mas você tem esses em aberto:\n"
+        + "\n".join(linhas)
+        + "\nÉ algum desses? Me manda só o número (ex: \"pedido #47\")."
+    )
+
+
+def _gerar_pix_do_pedido(pedido: dict) -> str | None:
+    if _signups_coll is None:
+        return None
+    tenant = _signups_coll.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    if not tenant:
+        return None
+    config = tenant.get("config") or {}
+    chave = config.get("pagamento_pix_chave")
+    if not chave:
+        return None
+    nome = config.get("nome_negocio") or "AtendPraGente"
+    return montar_payload_pix(chave, pedido["valor"], nome, "BRASIL", f"PED{pedido['numero']}")
+
+
+def pedido_fechar(chat_id: str, texto: str) -> dict:
+    """Lógica completa do gatilho "quero fechar o pedido #N" — chamada
+    pelo webhook patchado (whatsapp_cloud_patched.py) via HTTP local,
+    sem o LLM decidir nada (mesmo bypass da Fase 11 Peça 3). Sempre
+    escopado por TENANT_ID (chat_id sozinho não identifica o pedido —
+    o mesmo número de telefone pode falar com bots de tenants
+    diferentes)."""
+    if _pedidos_coll is None:
+        return {"ok": False}
+    numero = _pedido_extrair_numero(texto)
+    pedido = _pedidos_coll.find_one({"tenant_id": TENANT_ID, "numero": numero}) if numero is not None else None
+
+    if pedido and pedido.get("status") in PEDIDO_STATUS_TERMINAIS:
+        msg = (
+            "Esse pedido já está confirmado como pago, obrigado! 🙏"
+            if pedido["status"] == "pago"
+            else "Esse pedido foi cancelado — se quiser, dá uma olhada na vitrine de novo pra fazer um novo pedido."
+        )
+        return {"ok": True, "resposta": msg}
+
+    elegivel = pedido and pedido.get("status") in ("aberto", "aguardando_pagamento") and (
+        not pedido.get("chat_id") or pedido["chat_id"] == chat_id
+    )
+    if elegivel:
+        payload_pix = _gerar_pix_do_pedido(pedido)
+        if payload_pix is None:
+            return {
+                "ok": True,
+                "resposta": "Consegui achar seu pedido, mas ainda não tenho uma forma de pagamento configurada — vou verificar e te aviso.",
+            }
+        _pedidos_coll.update_one(
+            {"_id": pedido["_id"]}, {"$set": {"chat_id": chat_id, "status": "aguardando_pagamento"}}
+        )
+        resposta = (
+            f"Pedido #{pedido['numero']} — {pedido['item_nome']} (R$ {pedido['valor']:.2f})\n\n"
+            f"Pix Copia e Cola:\n{payload_pix}\n\n"
+            "Abre o Pix do seu banco → Copia e Cola → cola esse código → confere o valor → confirma o "
+            "pagamento. Depois é só mandar o comprovante aqui que a gente confirma pra você."
+        )
+        return {"ok": True, "resposta": resposta}
+
+    sugestoes = _pedido_sugestoes(chat_id)
+    if sugestoes:
+        return {"ok": True, "resposta": _pedido_formatar_sugestoes(sugestoes)}
+
+    if numero is not None:
+        return {
+            "ok": True,
+            "resposta": "Não encontrei esse pedido. Pode confirmar o número? (o mesmo que apareceu quando você clicou em \"Pedir\" na vitrine)",
+        }
+
+    return {"ok": False}
+
+
+def pedido_status(chat_id: str, texto: str) -> dict:
+    """Frase-gatilho "qual o status do meu pedido #N" — não existe
+    rastreamento automatizado nenhum (decisão explícita da Fase 12), só
+    marca a sessão precisando de atenção (mesmo handoff da Fase 5) pra
+    um operador responder manualmente."""
+    if _pedidos_coll is None:
+        return {"ok": False}
+    numero = _pedido_extrair_numero(texto)
+    pedido = None
+    if numero is not None:
+        pedido = _pedidos_coll.find_one({"tenant_id": TENANT_ID, "numero": numero, "chat_id": chat_id})
+    if not pedido:
+        pedido = _pedidos_coll.find_one(
+            {"tenant_id": TENANT_ID, "chat_id": chat_id}, sort=[("criado_em", -1)]
+        )
+    if not pedido:
+        return {"ok": False}
+    _marcar_handoff_pedido(chat_id)
+    return {
+        "ok": True,
+        "resposta": "Já avisei nossa equipe pra verificar o status do seu pedido — em breve alguém te responde por aqui! 🙏",
+    }
+
+
+def _marcar_handoff_pedido(chat_id: str) -> None:
+    if _sessions_coll is None:
+        return
+    _sessions_coll.update_many(
+        {"tenant_id": TENANT_ID, "chat_id": chat_id},
+        {"$set": {
+            "needs_operator": True, "needs_operator_at": now(),
+            "handoff": True, "handoff_by": "pedido (rastreamento manual)", "handoff_at": now(),
+        }},
+    )
+
 
 AGENDA_ACAO_PARA_STATUS = {"confirmar": "confirmado", "remarcar": "recusado"}
 
@@ -122,15 +297,31 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path != "/agenda-confirmar":
-            self.send_response(404)
-            self.end_headers()
-            return
         length = int(self.headers.get("Content-Length") or 0)
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
         except json.JSONDecodeError:
             payload = {}
+
+        if parsed.path == "/agenda-confirmar":
+            result = self._handle_agenda_confirmar(payload)
+        elif parsed.path == "/pedido-fechar":
+            result = pedido_fechar(str(payload.get("chat_id") or ""), str(payload.get("texto") or ""))
+        elif parsed.path == "/pedido-status":
+            result = pedido_status(str(payload.get("chat_id") or ""), str(payload.get("texto") or ""))
+        else:
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        body = json.dumps(result).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _handle_agenda_confirmar(self, payload: dict) -> dict:
         agendamento_id = str(payload.get("agendamento_id") or "")
         acao = str(payload.get("acao") or "")
         novo_status = AGENDA_ACAO_PARA_STATUS.get(acao)
@@ -158,12 +349,7 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
                         _cancelar_evento_google(doc_atualizado)
                     except Exception as e:
                         print(f"[mongo-sync] cancelar-evento ERRO: {e}")
-        body = json.dumps({"ok": ok}).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        return {"ok": ok}
 
 
 def start_handoff_http_server() -> None:
@@ -311,7 +497,7 @@ def ensure_indexes(db) -> None:
 
 
 def main() -> None:
-    global _agendamentos_coll, _signups_coll
+    global _agendamentos_coll, _signups_coll, _pedidos_coll, _sessions_coll
     client = MongoClient(MONGO_URI)
     db = client.get_default_database()
     ensure_indexes(db)
@@ -319,6 +505,8 @@ def main() -> None:
     sessions_coll = db["sessions"]
     _agendamentos_coll = db["agendamentos"]
     _signups_coll = db["signups"]
+    _pedidos_coll = db["pedidos"]
+    _sessions_coll = sessions_coll
 
     start_handoff_http_server()
     print(f"[mongo-sync] tenant={TENANT_ID} interval={SYNC_INTERVAL_SECONDS}s iniciado")

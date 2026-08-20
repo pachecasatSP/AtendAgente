@@ -1968,6 +1968,48 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             logger.exception("[whatsapp_cloud] agenda-confirmar reply send failed")
         return True
 
+    # ------------------------------------------------------------------ pedido (Fase 12)
+    #
+    # Gatilho "quero fechar o pedido #N" / "qual o status do meu pedido
+    # #N" — mesmo bypass total do LLM da agenda (Peça 3, Fase 11): a
+    # lógica de verdade (regex, elegibilidade, geração do Pix copia-e-
+    # cola, handoff) mora inteira em mongo-sync (único processo com
+    # acesso ao Mongo, ver sync_conversations.py:pedido_fechar/
+    # pedido_status) — aqui só faz um filtro barato local (a palavra
+    # "pedido" precisa aparecer) antes de bater no HTTP local, pra não
+    # gerar uma chamada de rede em toda mensagem de texto recebida.
+    async def _dispatch_pedido_texto(self, chat_id: str, texto: str) -> bool:
+        if not chat_id or self._http_client is None:
+            return False
+        texto_lower = texto.lower()
+        endpoint = "/pedido-status" if any(k in texto_lower for k in ("status", "andamento", "rastre")) else "/pedido-fechar"
+        try:
+            resp = await self._http_client.post(
+                f"http://127.0.0.1:8091{endpoint}",
+                json={"chat_id": chat_id, "texto": texto},
+                timeout=8.0,
+            )
+            if resp.status_code != 200:
+                return False
+            data = resp.json()
+        except Exception:
+            logger.exception("[whatsapp_cloud] pedido dispatch HTTP call failed")
+            return False
+
+        if not data.get("ok"):
+            # Mensagem continha "pedido" mas não casou com nada
+            # reconhecível (ex: "adorei meu pedido!") — deixa o LLM
+            # responder normalmente, não força nada.
+            return False
+
+        resposta = data.get("resposta") or ""
+        if resposta:
+            try:
+                await self.send(chat_id, resposta)
+            except Exception:
+                logger.exception("[whatsapp_cloud] pedido reply send failed")
+        return True
+
     async def _build_message_event_from_cloud(
         self,
         raw_message: Dict[str, Any],
@@ -2010,6 +2052,10 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         if msg_type_str == "text":
             text = raw_message.get("text") or {}
             body = str(text.get("body") or "")
+            if "pedido" in body.lower():
+                handled = await self._dispatch_pedido_texto(str(raw_message.get("from") or ""), body)
+                if handled:
+                    return None
         elif msg_type_str in {"button", "interactive"}:
             # Quick-reply buttons. Treat the button payload as text so the
             # agent can reason about the user's choice.
