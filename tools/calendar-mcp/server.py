@@ -75,6 +75,14 @@ SHORTLINK_BASE_URL = os.environ.get("SHORTLINK_BASE_URL", "https://link.atendpra
 _mongo = MongoClient(MONGO_URI)
 _db = _mongo.get_default_database()
 _signups = _db["signups"]
+# Espelho local dos agendamentos (Fase 11, 2026-08-20) — a Google Agenda
+# continua sendo a fonte de disponibilidade real (freebusy, pega também
+# compromisso que o dono marcou por fora do bot) e o evento continua
+# sendo criado lá; esta collection é só onde /agenda e a futura
+# confirmação via WhatsApp leem/escrevem (chat_id, status), sem precisar
+# bater na Graph API a cada carregamento nem depender de credencial
+# Google no meio do webhook de confirmação.
+_agendamentos = _db["agendamentos"]
 
 _current_tenant: contextvars.ContextVar[dict] = contextvars.ContextVar("current_tenant")
 
@@ -210,7 +218,10 @@ def _parse_start(data_hora_inicio_iso: str) -> datetime:
     return dt
 
 
-def check_and_book(calendar_email: str, start: datetime, duration_minutes: int, titulo: str, tenant_id: str) -> dict:
+def check_and_book(
+    calendar_email: str, start: datetime, duration_minutes: int, titulo: str, tenant_id: str,
+    chat_id: str = "",
+) -> dict:
     service = _get_calendar_service()
     end = start + timedelta(minutes=duration_minutes)
 
@@ -270,6 +281,24 @@ def check_and_book(calendar_email: str, start: datetime, duration_minutes: int, 
     if link_ics:
         link_ics = shorten_url(link_ics)
 
+    # Espelho local — best-effort, nunca derruba o agendamento em si (o
+    # evento já foi criado na Google Agenda de verdade nesse ponto).
+    try:
+        _agendamentos.insert_one({
+            "tenant_id": tenant_id,
+            "chat_id": chat_id or None,
+            "titulo": titulo,
+            "inicio": start,
+            "fim": end,
+            "status": "agendado",
+            "google_event_id": created.get("id"),
+            "link_evento": created.get("htmlLink"),
+            "link_meet": created.get("hangoutLink"),
+            "criado_em": datetime.now(timezone.utc),
+        })
+    except Exception:
+        pass
+
     return {
         "ok": True,
         "link_evento": created.get("htmlLink"),
@@ -282,13 +311,18 @@ mcp = MCPServer("agenda")
 
 
 @mcp.tool()
-def criar_agendamento(data_hora_inicio_iso: str, titulo: str) -> dict:
+def criar_agendamento(data_hora_inicio_iso: str, titulo: str, telefone_cliente: str = "") -> dict:
     """Confere disponibilidade e cria um evento na Google Agenda do
     negócio, com Google Meet quando a conta suportar (nem toda agenda
     consegue gerar Meet automático, ver comentário em check_and_book).
     `data_hora_inicio_iso`: data e hora no formato ISO 8601 (ex:
     "2026-08-20T15:00:00"), horário de Brasília se não vier com fuso.
     `titulo`: assunto do agendamento (ex: "Consulta com Fulano").
+    `telefone_cliente`: número de WhatsApp de quem está marcando (o
+    mesmo contato desta conversa) — escreva o número inteiro que você
+    já tem no contexto da conversa. Usado só pra registrar o
+    compromisso no painel do negócio (pra Fase futura de confirmação);
+    nunca invente um número, mande vazio se não tiver certeza.
     Duração vem da configuração do negócio no painel (padrão 30 minutos).
 
     Devolve {"ok": true, "link_evento": ..., "link_meet": ..., "link_ics": ...}
@@ -312,7 +346,7 @@ def criar_agendamento(data_hora_inicio_iso: str, titulo: str) -> dict:
     except ValueError:
         return {"ok": False, "motivo": "data_invalida"}
 
-    return check_and_book(calendar_email, start, duracao, titulo, tenant["tenant_id"])
+    return check_and_book(calendar_email, start, duracao, titulo, tenant["tenant_id"], chat_id=telefone_cliente.strip())
 
 
 class TenantAuthMiddleware(BaseHTTPMiddleware):
@@ -377,54 +411,6 @@ async def testar_conexao_route(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
-async def listar_eventos_route(request: Request) -> JSONResponse:
-    """Eventos da agenda do tenant — leitura, nunca cria/altera nada (ver
-    criar_agendamento pra isso). Usada pela página /agenda do painel
-    (ver tools/tenant-panel/app.py), que passa `time_min`/`time_max`
-    (ISO 8601) pra pedir uma semana específica na visualização de
-    calendário; sem esses parâmetros, cai no padrão de sempre (próximos
-    eventos a partir de agora)."""
-    tenant = request.state.tenant
-    config = tenant.get("config") or {}
-    calendar_email = config.get("google_calendar_email")
-    if not calendar_email:
-        return JSONResponse({"ok": False, "motivo": "agenda_nao_configurada"})
-
-    time_min = request.query_params.get("time_min") or datetime.now(SAO_PAULO_TZ).isoformat()
-    time_max = request.query_params.get("time_max")
-
-    try:
-        service = _get_calendar_service()
-        list_kwargs = {
-            "calendarId": calendar_email,
-            "timeMin": time_min,
-            "maxResults": 100,
-            "singleEvents": True,
-            "orderBy": "startTime",
-        }
-        if time_max:
-            list_kwargs["timeMax"] = time_max
-        result = service.events().list(**list_kwargs).execute()
-    except HttpError as e:
-        if e.resp.status in (403, 404):
-            return JSONResponse({"ok": False, "motivo": "sem_acesso_a_agenda"})
-        return JSONResponse({"ok": False, "motivo": "erro_google", "detalhe": str(e)})
-    except RuntimeError as e:
-        return JSONResponse({"ok": False, "motivo": "nao_configurado", "detalhe": str(e)}, status_code=500)
-
-    eventos = [
-        {
-            "titulo": ev.get("summary") or "(sem título)",
-            "inicio": (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date"),
-            "fim": (ev.get("end") or {}).get("dateTime") or (ev.get("end") or {}).get("date"),
-            "link_evento": ev.get("htmlLink"),
-            "link_meet": ev.get("hangoutLink"),
-        }
-        for ev in result.get("items", [])
-    ]
-    return JSONResponse({"ok": True, "eventos": eventos})
-
-
 _ALLOWED_HOSTS_BASE = ["calendar-mcp.atendagente.svc.cluster.local", "calendar-mcp", "localhost", "127.0.0.1"]
 
 app = mcp.streamable_http_app(
@@ -440,7 +426,6 @@ app = mcp.streamable_http_app(
 app.add_middleware(TenantAuthMiddleware)
 app.add_route("/service-account-email", service_account_email_route, methods=["GET"])
 app.add_route("/testar-conexao", testar_conexao_route, methods=["POST"])
-app.add_route("/listar-eventos", listar_eventos_route, methods=["GET"])
 
 if __name__ == "__main__":
     import uvicorn

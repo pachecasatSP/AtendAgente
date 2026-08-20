@@ -77,6 +77,7 @@ sessions_col = db["sessions"]
 messages_col = db["messages"]
 signups_col = db["signups"]
 catalogo_col = db["catalogo_itens"]
+agendamentos_col = db["agendamentos"]
 
 app = FastAPI(title=f"Painel — {TENANT_ID}")
 app.add_middleware(SessionMiddleware, secret_key=PANEL_SESSION_SECRET, session_cookie="painel_session")
@@ -914,21 +915,6 @@ def _calendar_mcp_post(path: str, payload: dict) -> dict:
         return {"ok": False, "motivo": "calendar_mcp_indisponivel"}
 
 
-def _calendar_mcp_get(path: str, params: dict | None = None) -> dict:
-    url = f"{CALENDAR_MCP_BASE_URL}{path}"
-    if params:
-        url += "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {CALENDAR_MCP_TOKEN}"})
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        try:
-            return json.loads(exc.read())
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return {"ok": False, "motivo": "erro_desconhecido"}
-    except urllib.error.URLError:
-        return {"ok": False, "motivo": "calendar_mcp_indisponivel"}
 
 
 def _calendar_mcp_service_account_email() -> str | None:
@@ -1008,25 +994,42 @@ def agenda_page(request: Request):
 def api_agenda_eventos(request: Request, semana: int = 0) -> dict:
     """`semana`: deslocamento em semanas a partir da atual (0 = semana
     corrente, -1 = anterior, 1 = próxima) — a visualização do painel é
-    por semana (segunda a domingo), ver agenda.html."""
+    por semana (segunda a domingo), ver agenda.html.
+
+    Lê direto do espelho local (`agendamentos`, Fase 11) em vez de bater
+    na Graph API do Google a cada carregamento — a Google Agenda continua
+    sendo a fonte de disponibilidade real na hora de marcar
+    (`criar_agendamento`/`check_and_book`, calendar-mcp), esse espelho é
+    só pra leitura rápida e pra guardar chat_id/status."""
     require_session(request)
-    if not CALENDAR_MCP_TOKEN:
-        raise HTTPException(status_code=500, detail="Agendamento ainda não está disponível neste servidor")
 
     hoje = datetime.now(SAO_PAULO_TZ)
     inicio_semana_atual = (hoje - timedelta(days=hoje.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     inicio = inicio_semana_atual + timedelta(weeks=semana)
     fim = inicio + timedelta(days=7)
 
-    resultado = _calendar_mcp_get("/listar-eventos", {"time_min": inicio.isoformat(), "time_max": fim.isoformat()})
-    if not resultado.get("ok"):
-        motivo = resultado.get("motivo", "erro_desconhecido")
-        raise HTTPException(
-            status_code=400,
-            detail=AGENDA_ERRO_MENSAGENS.get(motivo, f"Não consegui buscar os eventos ({motivo})"),
-        )
+    def _iso_utc(dt):
+        # PyMongo devolve datetime naive em UTC (converteu na escrita, ver
+        # check_and_book) — sem isso o isoformat() sai sem timezone e o
+        # navegador interpreta como horário local dele, não UTC.
+        return dt.replace(tzinfo=timezone.utc).isoformat() if dt else None
+
+    eventos = [
+        {
+            "titulo": ev.get("titulo"),
+            "inicio": _iso_utc(ev.get("inicio")),
+            "fim": _iso_utc(ev.get("fim")),
+            "status": ev.get("status", "agendado"),
+            "link_evento": ev.get("link_evento"),
+            "link_meet": ev.get("link_meet"),
+        }
+        for ev in agendamentos_col.find({
+            "tenant_id": TENANT_ID,
+            "inicio": {"$gte": inicio, "$lt": fim},
+        }).sort("inicio", 1)
+    ]
     return {
-        "eventos": resultado.get("eventos") or [],
+        "eventos": eventos,
         "semana_inicio": inicio.date().isoformat(),
         "semana_fim": (fim - timedelta(days=1)).date().isoformat(),
     }
