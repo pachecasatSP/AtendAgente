@@ -119,8 +119,35 @@ def montar_payload_pix(chave: str, valor: float, nome_recebedor: str, cidade: st
 
 
 def _pedido_extrair_numero(texto: str) -> int | None:
+    # A busca sempre bate só no número sequencial — o regex \d+ para no
+    # primeiro caractere não-numérico, então o sufixo do tenant
+    # ("-a3f2b1c8", ver _sufixo_tenant/_numero_exibicao) é ignorado
+    # automaticamente sem precisar de tratamento especial. tenant_id já
+    # escopa a busca (este processo só atende um tenant), o sufixo é
+    # só cosmético/de exibição.
     match = PEDIDO_NUMERO_REGEX.search(texto or "")
     return int(match.group(1)) if match else None
+
+
+_sufixo_tenant_cache: str | None = None
+
+
+def _sufixo_tenant() -> str:
+    """Últimos 8 caracteres do ObjectId do signup — mesmo cálculo de
+    `tenant-panel/app.py:_sufixo_tenant`, duplicado aqui porque são
+    processos/deploys separados (mesmo raciocínio de sempre nesse
+    projeto)."""
+    global _sufixo_tenant_cache
+    if _sufixo_tenant_cache is not None:
+        return _sufixo_tenant_cache
+    tenant = _signups_coll.find_one({"tenant_id": TENANT_ID, "status": "live"}) if _signups_coll is not None else None
+    sufixo = str((tenant or {}).get("_id") or "")[-8:] or "00000000"
+    _sufixo_tenant_cache = sufixo
+    return sufixo
+
+
+def _numero_exibicao(numero: int) -> str:
+    return f"{numero}-{_sufixo_tenant()}"
 
 
 def _pedido_sugestoes(chat_id: str) -> list:
@@ -132,7 +159,7 @@ def _pedido_sugestoes(chat_id: str) -> list:
 
 
 def _pedido_formatar_sugestoes(pedidos: list) -> str:
-    linhas = [f"#{p['numero']} — {p['item_nome']}" for p in pedidos]
+    linhas = [f"#{_numero_exibicao(p['numero'])} — {p['item_nome']}" for p in pedidos]
     return (
         "Não encontrei esse pedido, mas você tem esses em aberto:\n"
         + "\n".join(linhas)
@@ -188,7 +215,7 @@ def pedido_fechar(chat_id: str, texto: str) -> dict:
             {"_id": pedido["_id"]}, {"$set": {"chat_id": chat_id, "status": "aguardando_pagamento"}}
         )
         resposta = (
-            f"Pedido #{pedido['numero']} — {pedido['item_nome']} (R$ {pedido['valor']:.2f})\n\n"
+            f"Pedido #{_numero_exibicao(pedido['numero'])} — {pedido['item_nome']} (R$ {pedido['valor']:.2f})\n\n"
             f"Pix Copia e Cola:\n{payload_pix}\n\n"
             "Abre o Pix do seu banco → Copia e Cola → cola esse código → confere o valor → confirma o "
             "pagamento. Depois é só mandar o comprovante aqui que a gente confirma pra você."
@@ -315,7 +342,7 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
         if numero is not None:
             pedido = next((p for p in candidatos if p["numero"] == numero), None)
         if pedido is None:
-            linhas = [f"#{p['numero']} — {p['item_nome']}" for p in candidatos]
+            linhas = [f"#{_numero_exibicao(p['numero'])} — {p['item_nome']}" for p in candidatos]
             return {
                 "ok": True,
                 "resposta": "Antes de eu confirmar o recebimento, me diz o número do pedido:\n" + "\n".join(linhas),
@@ -337,7 +364,7 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
         }},
     )
     _marcar_handoff_pedido(chat_id)
-    return {"ok": True, "resposta": f"Recebi o comprovante do pedido #{pedido['numero']}! Vou confirmar e já te aviso. 🙏"}
+    return {"ok": True, "resposta": f"Recebi o comprovante do pedido #{_numero_exibicao(pedido['numero'])}! Vou confirmar e já te aviso. 🙏"}
 
 
 def _marcar_handoff_pedido(chat_id: str) -> None:

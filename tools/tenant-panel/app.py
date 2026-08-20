@@ -900,6 +900,7 @@ def vitrine(request: Request):
     itens = list(catalogo_col.find({"tenant_id": TENANT_ID, "ativo": True}).sort("categoria", 1))
     secoes: dict[str, dict[str, list[dict]]] = {}
     for item in itens:
+        item["id"] = str(item["_id"])  # vitrine.html usa item.id (o botão "Pedir" precisa disso, Fase 12)
         tipo = item.get("tipo") or "produto"
         categoria = item.get("categoria") or "Outros"
         secoes.setdefault(tipo, {}).setdefault(categoria, []).append(item)
@@ -954,6 +955,28 @@ def _numero_whatsapp_tenant() -> str | None:
     return numero or None
 
 
+_sufixo_tenant_cache: str | None = None
+
+
+def _sufixo_tenant() -> str:
+    """Últimos 8 caracteres do ObjectId do signup do tenant — vira parte
+    do "número do pedido" exibido (ex: #47-a3f2b1c8), só pra
+    identificação/exibição, nunca usado na busca (a busca continua só
+    pelo número sequencial + tenant_id do processo, já garantido pelo
+    isolamento por pod). Cacheado em memória (não muda)."""
+    global _sufixo_tenant_cache
+    if _sufixo_tenant_cache is not None:
+        return _sufixo_tenant_cache
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    sufixo = str((signup or {}).get("_id") or "")[-8:] or "00000000"
+    _sufixo_tenant_cache = sufixo
+    return sufixo
+
+
+def _numero_exibicao(numero_pedido: int) -> str:
+    return f"{numero_pedido}-{_sufixo_tenant()}"
+
+
 @app.post("/vitrine/api/pedido")
 def api_vitrine_criar_pedido(payload: dict) -> dict:
     """Pública, sem require_session — clique em "Pedir" na vitrine.
@@ -993,9 +1016,9 @@ def api_vitrine_criar_pedido(payload: dict) -> dict:
     })
 
     valor_fmt = f"R$ {valor:.2f}".replace(".", ",")
-    texto = f"Quero fechar o pedido #{numero_pedido} ({item.get('nome', '')} - {valor_fmt})"
+    texto = f"Quero fechar o pedido #{_numero_exibicao(numero_pedido)} ({item.get('nome', '')} - {valor_fmt})"
     wa_link = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(texto)}"
-    return {"numero": numero_pedido, "wa_link": wa_link}
+    return {"numero": numero_pedido, "numero_exibicao": _numero_exibicao(numero_pedido), "wa_link": wa_link}
 
 
 # ── /pedidos (Fase 12) ───────────────────────────────────────────────
@@ -1030,6 +1053,7 @@ def api_pedidos_listar(request: Request, offset: int = 0) -> dict:
             {
                 "id": str(p["_id"]),
                 "numero": p.get("numero"),
+                "numero_exibicao": _numero_exibicao(p.get("numero")),
                 "item_nome": p.get("item_nome"),
                 "valor": p.get("valor"),
                 "status": p.get("status"),
@@ -1073,11 +1097,11 @@ def _avisar_rastreamento_manual(pedido: dict) -> None:
     chat_id = pedido.get("chat_id")
     if not chat_id or not (ACCESS_TOKEN and PHONE_NUMBER_ID):
         return
-    numero = pedido.get("numero")
+    numero_exibicao = _numero_exibicao(pedido.get("numero"))
     texto = (
-        f"Pagamento do pedido #{numero} confirmado! ✅\n\n"
+        f"Pagamento do pedido #{numero_exibicao} confirmado! ✅\n\n"
         "O acompanhamento a partir daqui é direto com a gente — se quiser saber como está, "
-        f"é só mandar \"qual o status do meu pedido #{numero}?\" que a gente verifica."
+        f"é só mandar \"qual o status do meu pedido #{numero_exibicao}?\" que a gente verifica."
     )
     _graph_call_best_effort(
         f"{PHONE_NUMBER_ID}/messages",

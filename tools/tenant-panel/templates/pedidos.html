@@ -56,7 +56,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
   border-bottom: 1px solid var(--line); flex-wrap: wrap;
 }
 .pedido-row:last-child { border-bottom: none; }
-.pedido-numero { font-family: var(--font-display); font-weight: 800; color: var(--leaf-deep); min-width: 3.2rem; }
+.pedido-numero { font-family: var(--font-display); font-weight: 800; color: var(--leaf-deep); min-width: 7.5rem; font-size: 0.85rem; }
 .pedido-info { flex: 1 1 220px; min-width: 0; }
 .pedido-item { font-weight: 700; }
 .pedido-meta { font-size: 0.78rem; color: var(--ink-faint); }
@@ -150,7 +150,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       }
 
       row.innerHTML = `
-        <span class="pedido-numero">#${p.numero}</span>
+        <span class="pedido-numero">#${p.numero_exibicao || p.numero}</span>
         <div class="pedido-info">
           <div class="pedido-item">${p.item_nome || ''}</div>
           <div class="pedido-meta">${fmtValor(p.valor)} · ${fmtData(p.criado_em)}${p.chat_id ? ' · ' + p.chat_id : ''}</div>
