@@ -13,13 +13,17 @@ import os
 import sqlite3
 import threading
 import time
+import urllib.error
+import urllib.request
 from bson import ObjectId
 from bson.errors import InvalidId
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
-from pymongo import MongoClient, UpdateOne
+from pymongo import MongoClient, ReturnDocument, UpdateOne
+
+CALENDAR_MCP_BASE_URL = os.environ.get("CALENDAR_MCP_BASE_URL", "http://calendar-mcp.atendagente.svc.cluster.local:8000")
 
 TENANT_ID = os.environ["TENANT_ID"]
 SYNC_INTERVAL_SECONDS = float(os.environ.get("SYNC_INTERVAL_SECONDS", "15"))
@@ -42,11 +46,12 @@ ESCALATION_MARKER = "acionar o adolfo"
 _handoff_chat_ids: set = set()
 _handoff_lock = threading.Lock()
 
-# Coleção `agendamentos`, resolvida uma vez em main() — usada pelo endpoint
-# /agenda-confirmar (Fase 11, Peça 3) pra marcar confirmação/remarcação sem
-# passar pelo LLM. Mesma razão do handoff: o container hermes não fala com
-# o Mongo diretamente, só este sidecar.
+# Coleções `agendamentos`/`signups`, resolvidas uma vez em main() — usadas
+# pelo endpoint /agenda-confirmar (Fase 11, Peça 3) pra marcar confirmação/
+# remarcação sem passar pelo LLM. Mesma razão do handoff: o container hermes
+# não fala com o Mongo diretamente, só este sidecar.
 _agendamentos_coll = None
+_signups_coll = None
 
 AGENDA_ACAO_PARA_STATUS = {"confirmar": "confirmado", "remarcar": "recusado"}
 
@@ -62,6 +67,37 @@ def refresh_handoff_cache(sessions_coll) -> None:
     with _handoff_lock:
         _handoff_chat_ids.clear()
         _handoff_chat_ids.update(chat_ids)
+
+
+def _cancelar_evento_google(agendamento: dict) -> None:
+    """Apaga o evento na Google Agenda quando o cliente pede remarcação —
+    reabre o horário na hora em vez de deixar bloqueado até o dono do
+    negócio apagar manualmente (decisão do usuário, 2026-08-20). Só o
+    calendar-mcp tem credencial Google; este sidecar não tenta falar com
+    a Calendar API diretamente, só repassa via HTTP autenticado com o
+    calendar_mcp_token do próprio tenant (mesmo token que o tenant-panel
+    usa, lido de `signups.config`). Best-effort: qualquer falha aqui só
+    loga, nunca derruba a resposta que o cliente já recebeu."""
+    google_event_id = agendamento.get("google_event_id")
+    if not google_event_id or _signups_coll is None:
+        return
+    tenant = _signups_coll.find_one({"tenant_id": agendamento.get("tenant_id"), "status": "live"})
+    if not tenant:
+        return
+    calendar_mcp_token = (tenant.get("config") or {}).get("calendar_mcp_token")
+    if not calendar_mcp_token:
+        return
+    req = urllib.request.Request(
+        f"{CALENDAR_MCP_BASE_URL}/cancelar-evento",
+        data=json.dumps({"google_event_id": google_event_id}).encode("utf-8"),
+        method="POST",
+        headers={"Authorization": f"Bearer {calendar_mcp_token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            print(f"[mongo-sync] cancelar-evento tenant={agendamento.get('tenant_id')} status={resp.status}")
+    except urllib.error.URLError as e:
+        print(f"[mongo-sync] cancelar-evento tenant={agendamento.get('tenant_id')} falhou: {e}")
 
 
 class HandoffHTTPHandler(BaseHTTPRequestHandler):
@@ -107,12 +143,21 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
             if oid is not None:
                 # Só marca se ainda estiver aguardando — evita que um duplo
                 # tap (ou reenvio do webhook, comum na Cloud API) sobrescreva
-                # uma resposta já processada.
-                resultado = _agendamentos_coll.update_one(
+                # uma resposta já processada. find_one_and_update (em vez de
+                # update_one) devolve o doc atualizado direto, sem precisar
+                # de um find() extra — é dele que _cancelar_evento_google
+                # pega google_event_id/tenant_id.
+                doc_atualizado = _agendamentos_coll.find_one_and_update(
                     {"_id": oid, "status": "aguardando_confirmacao"},
                     {"$set": {"status": novo_status, "confirmado_em": now()}},
+                    return_document=ReturnDocument.AFTER,
                 )
-                ok = resultado.modified_count > 0
+                ok = doc_atualizado is not None
+                if ok and acao == "remarcar":
+                    try:
+                        _cancelar_evento_google(doc_atualizado)
+                    except Exception as e:
+                        print(f"[mongo-sync] cancelar-evento ERRO: {e}")
         body = json.dumps({"ok": ok}).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -266,13 +311,14 @@ def ensure_indexes(db) -> None:
 
 
 def main() -> None:
-    global _agendamentos_coll
+    global _agendamentos_coll, _signups_coll
     client = MongoClient(MONGO_URI)
     db = client.get_default_database()
     ensure_indexes(db)
     sync_state_coll = db["sync_state"]
     sessions_coll = db["sessions"]
     _agendamentos_coll = db["agendamentos"]
+    _signups_coll = db["signups"]
 
     start_handoff_http_server()
     print(f"[mongo-sync] tenant={TENANT_ID} interval={SYNC_INTERVAL_SECONDS}s iniciado")

@@ -898,6 +898,36 @@ os 3 `*-hermes` (linda-ana-calcados, novo-negocio, sandbox-tenant) e os
 (`setup_agenda_lembrete_cron.py`, a cada 15 min, namespace
 `atendagente`).
 
+**Peça 5 — Reabrir o horário no "Remarcar" — CONCLUÍDA (2026-08-20).**
+Pergunta do usuário ("quando o compromisso for cancelado, o que
+acontece?") revelou um buraco: o tap em "Remarcar" só mudava o status
+no espelho Mongo — o evento continuava na Google Agenda de verdade,
+bloqueando o horário até alguém apagar manualmente. Decisão do usuário:
+apagar o evento automaticamente, reabrindo o horário na hora.
+
+Nova rota autenticada `POST /cancelar-evento` em `calendar-mcp/
+server.py` (único serviço com credencial Google) — apaga o evento via
+`events().delete()`; 404 (já apagado) conta como sucesso. Chamada pelo
+sidecar `mongo-sync` (`_cancelar_evento_google`,
+`sync_conversations.py`) logo depois de marcar `status: "recusado"`
+no `/agenda-confirmar` — usa `find_one_and_update` (em vez de
+`update_one`) pra já sair com `google_event_id`/`tenant_id` do doc
+atualizado, sem precisar de um `find()` extra. Autenticação via o
+`calendar_mcp_token` do próprio tenant, lido de `signups.config` (mesmo
+token que o tenant-panel usa) — mongo-sync não precisa de credencial
+Google própria, só repassa a chamada HTTP.
+
+**Testado de ponta a ponta com evento real (2026-08-20):** criado
+evento de verdade via `check_and_book` na agenda do
+linda-ana-calcados → marcado `aguardando_confirmacao` no Mongo →
+simulado o tap "Remarcar" batendo em `127.0.0.1:8091/agenda-confirmar`
+de dentro do pod hermes (mesma chamada que `_dispatch_agenda_button_
+reply` faz de verdade) → log do mongo-sync confirmou `cancelar-evento
+... status=200` → conferido na Google Agenda que o evento virou
+`status: cancelled` (soft-delete da API do Google, comportamento
+esperado — não é bug) → freebusy do horário confirmado `busy: []`,
+horário realmente reaberto.
+
 ---
 
 ## Riscos / decisões a revisitar cedo

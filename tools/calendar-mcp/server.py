@@ -416,6 +416,37 @@ async def testar_conexao_route(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+async def cancelar_evento_route(request: Request) -> JSONResponse:
+    """Apaga o evento na Google Agenda do tenant — chamado pelo sidecar
+    mongo-sync quando o cliente toca "Remarcar" na confirmação por
+    WhatsApp (Fase 11), pra reabrir o horário na hora em vez de deixar
+    bloqueado até alguém apagar manualmente. Best-effort: evento já
+    apagado (404) conta como sucesso; qualquer outro erro não derruba o
+    fluxo de confirmação que chamou isso (ver
+    tools/provision-tenant/mongo_sync/sync_conversations.py)."""
+    tenant = request.state.tenant
+    config = tenant.get("config") or {}
+    calendar_email = config.get("google_calendar_email")
+    payload = await request.json()
+    google_event_id = (payload.get("google_event_id") or "").strip()
+    if not calendar_email or not google_event_id:
+        return JSONResponse({"ok": False, "motivo": "parametro_ausente"}, status_code=400)
+
+    try:
+        service = _get_calendar_service()
+        service.events().delete(calendarId=calendar_email, eventId=google_event_id).execute()
+    except HttpError as e:
+        if e.resp.status == 404:
+            return JSONResponse({"ok": True})  # já não existia — mesmo resultado prático
+        if e.resp.status in (403,):
+            return JSONResponse({"ok": False, "motivo": "sem_acesso_a_agenda"})
+        return JSONResponse({"ok": False, "motivo": "erro_google", "detalhe": str(e)})
+    except RuntimeError as e:
+        return JSONResponse({"ok": False, "motivo": "nao_configurado", "detalhe": str(e)}, status_code=500)
+
+    return JSONResponse({"ok": True})
+
+
 _ALLOWED_HOSTS_BASE = ["calendar-mcp.atendagente.svc.cluster.local", "calendar-mcp", "localhost", "127.0.0.1"]
 
 app = mcp.streamable_http_app(
@@ -431,6 +462,7 @@ app = mcp.streamable_http_app(
 app.add_middleware(TenantAuthMiddleware)
 app.add_route("/service-account-email", service_account_email_route, methods=["GET"])
 app.add_route("/testar-conexao", testar_conexao_route, methods=["POST"])
+app.add_route("/cancelar-evento", cancelar_evento_route, methods=["POST"])
 
 if __name__ == "__main__":
     import uvicorn
