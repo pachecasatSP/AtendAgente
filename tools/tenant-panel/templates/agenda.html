@@ -31,10 +31,10 @@
 * { box-sizing: border-box; }
 body {
   margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
-  font-family: var(--font-body); font-weight: 500; line-height: 1.6;
+  font-family: var(--font-body); font-weight: 500; line-height: 1.5;
   padding: 2.5rem 1.25rem 5rem; display: flex; flex-direction: column; align-items: center;
 }
-.top { width: 100%; max-width: 640px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.6rem; }
+.top { width: 100%; max-width: 980px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.6rem; }
 .brand { display: inline-flex; align-items: center; gap: 0.55rem; }
 .brand-mark { width: 30px; height: 30px; flex-shrink: 0; }
 .brand-word { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; color: var(--ink); }
@@ -43,24 +43,42 @@ body {
 .back-link:hover { color: var(--leaf-deep); }
 .card {
   background: var(--paper-card); border: 1px solid var(--line); border-radius: 20px;
-  padding: 1.8rem 1.8rem 2rem; max-width: 640px; width: 100%; margin-bottom: 1.5rem;
+  padding: 1.8rem; max-width: 980px; width: 100%; margin-bottom: 1.5rem;
   box-shadow: 0 20px 50px -30px rgba(23,35,29,0.2);
 }
 h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; margin: 0 0 0.35rem; }
-.lead { color: var(--ink-soft); margin: 0 0 1.4rem; font-size: 0.92rem; }
+.lead { color: var(--ink-soft); margin: 0 0 1.2rem; font-size: 0.92rem; }
 .hint { font-weight: 500; color: var(--ink-faint); font-size: 0.85rem; text-align: center; padding: 1.5rem 0; }
 .banner { padding: 0.7rem 0.9rem; border-radius: 10px; margin-bottom: 1.2rem; font-weight: 700; font-size: 0.86rem; }
 .banner.erro { background: var(--error-bg); color: var(--error); }
-.evento-list { display: flex; flex-direction: column; gap: 0.6rem; }
-.evento-row {
-  display: flex; flex-direction: column; gap: 0.15rem; padding: 0.8rem 0.9rem;
-  border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
+.week-nav { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+.week-nav-buttons { display: flex; gap: 0.5rem; align-items: center; }
+.week-nav button {
+  font-family: var(--font-body); font-weight: 800; font-size: 0.85rem; cursor: pointer;
+  background: var(--paper-soft); color: var(--ink); border: 1px solid var(--line); border-radius: 999px;
+  padding: 0.45rem 0.9rem;
 }
-.evento-titulo { font-weight: 800; font-size: 0.94rem; }
-.evento-quando { font-size: 0.82rem; color: var(--ink-soft); }
-.evento-links { display: flex; gap: 0.8rem; margin-top: 0.3rem; }
-.evento-links a { font-size: 0.78rem; font-weight: 800; color: var(--leaf-deep); text-decoration: none; }
-.evento-links a:hover { text-decoration: underline; }
+.week-nav button:hover { border-color: var(--leaf); color: var(--leaf-deep); }
+.week-label { font-family: var(--font-display); font-weight: 800; font-size: 1rem; }
+.week-scroll { overflow-x: auto; }
+.week-grid { display: grid; grid-template-columns: repeat(7, minmax(130px, 1fr)); gap: 0.6rem; min-width: 910px; }
+.day-col { display: flex; flex-direction: column; gap: 0.4rem; }
+.day-header {
+  text-align: center; font-weight: 800; font-size: 0.78rem; color: var(--ink-faint);
+  padding-bottom: 0.4rem; border-bottom: 2px solid var(--line); text-transform: uppercase; letter-spacing: 0.03em;
+}
+.day-header .num { display: block; font-family: var(--font-display); font-size: 1.15rem; color: var(--ink); text-transform: none; letter-spacing: 0; margin-top: 0.1rem; }
+.day-col.hoje .day-header { color: var(--leaf-deep); border-color: var(--leaf); }
+.day-col.hoje .day-header .num { color: var(--leaf-deep); }
+.evento-chip {
+  display: flex; flex-direction: column; gap: 0.1rem; padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
+  text-decoration: none; color: var(--ink); font-size: 0.78rem;
+}
+.evento-chip:hover { border-color: var(--leaf); background: var(--leaf-pale); }
+.evento-hora { font-weight: 800; color: var(--leaf-deep); font-size: 0.72rem; }
+.evento-titulo { font-weight: 700; }
+.day-vazio { font-size: 0.72rem; color: var(--ink-faint); text-align: center; padding: 0.4rem 0; }
 [hidden] { display: none !important; }
 </style>
 </head>
@@ -83,47 +101,100 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 
   <div class="card">
     <h1>Agenda</h1>
-    <p class="lead">Próximos compromissos marcados pelo bot na sua Google Agenda.</p>
+    <p class="lead">Compromissos marcados pelo bot na sua Google Agenda, por semana.</p>
+
+    <div class="week-nav">
+      <div class="week-nav-buttons">
+        <button type="button" id="week-prev">&larr; Anterior</button>
+        <button type="button" id="week-hoje">Hoje</button>
+        <button type="button" id="week-next">Próxima &rarr;</button>
+      </div>
+      <span class="week-label" id="week-label"></span>
+    </div>
+
     <div id="agenda-erro" class="banner erro" hidden></div>
-    <div id="agenda-lista" class="evento-list"></div>
+    <div class="week-scroll">
+      <div id="week-grid" class="week-grid"></div>
+    </div>
   </div>
 
   <script>
-    async function carregarEventos() {
-      const listaEl = document.getElementById('agenda-lista');
+    const DIAS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+    let semanaOffset = 0;
+
+    function fmtData(d) {
+      return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    }
+
+    async function carregarSemana() {
+      const gridEl = document.getElementById('week-grid');
       const erroEl = document.getElementById('agenda-erro');
-      listaEl.innerHTML = '<p class="hint">Carregando…</p>';
+      const labelEl = document.getElementById('week-label');
+      erroEl.hidden = true;
+      gridEl.innerHTML = '<p class="hint">Carregando…</p>';
+
       try {
-        const resp = await fetch('/painel/api/agenda/eventos');
+        const resp = await fetch(`/painel/api/agenda/eventos?semana=${semanaOffset}`);
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || 'Não consegui buscar os eventos.');
-        if (!data.eventos.length) {
-          listaEl.innerHTML = '<p class="hint">Nenhum compromisso marcado ainda.</p>';
-          return;
+
+        const inicio = new Date(data.semana_inicio + 'T00:00:00');
+        const fim = new Date(data.semana_fim + 'T00:00:00');
+        labelEl.textContent = `${fmtData(inicio)} – ${fmtData(fim)}`;
+
+        const hojeStr = new Date().toISOString().slice(0, 10);
+        const porDia = {};
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(inicio);
+          d.setDate(d.getDate() + i);
+          porDia[d.toISOString().slice(0, 10)] = [];
         }
-        listaEl.innerHTML = '';
-        data.eventos.forEach((ev) => {
-          const row = document.createElement('div');
-          row.className = 'evento-row';
-          const quando = ev.inicio ? new Date(ev.inicio).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
-          row.innerHTML = `
-            <span class="evento-titulo"></span>
-            <span class="evento-quando">${quando}</span>
-            <div class="evento-links">
-              ${ev.link_evento ? `<a href="${ev.link_evento}" target="_blank" rel="noopener">Ver na agenda</a>` : ''}
-              ${ev.link_meet ? `<a href="${ev.link_meet}" target="_blank" rel="noopener">Google Meet</a>` : ''}
-            </div>
-          `;
-          row.querySelector('.evento-titulo').textContent = ev.titulo;
-          listaEl.appendChild(row);
+        (data.eventos || []).forEach((ev) => {
+          if (!ev.inicio) return;
+          const chave = ev.inicio.slice(0, 10);
+          if (porDia[chave]) porDia[chave].push(ev);
+        });
+
+        gridEl.innerHTML = '';
+        Object.keys(porDia).forEach((chave, i) => {
+          const d = new Date(chave + 'T00:00:00');
+          const col = document.createElement('div');
+          col.className = 'day-col' + (chave === hojeStr ? ' hoje' : '');
+          const header = document.createElement('div');
+          header.className = 'day-header';
+          header.innerHTML = `${DIAS[i]}<span class="num">${d.getDate()}</span>`;
+          col.appendChild(header);
+
+          const eventosDia = porDia[chave].sort((a, b) => a.inicio.localeCompare(b.inicio));
+          if (!eventosDia.length) {
+            const vazio = document.createElement('div');
+            vazio.className = 'day-vazio';
+            vazio.textContent = '—';
+            col.appendChild(vazio);
+          } else {
+            eventosDia.forEach((ev) => {
+              const chip = document.createElement(ev.link_evento ? 'a' : 'div');
+              chip.className = 'evento-chip';
+              if (ev.link_evento) { chip.href = ev.link_evento; chip.target = '_blank'; chip.rel = 'noopener'; }
+              const hora = new Date(ev.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+              chip.innerHTML = `<span class="evento-hora">${hora}</span><span class="evento-titulo"></span>`;
+              chip.querySelector('.evento-titulo').textContent = ev.titulo;
+              col.appendChild(chip);
+            });
+          }
+          gridEl.appendChild(col);
         });
       } catch (err) {
-        listaEl.innerHTML = '';
+        gridEl.innerHTML = '';
         erroEl.textContent = err.message;
         erroEl.hidden = false;
       }
     }
-    carregarEventos();
+
+    document.getElementById('week-prev').addEventListener('click', () => { semanaOffset -= 1; carregarSemana(); });
+    document.getElementById('week-next').addEventListener('click', () => { semanaOffset += 1; carregarSemana(); });
+    document.getElementById('week-hoje').addEventListener('click', () => { semanaOffset = 0; carregarSemana(); });
+    carregarSemana();
   </script>
 </body>
 </html>

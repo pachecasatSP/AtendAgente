@@ -378,25 +378,33 @@ async def testar_conexao_route(request: Request) -> JSONResponse:
 
 
 async def listar_eventos_route(request: Request) -> JSONResponse:
-    """Próximos eventos da agenda do tenant — leitura, nunca cria/altera
-    nada (ver criar_agendamento pra isso). Usada pela página /agenda do
-    painel (ver tools/tenant-panel/app.py)."""
+    """Eventos da agenda do tenant — leitura, nunca cria/altera nada (ver
+    criar_agendamento pra isso). Usada pela página /agenda do painel
+    (ver tools/tenant-panel/app.py), que passa `time_min`/`time_max`
+    (ISO 8601) pra pedir uma semana específica na visualização de
+    calendário; sem esses parâmetros, cai no padrão de sempre (próximos
+    eventos a partir de agora)."""
     tenant = request.state.tenant
     config = tenant.get("config") or {}
     calendar_email = config.get("google_calendar_email")
     if not calendar_email:
         return JSONResponse({"ok": False, "motivo": "agenda_nao_configurada"})
 
+    time_min = request.query_params.get("time_min") or datetime.now(SAO_PAULO_TZ).isoformat()
+    time_max = request.query_params.get("time_max")
+
     try:
         service = _get_calendar_service()
-        now = datetime.now(SAO_PAULO_TZ)
-        result = service.events().list(
-            calendarId=calendar_email,
-            timeMin=now.isoformat(),
-            maxResults=25,
-            singleEvents=True,
-            orderBy="startTime",
-        ).execute()
+        list_kwargs = {
+            "calendarId": calendar_email,
+            "timeMin": time_min,
+            "maxResults": 100,
+            "singleEvents": True,
+            "orderBy": "startTime",
+        }
+        if time_max:
+            list_kwargs["timeMax"] = time_max
+        result = service.events().list(**list_kwargs).execute()
     except HttpError as e:
         if e.resp.status in (403, 404):
             return JSONResponse({"ok": False, "motivo": "sem_acesso_a_agenda"})
@@ -408,6 +416,7 @@ async def listar_eventos_route(request: Request) -> JSONResponse:
         {
             "titulo": ev.get("summary") or "(sem título)",
             "inicio": (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date"),
+            "fim": (ev.get("end") or {}).get("dateTime") or (ev.get("end") or {}).get("date"),
             "link_evento": ev.get("htmlLink"),
             "link_meet": ev.get("hangoutLink"),
         }

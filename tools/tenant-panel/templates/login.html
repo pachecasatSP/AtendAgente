@@ -78,6 +78,8 @@ button {
 }
 button:hover { transform: translateY(-2px); }
 .esqueci { text-align: center; margin: 1.1rem 0 0; font-size: 0.85rem; color: var(--ink-soft); font-weight: 600; }
+.esqueci a { color: var(--leaf-deep); font-weight: 800; text-decoration: none; }
+.esqueci a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -112,7 +114,9 @@ button:hover { transform: translateY(-2px); }
       </label>
       <button type="submit">Entrar</button>
     </form>
-    <p class="esqueci">Esqueci minha senha — chame a gente no WhatsApp da AtendPraGente.</p>
+    <p class="esqueci">Esqueci minha senha —
+      <a href="https://wa.me/5511920081743?text={{ ('Oi! Esqueci a senha do meu painel AtendPraGente (tenant: ' + tenant_id + ').') | urlencode }}" target="_blank" rel="noopener">chama a gente no WhatsApp</a>.
+    </p>
   </div>
 </body>
 </html>

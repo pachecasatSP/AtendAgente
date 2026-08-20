@@ -36,10 +36,11 @@ import secrets as secrets_module
 import time
 import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
@@ -913,11 +914,11 @@ def _calendar_mcp_post(path: str, payload: dict) -> dict:
         return {"ok": False, "motivo": "calendar_mcp_indisponivel"}
 
 
-def _calendar_mcp_get(path: str) -> dict:
-    req = urllib.request.Request(
-        f"{CALENDAR_MCP_BASE_URL}{path}",
-        headers={"Authorization": f"Bearer {CALENDAR_MCP_TOKEN}"},
-    )
+def _calendar_mcp_get(path: str, params: dict | None = None) -> dict:
+    url = f"{CALENDAR_MCP_BASE_URL}{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {CALENDAR_MCP_TOKEN}"})
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             return json.loads(resp.read())
@@ -1004,18 +1005,31 @@ def agenda_page(request: Request):
 
 
 @app.get("/painel/api/agenda/eventos")
-def api_agenda_eventos(request: Request) -> dict:
+def api_agenda_eventos(request: Request, semana: int = 0) -> dict:
+    """`semana`: deslocamento em semanas a partir da atual (0 = semana
+    corrente, -1 = anterior, 1 = próxima) — a visualização do painel é
+    por semana (segunda a domingo), ver agenda.html."""
     require_session(request)
     if not CALENDAR_MCP_TOKEN:
         raise HTTPException(status_code=500, detail="Agendamento ainda não está disponível neste servidor")
-    resultado = _calendar_mcp_get("/listar-eventos")
+
+    hoje = datetime.now(SAO_PAULO_TZ)
+    inicio_semana_atual = (hoje - timedelta(days=hoje.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    inicio = inicio_semana_atual + timedelta(weeks=semana)
+    fim = inicio + timedelta(days=7)
+
+    resultado = _calendar_mcp_get("/listar-eventos", {"time_min": inicio.isoformat(), "time_max": fim.isoformat()})
     if not resultado.get("ok"):
         motivo = resultado.get("motivo", "erro_desconhecido")
         raise HTTPException(
             status_code=400,
             detail=AGENDA_ERRO_MENSAGENS.get(motivo, f"Não consegui buscar os eventos ({motivo})"),
         )
-    return {"eventos": resultado.get("eventos") or []}
+    return {
+        "eventos": resultado.get("eventos") or [],
+        "semana_inicio": inicio.date().isoformat(),
+        "semana_fim": (fim - timedelta(days=1)).date().isoformat(),
+    }
 
 
 @app.post("/painel/api/cancelar-assinatura")
