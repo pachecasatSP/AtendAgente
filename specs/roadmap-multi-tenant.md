@@ -790,21 +790,52 @@ agendamento real via WhatsApp** (2026-08-20): `chat_id` chegou
 corretamente preenchido no espelho Mongo, sem o modelo precisar
 escrever nada.
 
-**Peça 2 — Template por tenant — CONCLUÍDA (2026-08-20).** Um por
-tenant (não genérico compartilhado) — Message Templates da Meta são
-presos à WABA de cada tenant. Implementado em
-`tools/calendar-mcp/server.py`: `_ensure_agenda_template` cria (best-
-effort, idempotente — "already exists" tratado como sucesso) o template
+**Peça 2 — Template por tenant — CONCLUÍDA, revisada (2026-08-20).**
+Um por tenant (não genérico compartilhado) — Message Templates da Meta
+são presos à WABA de cada tenant. `_ensure_agenda_template` cria (best-
+effort, idempotente — checa a resposta de erro inteira por "already",
+não só `error.message`; a Meta devolve a frase de duplicidade em
+`error_user_title`/`error_user_msg`, não em `message`) o template
 `agenda_confirmacao` (categoria UTILITY, corpo com 1 parâmetro — dia da
 semana + data + hora, ex: "quinta-feira (21/08) às 15:00" — e 2 botões
-QUICK_REPLY: "Confirmar"/"Remarcar") na primeira vez que o WABA do
-tenant precisa dele, direto no fluxo de `check_and_book`. Fica
-`PENDING` até a Meta aprovar (minutos a poucos dias); enviar antes da
-aprovação simplesmente falha o envio (ver Peça 3), sem quebrar o
-agendamento em si. Credenciais (`access_token`/`waba_id`/
-`phone_number_id`) lidas do próprio doc do tenant em `signups` — mesmos
-campos gravados por `store.py:create_signup` — porque calendar-mcp é
-serviço único compartilhado, sem env var de WhatsApp por tenant.
+QUICK_REPLY: "Confirmar"/"Remarcar"). Fica `PENDING` até a Meta aprovar
+(minutos a poucos dias); enviar antes da aprovação simplesmente falha o
+envio, sem quebrar o agendamento em si.
+
+**Revisão de arquitetura (mesmo dia, depois de "onde ficou a
+funcionalidade de confirmar"):** desenho original mandava a confirmação
+automaticamente dentro de `check_and_book` (calendar-mcp), na hora que o
+bot marcava o compromisso — cedo demais se o agendamento for pra
+semanas depois. Trocado por **dois gatilhos, mesmo comportamento**:
+- **Cronjob** `tools/provision-tenant/agenda_lembrete_cron.py`
+  (CronJob k8s `agenda-lembrete`, a cada 15 min, bootstrap em
+  `setup_agenda_lembrete_cron.py` — mesmo padrão do `usage-watch`/
+  `lixeira-watch`) — só age em `agendamentos` com `status: "agendado"`
+  cujo `inicio` caia dentro de uma janela **configurável por tenant**
+  (`config.agendamento_confirmacao_antecedencia_horas`, padrão 24h,
+  campo novo em Configurações → Agenda).
+- **Botão "Confirmar" manual** em `/agenda` (`tenant-panel/app.py`,
+  endpoint `POST /painel/api/agenda/confirmar`) — aparece só em eventos
+  com `status: "agendado"` e `chat_id` conhecido; mesma função de envio,
+  mesma transição de status.
+
+Os dois convergem pro mesmo destino: `status` vira
+`aguardando_confirmacao` assim que o envio realmente sai (verificado por
+`resultado.get("messages")` na resposta da Graph API — não antes), e o
+botão desaparece (a UI já esconde automaticamente qualquer evento fora
+de `status: "agendado"`, ver Peça 4). O cronjob nunca reprocessa um
+evento que o botão manual (ou outro ciclo do cronjob) já tirou de
+`"agendado"` — ambos filtram pelo mesmo campo.
+
+`calendar-mcp/server.py` voltou a só gravar o espelho Mongo com
+`status: "agendado"` sempre (sem tentativa de envio); toda a lógica de
+Graph API (criação de template + envio) foi removida de lá e duplicada
+em `tenant-panel/app.py` (botão manual) e `agenda_lembrete_cron.py`
+(cronjob) — mesmo raciocínio de "duplicar em vez de import cross-
+serviço frágil" já usado em `usage_watch.py`/`LIMITES`. Credenciais
+(`access_token`/`waba_id`/`phone_number_id`) lidas do doc do tenant em
+`signups` pro cronjob (processo à parte, sem env var própria); o botão
+manual usa as env vars que o próprio `tenant-panel` já tem.
 
 **Peça 3 — Envio + espera de resposta — CONCLUÍDA (2026-08-20).**
 Espera resposta e atualiza status (não só dispara e esquece).
@@ -841,16 +872,31 @@ ponta a ponta depois disso.
 
 **Peça 4 — `/agenda` lê do Mongo — CONCLUÍDA (2026-08-20).**
 `/painel/api/agenda/eventos` já lia `agendamentos` (implementado junto
-da Peça 1); faltava só o chip. `agenda.html` agora mostra um chip
+da Peça 1); faltava só o chip e o botão. `agenda.html` mostra um chip
 colorido por evento (Aguardando confirmação / Confirmado / Pediu
-remarcação) a partir do campo `status` que o backend já devolvia —
-eventos sem confirmação ativa (`status: "agendado"`, o caso antigo)
-não mostram chip nenhum.
+remarcação) a partir do campo `status`; eventos ainda em `"agendado"`
+com `chat_id` conhecido mostram o botão "Confirmar" (dispara o envio
+manual, ver revisão da Peça 2 acima) em vez do chip.
+
+**Testado depois da revisão (2026-08-20):** bug real encontrado e
+corrigido — a checagem de "template já existe" só olhava
+`error.message` ("Invalid parameter", genérico), mas a Meta manda a
+frase de duplicidade em `error_user_title`/`error_user_msg`; corrigido
+pra checar a resposta de erro inteira. Confirmado contra a WABA real do
+linda-ana-calcados: `_ensure_agenda_template` reconheceu corretamente o
+template `agenda_confirmacao` já existente (status `PENDING` na Meta,
+criado numa tentativa anterior da sessão) sem recriar; `--run-now` do
+CronJob rodou de ponta a ponta, achou os 2 agendamentos reais pendentes
+dentro da janela de 24h e tentou enviar (falhou por template ainda
+`PENDING` — comportamento esperado, vai funcionar sozinho assim que a
+Meta aprovar).
 
 **Publicado:** ConfigMaps compartilhados `mongo-sync-script` e
-`whatsapp-cloud-patch` atualizados via `setup_mongo.py`; `calendar-mcp`
-e os 3 `*-hermes` (linda-ana-calcados, novo-negocio, sandbox-tenant)
-reiniciados; os 2 `*-hermes-panel` com agenda ativa também.
+`whatsapp-cloud-patch` atualizados via `setup_mongo.py`; `calendar-mcp`,
+os 3 `*-hermes` (linda-ana-calcados, novo-negocio, sandbox-tenant) e os
+3 `*-hermes-panel` reiniciados; CronJob `agenda-lembrete` criado
+(`setup_agenda_lembrete_cron.py`, a cada 15 min, namespace
+`atendagente`).
 
 ---
 

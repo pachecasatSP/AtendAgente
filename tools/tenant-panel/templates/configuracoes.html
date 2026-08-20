@@ -476,7 +476,11 @@ button.secondary {
           <label class="field-narrow">Duração (min)
             <input type="text" name="agendamento_duracao_minutos" value="{{ agendamento_duracao_minutos }}">
           </label>
+          <label class="field-narrow">Confirmar com quantas horas de antecedência?
+            <input type="text" name="agendamento_confirmacao_antecedencia_horas" value="{{ agendamento_confirmacao_antecedencia_horas }}">
+          </label>
         </div>
+        <p class="hint">A gente manda uma mensagem de confirmação pro cliente sozinho, com esse tanto de antecedência antes do horário marcado — ele confirma ou pede pra remarcar direto pelo WhatsApp.</p>
         <button type="submit" id="agenda-save-btn">Salvar e testar conexão</button>
       </form>
       <div id="agenda-result" class="bulk-result"></div>

@@ -85,6 +85,13 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 .evento-status.aguardando { background: #fff3d6; color: #8a6100; }
 .evento-status.confirmado { background: #dcf5e3; color: #1c6b3a; }
 .evento-status.recusado { background: #fde2e2; color: #a12525; }
+.evento-confirmar-btn {
+  align-self: flex-start; margin-top: 0.1rem; font-size: 0.66rem; font-weight: 800;
+  padding: 0.15rem 0.5rem; border-radius: 999px; border: 1px solid var(--leaf);
+  background: var(--paper); color: var(--leaf-deep); cursor: pointer;
+}
+.evento-confirmar-btn:hover { background: var(--leaf-pale); }
+.evento-confirmar-btn:disabled { opacity: 0.6; cursor: default; }
 .day-vazio { font-size: 0.72rem; color: var(--ink-faint); text-align: center; padding: 0.4rem 0; }
 [hidden] { display: none !important; }
 </style>
@@ -138,6 +145,25 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       confirmado: ['confirmado', 'Confirmado'],
       recusado: ['recusado', 'Pediu remarcação'],
     };
+
+    async function enviarConfirmacao(agendamentoId, btn) {
+      btn.disabled = true;
+      btn.textContent = 'Enviando…';
+      try {
+        const resp = await fetch('/painel/api/agenda/confirmar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agendamento_id: agendamentoId }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.detail || 'Não consegui mandar a confirmação.');
+        carregarSemana();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+        btn.textContent = 'Confirmar';
+      }
+    }
 
     async function carregarSemana() {
       const gridEl = document.getElementById('week-grid');
@@ -198,6 +224,17 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
                 statusEl.className = `evento-status ${statusInfo[0]}`;
                 statusEl.textContent = statusInfo[1];
                 chip.appendChild(statusEl);
+              } else if (ev.status === 'agendado' && ev.tem_contato && ev.id) {
+                const confirmarBtn = document.createElement('button');
+                confirmarBtn.type = 'button';
+                confirmarBtn.className = 'evento-confirmar-btn';
+                confirmarBtn.textContent = 'Confirmar';
+                confirmarBtn.addEventListener('click', (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  enviarConfirmacao(ev.id, confirmarBtn);
+                });
+                chip.appendChild(confirmarBtn);
               }
               col.appendChild(chip);
             });

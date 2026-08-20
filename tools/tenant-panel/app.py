@@ -410,6 +410,7 @@ def configuracoes_page(request: Request):
             "agenda_disponivel": bool(CALENDAR_MCP_TOKEN),
             "google_calendar_email": config.get("google_calendar_email", ""),
             "agendamento_duracao_minutos": config.get("agendamento_duracao_minutos", 30),
+            "agendamento_confirmacao_antecedencia_horas": config.get("agendamento_confirmacao_antecedencia_horas", 24),
             "agendamento_ativo": bool(config.get("agendamento_ativo")),
             "agenda_service_account_email": _calendar_mcp_service_account_email() if CALENDAR_MCP_TOKEN else None,
         },
@@ -956,6 +957,12 @@ def api_salvar_agenda(request: Request, payload: dict) -> dict:
         raise HTTPException(status_code=400, detail="Duração inválida")
     if duracao < 5 or duracao > 480:
         raise HTTPException(status_code=400, detail="Duração precisa ficar entre 5 e 480 minutos")
+    try:
+        antecedencia_horas = int(payload.get("agendamento_confirmacao_antecedencia_horas") or 24)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Antecedência inválida")
+    if antecedencia_horas < 1 or antecedencia_horas > 168:
+        raise HTTPException(status_code=400, detail="Antecedência precisa ficar entre 1 e 168 horas")
 
     resultado = _calendar_mcp_post("/testar-conexao", {"google_calendar_email": google_calendar_email})
     if not resultado.get("ok"):
@@ -969,6 +976,7 @@ def api_salvar_agenda(request: Request, payload: dict) -> dict:
     primeira_ativacao = not config.get("agendamento_ativo")
     config["google_calendar_email"] = google_calendar_email
     config["agendamento_duracao_minutos"] = duracao
+    config["agendamento_confirmacao_antecedencia_horas"] = antecedencia_horas
     config["agendamento_ativo"] = True
 
     update = {"config": config}
@@ -1016,10 +1024,12 @@ def api_agenda_eventos(request: Request, semana: int = 0) -> dict:
 
     eventos = [
         {
+            "id": str(ev["_id"]),
             "titulo": ev.get("titulo"),
             "inicio": _iso_utc(ev.get("inicio")),
             "fim": _iso_utc(ev.get("fim")),
             "status": ev.get("status", "agendado"),
+            "tem_contato": bool(ev.get("chat_id")),
             "link_evento": ev.get("link_evento"),
             "link_meet": ev.get("link_meet"),
         }
@@ -1086,6 +1096,123 @@ def _graph_post(path: str, payload: dict) -> dict:
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise HTTPException(status_code=502, detail=f"WhatsApp API falhou: HTTP {exc.code}: {detail}")
+
+
+# ── Confirmação de agendamento por WhatsApp (Fase 11, Peça 2/3) ─────────
+#
+# Envio é sob demanda: pelo botão "Confirmar" em /agenda (aqui embaixo)
+# ou pelo cronjob `agenda_lembrete_cron.py` (roda fora deste processo,
+# direto no Mongo + Graph API, mesma lógica duplicada — ver comentário
+# em LIMITES de usage_watch.py sobre por que duplicar em vez de importar
+# entre serviços separados). Best-effort: qualquer erro aqui (template
+# ainda não aprovado pela Meta, HTTP falhou) só retorna False, nunca
+# derruba o resto do painel.
+
+AGENDA_TEMPLATE_NAME = "agenda_confirmacao"
+_template_waba_ids_ok: set[str] = set()  # cache em memória — evita recriar o template a cada envio
+
+
+def _graph_call_best_effort(path: str, payload: dict, method: str = "POST") -> dict:
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path}"
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"), method=method,
+        headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            return json.loads(exc.read())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {"error": {"message": f"HTTP {exc.code}"}}
+    except urllib.error.URLError as exc:
+        return {"error": {"message": str(exc)}}
+
+
+def _ensure_agenda_template() -> None:
+    if WABA_ID in _template_waba_ids_ok or not WABA_ID or not ACCESS_TOKEN:
+        return
+    resultado = _graph_call_best_effort(
+        f"{WABA_ID}/message_templates",
+        {
+            "name": AGENDA_TEMPLATE_NAME,
+            "language": "pt_BR",
+            "category": "UTILITY",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": "Oi! Confirmando seu compromisso: {{1}}.\nSe puder, toca em um dos botões abaixo.",
+                    "example": {"body_text": [["quinta-feira (21/08) às 15:00"]]},
+                },
+                {
+                    "type": "BUTTONS",
+                    "buttons": [
+                        {"type": "QUICK_REPLY", "text": "Confirmar"},
+                        {"type": "QUICK_REPLY", "text": "Remarcar"},
+                    ],
+                },
+            ],
+        },
+    )
+    erro = json.dumps(resultado.get("error") or {}).lower()
+    if resultado.get("id") or "already" in erro:
+        _template_waba_ids_ok.add(WABA_ID)
+
+
+_DIAS_SEMANA = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+
+
+def _formatar_quando(start_utc_naive) -> str:
+    start = start_utc_naive.replace(tzinfo=timezone.utc).astimezone(SAO_PAULO_TZ)
+    return f"{_DIAS_SEMANA[start.weekday()]} ({start.strftime('%d/%m')}) às {start.strftime('%H:%M')}"
+
+
+def _enviar_confirmacao_agenda(agendamento: dict) -> bool:
+    chat_id = agendamento.get("chat_id")
+    if not (ACCESS_TOKEN and PHONE_NUMBER_ID and WABA_ID and chat_id):
+        return False
+    _ensure_agenda_template()
+    agendamento_id = str(agendamento["_id"])
+    resultado = _graph_call_best_effort(
+        f"{PHONE_NUMBER_ID}/messages",
+        {
+            "messaging_product": "whatsapp",
+            "to": chat_id,
+            "type": "template",
+            "template": {
+                "name": AGENDA_TEMPLATE_NAME,
+                "language": {"code": "pt_BR"},
+                "components": [
+                    {"type": "body", "parameters": [{"type": "text", "text": _formatar_quando(agendamento["inicio"])}]},
+                    {"type": "button", "sub_type": "quick_reply", "index": "0",
+                     "parameters": [{"type": "payload", "payload": f"agenda_confirmar:{agendamento_id}"}]},
+                    {"type": "button", "sub_type": "quick_reply", "index": "1",
+                     "parameters": [{"type": "payload", "payload": f"agenda_remarcar:{agendamento_id}"}]},
+                ],
+            },
+        },
+    )
+    return bool(resultado.get("messages") or [])
+
+
+@app.post("/painel/api/agenda/confirmar")
+def api_agenda_confirmar(request: Request, payload: dict) -> dict:
+    require_session(request)
+    agendamento_id = str(payload.get("agendamento_id") or "")
+    try:
+        oid = ObjectId(agendamento_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Id de agendamento inválido")
+    agendamento = agendamentos_col.find_one({"_id": oid, "tenant_id": TENANT_ID, "status": "agendado"})
+    if not agendamento:
+        raise HTTPException(status_code=404, detail="Agendamento não encontrado (ou já tem confirmação enviada)")
+    if not agendamento.get("chat_id"):
+        raise HTTPException(status_code=400, detail="Esse agendamento não tem um contato de WhatsApp vinculado")
+    if not _enviar_confirmacao_agenda(agendamento):
+        raise HTTPException(status_code=502, detail="Não consegui mandar a confirmação agora — o template pode ainda estar em análise na Meta, tenta de novo mais tarde")
+    agendamentos_col.update_one({"_id": oid}, {"$set": {"status": "aguardando_confirmacao"}})
+    return {"ok": True}
 
 
 @app.get("/painel/api/whatsapp/numeros")
