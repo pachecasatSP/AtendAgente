@@ -1010,31 +1010,50 @@ tem (bot direciona pro combinado direto com o lojista).
    uma mensagem pré-preenchida contendo o número do pedido **e também
    a lista do item + valor** (redundância proposital — mesmo que a
    busca do pedido falhe por algum motivo, o vendedor já vê o que foi
-   pedido só de ler a mensagem).
+   pedido só de ler a mensagem). Pendente de resolver: o link
+   `wa.me/<numero>` precisa do número de WhatsApp de exibição do
+   tenant, que a vitrine hoje não expõe em lugar nenhum — provavelmente
+   resolver via Graph API a partir do `phone_number_id` já conhecido, e
+   guardar em `signups` pra não bater na API a cada carregamento da
+   vitrine pública.
 
-2. **Conexão pedido↔conversa via injeção de contexto, nunca solta.**
-   Mesmo padrão da Fase 11 Peça 1 (`pre_llm_call`, plugin
-   `agendamento_contexto`), mas os três identificadores — **chat_id +
-   número do pedido + id do tenant** — são sempre injetados **juntos,
-   como uma unidade**, nunca um deles isolado pro modelo inferir
-   sozinho. O número do pedido não pode depender do LLM "lembrar" ao
-   longo da conversa (mesmo risco já resolvido pro chat_id) — precisa
-   ser extraído de forma determinística da primeira mensagem (que já
-   carrega o número, ver item 1) e mantido injetado a cada turno
-   enquanto o pedido seguir em aberto, não só uma vez.
+2. **Gatilho de fechamento via webhook, sem passar pelo LLM** — mesmo
+   princípio de bypass da Fase 11 Peça 3 (o clique de botão não passa
+   pelo modelo, ele nem vê o tap). O texto pré-preenchido do `wa.me`
+   (passo 1) tem um formato fixo e previsível, controlado pela própria
+   AtendPraGente, ex: `Quero fechar o pedido #47 (Camiseta Azul - R$
+   89,90)`. Novo ponto de interceptação no webhook patchado
+   (`whatsapp_cloud_patched.py`) roda em **toda mensagem de texto
+   recebida** (não só a primeira) buscando o padrão `#(\d+)`:
+   - **Casou o número** → busca o pedido `#N` daquele tenant. Se
+     existir e estiver `aberto` (ou já vinculado a esse mesmo chat_id,
+     pra permitir reenvio/retry) → vincula `chat_id`, muda pra
+     `aguardando_pagamento`, gera o Pix copia-e-cola (payload EMV/BR
+     Code, string formatting + CRC16, sem chamada de rede, valor
+     travado no passo 1) e responde direto — sem passar pelo LLM.
+   - **Número não casou, ou pedido não está elegível** (não existe,
+     já pago, cancelado, de outro tenant) → **camada de fallback 1**:
+     busca por `chat_id` (não pelo número) outros pedidos desse mesmo
+     cliente ainda `aberto`/`aguardando_pagamento` — se achar, sugere
+     ("não achei o pedido #47, mas você tem esses em aberto: #45 —
+     Camiseta Azul, #52 — Ingresso do evento. É algum desses?"). Só
+     ajuda cliente recorrente (que já teve outro pedido vinculado ao
+     chat_id antes).
+   - **Nada encontrado nem por número nem por chat_id** (cliente novo,
+     número realmente errado) → **camada de fallback 2**, último
+     recurso: pergunta o número diretamente.
+   - O número do pedido é **sequencial por tenant** (Pedido #1, #2,
+     #3...), não o `_id` do Mongo (ObjectId de 24 caracteres seria
+     ruim de digitar/mencionar numa conversa).
 
-3. **Pix copia e cola gerado na hora** — payload EMV (BR Code) montado
-   a partir da chave Pix do tenant (`config.pagamento_pix_chave`, já
-   existe) + valor do pedido (o valor travado no passo 1), sem gateway
-   nenhum (formato público, implementável só com string formatting +
-   CRC16, sem chamada de rede). Mandado como texto na conversa quando o
-   bot processa o pedido referenciado, com a instrução de uso.
-
-4. **Confirmação manual via comprovante:**
-   - Cliente manda foto/PDF do comprovante na própria conversa. **O
-     bot pede o número do pedido antes de aceitar o comprovante como
-     válido** — resolve o caso de múltiplos pedidos em aberto pro
-     mesmo chat_id sem precisar de heurística tipo "o mais recente".
+3. **Confirmação manual via comprovante:**
+   - Cliente manda foto/PDF do comprovante na própria conversa.
+     Mesmo princípio de bypass do passo 2: se houver **exatamente um**
+     pedido `aguardando_pagamento` pra esse chat_id, o webhook vincula
+     o comprovante a ele automaticamente. **Havendo mais de um em
+     aberto, o webhook manda uma resposta fixa pedindo o número** antes
+     de aceitar — mesma lógica determinística do passo 2, não uma
+     pergunta gerada pelo LLM.
    - Novo ponto de interceptação no webhook patchado
      (`whatsapp_cloud_patched.py`, mesmo padrão da Fase 11 Peça 3) —
      detecta mensagem de imagem/documento numa conversa com pedido em
@@ -1059,7 +1078,9 @@ tem (bot direciona pro combinado direto com o lojista).
    cancelado), com **scroll infinito** (não paginação numerada — mesma
    escolha de UX simples que o resto do painel já usa), link
    autenticado pra abrir o comprovante, botão manual "marcar como
-   pago" (mesma UX do botão "Confirmar" da agenda).
+   pago" (mesma UX do botão "Confirmar" da agenda) **e também "cancelar
+   manualmente"** (cliente desistiu, pediu errado etc. — não dá pra
+   depender só do cancelamento automático de 30 dias pra esses casos).
 
 6. **LGPD — retenção com prazo, mesmo padrão da lixeira (Fase 9):**
    - **Comprovante**: apagado do object storage **30 dias** depois de
