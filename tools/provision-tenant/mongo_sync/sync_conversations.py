@@ -421,10 +421,24 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
 
 
 def _marcar_handoff_pedido(chat_id: str) -> None:
+    """Marca só a sessão MAIS RECENTE desse chat_id — nunca `update_many`
+    por chat_id sozinho. Bug real encontrado 2026-08-20: um chat_id tem
+    várias sessões ao longo do tempo (reinícios de conversa, etc.); o
+    cache de handoff (`refresh_handoff_cache`) suprime envio pro
+    chat_id inteiro se QUALQUER sessão dele tiver `handoff: true` —
+    então marcar sessões antigas/mortas junto contaminava o número
+    inteiro pra sempre, mesmo depois da sessão viva ser resolvida. Mesmo
+    cuidado que o handoff da Fase 5 (escalação) já tinha, que filtra por
+    `session_id` específico, não por chat_id solto."""
     if _sessions_coll is None:
         return
-    _sessions_coll.update_many(
-        {"tenant_id": TENANT_ID, "chat_id": chat_id},
+    sessao_atual = _sessions_coll.find_one(
+        {"tenant_id": TENANT_ID, "chat_id": chat_id}, sort=[("last_activity_at", -1)]
+    )
+    if not sessao_atual:
+        return
+    _sessions_coll.update_one(
+        {"_id": sessao_atual["_id"]},
         {"$set": {
             "needs_operator": True, "needs_operator_at": now(),
             "handoff": True, "handoff_by": "pedido (rastreamento manual)", "handoff_at": now(),
