@@ -1143,7 +1143,6 @@ def _avisar_rastreamento_manual(lote: list) -> None:
     )
 
 
-@app.post("/painel/api/pedidos/{pedido_id}/pago")
 def _lote_do_pedido(pedido: dict) -> list:
     """Pedido + irmãos do mesmo `lote_id` (mesmo carrinho, Fase 12
     revisado) — mesma lógica de `mongo_sync/sync_conversations.py:
@@ -1156,6 +1155,7 @@ def _lote_do_pedido(pedido: dict) -> list:
     return itens or [pedido]
 
 
+@app.post("/painel/api/pedidos/{pedido_id}/pago")
 def api_pedido_marcar_pago(request: Request, pedido_id: str) -> dict:
     require_session(request)
     try:
