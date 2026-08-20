@@ -1189,6 +1189,36 @@ verdade com anexo, não reproduzível sinteticamente).
 mandando a mensagem no WhatsApp, foto de comprovante de verdade) —
 válido testar assim que o fluxo receber uso real.
 
+**Revisão (2026-08-20, mesmo dia): carrinho com múltiplos itens.**
+Feedback de uso real — direcionar pro bot já no primeiro item
+selecionado era uma ponta solta. Desenho original (1 item = 1 pedido =
+1 fechamento imediato) virou **carrinho**: cliente adiciona vários
+itens (ainda 1 unidade cada — sem mudança nisso) antes de fechar, via
+botão flutuante com contador. Decisão de pagamento: **um Pix só, com
+valor somado do carrinho inteiro** — não um código por item.
+
+Implementado com um `lote_id` novo compartilhado entre os pedidos
+criados juntos (sem mudar o schema de cada pedido individual — ainda
+1 item, 1 valor, 1 doc). O texto do WhatsApp referencia só o primeiro
+pedido do lote; o webhook (`_pedido_lote` em `sync_conversations.py`)
+acha os irmãos, soma os valores e gera um Pix único (`txid` vira
+`LOTE<8 chars do lote_id>` em vez de `PED<numero>`). Comprovante e
+"marcar como pago" no painel também passaram a agir no lote inteiro
+(`_agrupar_por_lote`, `_lote_do_pedido`) — um comprovante ou uma
+confirmação fecha o carrinho todo, não item por item.
+
+Pedido sem `lote_id` (criado antes dessa revisão, ou por chamada
+avulga com 1 item só) vira um "lote" de 1 item — compatível sem
+migração.
+
+**Testado de ponta a ponta:** carrinho com 2 itens criado (mesmo
+`lote_id` confirmado nos 2 docs) → fechamento via `#N` do primeiro item
+achou o segundo automaticamente, gerou Pix com valor somado (R$ 515,00
+= R$ 220 + R$ 295, payload validado por CRC16 + parse-back) →
+comprovante fechou os 2 pedidos juntos sem precisar perguntar o número
+(só 1 grupo em aberto) → "marcar como pago" em qualquer um dos 2
+propagou pro outro.
+
 ---
 
 ## Riscos / decisões a revisitar cedo
