@@ -2010,6 +2010,45 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                 logger.exception("[whatsapp_cloud] pedido reply send failed")
         return True
 
+    # Comprovante de pagamento (Fase 12) — imagem/PDF numa conversa com
+    # pedido aguardando pagamento. O download da mídia em si e o upload
+    # pro storage privado acontecem inteiros em mongo-sync (só ele tem
+    # boto3 + credencial do object storage) — aqui só repassa o
+    # media_id/mime_type que já vêm prontos no payload do webhook, sem
+    # baixar nada neste processo.
+    async def _dispatch_pedido_comprovante(self, chat_id: str, inner: Dict[str, Any], legenda: str) -> bool:
+        if not chat_id or self._http_client is None:
+            return False
+        media_id = str(inner.get("id") or "")
+        mime_type = str(inner.get("mime_type") or "")
+        if not media_id:
+            return False
+        try:
+            resp = await self._http_client.post(
+                "http://127.0.0.1:8091/pedido-comprovante",
+                json={"chat_id": chat_id, "media_id": media_id, "mime_type": mime_type, "legenda": legenda},
+                timeout=20.0,
+            )
+            if resp.status_code != 200:
+                return False
+            data = resp.json()
+        except Exception:
+            logger.exception("[whatsapp_cloud] pedido-comprovante HTTP call failed")
+            return False
+
+        if not data.get("ok"):
+            # Sem pedido aguardando pagamento pra esse chat_id — imagem
+            # comum, segue o fluxo normal (decisão explícita da Fase 12).
+            return False
+
+        resposta = data.get("resposta") or ""
+        if resposta:
+            try:
+                await self.send(chat_id, resposta)
+            except Exception:
+                logger.exception("[whatsapp_cloud] pedido-comprovante reply send failed")
+        return True
+
     async def _build_message_event_from_cloud(
         self,
         raw_message: Dict[str, Any],
@@ -2071,6 +2110,12 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             # don't carry a caption in Meta's spec, but be defensive.
             inner = raw_message.get(msg_type_str) or {}
             body = str(inner.get("caption") or "")
+            if msg_type_str in {"image", "document"}:
+                handled = await self._dispatch_pedido_comprovante(
+                    str(raw_message.get("from") or ""), inner, body
+                )
+                if handled:
+                    return None
 
         message_type = {
             "text": MessageType.TEXT,

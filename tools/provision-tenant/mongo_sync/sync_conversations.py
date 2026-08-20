@@ -16,21 +16,37 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from bson import ObjectId
 from bson.errors import InvalidId
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
+import boto3
+from botocore.config import Config as BotoConfig
 from pymongo import MongoClient, ReturnDocument, UpdateOne
 
 CALENDAR_MCP_BASE_URL = os.environ.get("CALENDAR_MCP_BASE_URL", "http://calendar-mcp.atendagente.svc.cluster.local:8000")
+GRAPH_API_VERSION = "v21.0"
 
 TENANT_ID = os.environ["TENANT_ID"]
 SYNC_INTERVAL_SECONDS = float(os.environ.get("SYNC_INTERVAL_SECONDS", "15"))
 STATE_DB_PATH = "/opt/data/state.db"
 MONGO_URI = os.environ["MONGO_URI"]
 HANDOFF_HTTP_PORT = int(os.environ.get("HANDOFF_HTTP_PORT", "8091"))
+
+# Object storage (Fase 12) — só pro comprovante, prefixo PRIVADO,
+# separado das fotos do catálogo (que são públicas de propósito, a
+# vitrine é pública). Secret `object-storage-credentials`, optional —
+# se não estiver configurado, comprovante simplesmente não funciona
+# (best-effort, nunca derruba o resto do sidecar).
+OBJECT_STORAGE_ENDPOINT = os.environ.get("OBJECT_STORAGE_ENDPOINT", "")
+OBJECT_STORAGE_BUCKET = os.environ.get("OBJECT_STORAGE_BUCKET", "")
+OBJECT_STORAGE_ACCESS_KEY = os.environ.get("OBJECT_STORAGE_ACCESS_KEY", "")
+OBJECT_STORAGE_SECRET_KEY = os.environ.get("OBJECT_STORAGE_SECRET_KEY", "")
+COMPROVANTE_PREFIX = os.environ.get("OBJECT_STORAGE_COMPROVANTE_PREFIX", "atendpragente-comprovantes").strip("/")
+_s3_client = None
 
 # Frase-gatilho que o SOUL instrui o bot a usar, sempre igual, quando
 # decide escalar pra um humano — ver "Quando encaminhar para o Adolfo"
@@ -216,6 +232,114 @@ def pedido_status(chat_id: str, texto: str) -> dict:
     }
 
 
+def _object_storage_configured() -> bool:
+    return bool(OBJECT_STORAGE_ENDPOINT and OBJECT_STORAGE_BUCKET and OBJECT_STORAGE_ACCESS_KEY and OBJECT_STORAGE_SECRET_KEY)
+
+
+def _get_s3_client():
+    global _s3_client
+    if _s3_client is None:
+        _s3_client = boto3.client(
+            "s3", endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_KEY,
+            config=BotoConfig(signature_version="s3v4"),
+        )
+    return _s3_client
+
+
+_COMPROVANTE_EXT = {"image/jpeg": "jpg", "image/png": "png", "application/pdf": "pdf"}
+
+
+def _baixar_e_armazenar_comprovante(media_id: str, mime_type: str) -> str | None:
+    """Baixa o comprovante da Graph API (2 passos: resolve a URL do
+    media_id, depois baixa os bytes) e sobe pro object storage num
+    prefixo PRIVADO — sem ACL public-read, diferente do resto do bucket
+    (fotos de catálogo são públicas de propósito). Devolve a `key`
+    (não uma URL pública) — o painel serve isso autenticado, nunca por
+    link direto. Best-effort: qualquer falha devolve None."""
+    if not _object_storage_configured() or _signups_coll is None:
+        return None
+    tenant = _signups_coll.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    access_token = (tenant or {}).get("access_token")
+    if not access_token:
+        return None
+
+    try:
+        req = urllib.request.Request(
+            f"https://graph.facebook.com/{GRAPH_API_VERSION}/{media_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            info = json.loads(resp.read())
+        media_url = info.get("url")
+        if not media_url:
+            return None
+        req2 = urllib.request.Request(media_url, headers={"Authorization": f"Bearer {access_token}"})
+        with urllib.request.urlopen(req2, timeout=20) as resp2:
+            conteudo = resp2.read()
+    except Exception as e:
+        print(f"[mongo-sync] comprovante: falha ao baixar mídia: {e}")
+        return None
+
+    ext = _COMPROVANTE_EXT.get(mime_type, "bin")
+    key = f"{COMPROVANTE_PREFIX}/{TENANT_ID}/{uuid.uuid4().hex}.{ext}"
+    try:
+        _get_s3_client().put_object(
+            Bucket=OBJECT_STORAGE_BUCKET, Key=key, Body=conteudo, ContentType=mime_type,
+        )  # sem ACL="public-read" de propósito — dado financeiro/pessoal
+    except Exception as e:
+        print(f"[mongo-sync] comprovante: falha ao subir pro storage: {e}")
+        return None
+    return key
+
+
+def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str = "") -> dict:
+    """Cliente mandou foto/PDF do comprovante — chamado pelo webhook
+    quando há pedido `aguardando_pagamento` pra esse chat_id. Sem
+    pedido correspondente, quem chama já nem deveria ter invocado isso
+    (o webhook só chama quando sabe que há pelo menos 1 candidato)."""
+    if _pedidos_coll is None:
+        return {"ok": False}
+    candidatos = list(_pedidos_coll.find(
+        {"tenant_id": TENANT_ID, "chat_id": chat_id, "status": "aguardando_pagamento"}
+    ))
+    if not candidatos:
+        return {"ok": False}
+
+    pedido = None
+    if len(candidatos) == 1:
+        pedido = candidatos[0]
+    else:
+        numero = _pedido_extrair_numero(legenda)
+        if numero is not None:
+            pedido = next((p for p in candidatos if p["numero"] == numero), None)
+        if pedido is None:
+            linhas = [f"#{p['numero']} — {p['item_nome']}" for p in candidatos]
+            return {
+                "ok": True,
+                "resposta": "Antes de eu confirmar o recebimento, me diz o número do pedido:\n" + "\n".join(linhas),
+            }
+
+    comprovante_key = _baixar_e_armazenar_comprovante(media_id, mime_type)
+    if comprovante_key is None:
+        return {
+            "ok": True,
+            "resposta": "Recebi sua mensagem, mas não consegui salvar o comprovante agora — pode tentar mandar de novo em instantes?",
+        }
+
+    _pedidos_coll.update_one(
+        {"_id": pedido["_id"]},
+        {"$set": {
+            "status": "comprovante_recebido",
+            "comprovante_key": comprovante_key,
+            "comprovante_recebido_em": now(),
+        }},
+    )
+    _marcar_handoff_pedido(chat_id)
+    return {"ok": True, "resposta": f"Recebi o comprovante do pedido #{pedido['numero']}! Vou confirmar e já te aviso. 🙏"}
+
+
 def _marcar_handoff_pedido(chat_id: str) -> None:
     if _sessions_coll is None:
         return
@@ -309,6 +433,11 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
             result = pedido_fechar(str(payload.get("chat_id") or ""), str(payload.get("texto") or ""))
         elif parsed.path == "/pedido-status":
             result = pedido_status(str(payload.get("chat_id") or ""), str(payload.get("texto") or ""))
+        elif parsed.path == "/pedido-comprovante":
+            result = pedido_comprovante(
+                str(payload.get("chat_id") or ""), str(payload.get("media_id") or ""),
+                str(payload.get("mime_type") or ""), str(payload.get("legenda") or ""),
+            )
         else:
             self.send_response(404)
             self.end_headers()

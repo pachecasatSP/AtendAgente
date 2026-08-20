@@ -141,6 +141,9 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 
       const statusLabel = STATUS_LABEL[p.status] || p.status;
       const acoes = [];
+      if (p.tem_comprovante) {
+        acoes.push(`<a class="pedido-btn" href="/painel/api/pedidos/${p.id}/comprovante" target="_blank" rel="noopener">Ver comprovante</a>`);
+      }
       if (p.status !== 'pago' && p.status !== 'cancelado') {
         acoes.push('<button type="button" class="pedido-btn pagar" data-acao="pago">Marcar como pago</button>');
         acoes.push('<button type="button" class="pedido-btn cancelar" data-acao="cancelar">Cancelar</button>');

@@ -438,7 +438,7 @@ spec:
             periodSeconds: 20
         - name: mongo-sync
           image: python:3.12-slim
-          command: ["sh", "-c", "pip install --quiet --no-cache-dir pymongo && python /scripts/sync_conversations.py"]
+          command: ["sh", "-c", "pip install --quiet --no-cache-dir pymongo boto3 && python /scripts/sync_conversations.py"]
           env:
             - name: TENANT_ID
               value: "{tenant_id}"
@@ -449,6 +449,9 @@ spec:
           envFrom:
             - secretRef:
                 name: mongo-credentials
+            - secretRef:
+                name: object-storage-credentials
+                optional: true
           volumeMounts:
             - name: data
               mountPath: /opt/data

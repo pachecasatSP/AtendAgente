@@ -1035,12 +1035,32 @@ def api_pedidos_listar(request: Request, offset: int = 0) -> dict:
                 "status": p.get("status"),
                 "chat_id": p.get("chat_id"),
                 "criado_em": _iso_utc(p.get("criado_em")),
-                "comprovante_url": p.get("comprovante_url"),
+                "tem_comprovante": bool(p.get("comprovante_key")),
             }
             for p in itens
         ],
         "tem_mais": len(itens) == PEDIDOS_PAGINA_TAMANHO,
     }
+
+
+@app.get("/painel/api/pedidos/{pedido_id}/comprovante")
+def api_pedido_comprovante(request: Request, pedido_id: str) -> Response:
+    """Serve o comprovante direto do bucket privado (sem ACL
+    public-read, Fase 12) — só autenticado, nunca por link CDN direto,
+    porque é dado financeiro/pessoal do cliente."""
+    require_session(request)
+    try:
+        oid = ObjectId(pedido_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Id inválido")
+    pedido = pedidos_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
+    if not pedido or not pedido.get("comprovante_key"):
+        raise HTTPException(status_code=404, detail="Comprovante não encontrado")
+    try:
+        obj = storage._get_client().get_object(Bucket=storage.OBJECT_STORAGE_BUCKET, Key=pedido["comprovante_key"])
+    except Exception:
+        raise HTTPException(status_code=502, detail="Não consegui buscar o comprovante agora")
+    return Response(content=obj["Body"].read(), media_type=obj.get("ContentType", "application/octet-stream"))
 
 
 def _avisar_rastreamento_manual(pedido: dict) -> None:
