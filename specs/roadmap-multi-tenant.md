@@ -740,14 +740,29 @@ cobrado manualmente pela Duda (nunca automático) via nova ferramenta
 pro cliente é "diferencial de plano", não "repasse de custo" — o custo
 de infra em si não justificaria cobrança nenhuma.
 
-### Fase 11 — Confirmação de compromisso via WhatsApp — PLANEJADA (2026-08-19)
+### Fase 11 — Confirmação de compromisso via WhatsApp — PLANEJADA (2026-08-19, revisada)
 
 **Objetivo:** botão "Confirmar compromisso" em `/agenda` que manda uma
 mensagem de confirmação pro cliente, espera a resposta (confirma/
 recusa) e atualiza o status do evento no painel.
 
-**Peça 1 — Vincular o agendamento ao contato.** Hoje `criar_agendamento`
-não recebe nem guarda o telefone/chat_id do cliente. Duas rotas:
+**Mudança de arquitetura decidida na mesma sessão:** em vez de guardar
+o vínculo telefone↔evento como `extendedProperties` dentro do próprio
+evento do Google (plano original), a Google Agenda **continua sendo a
+fonte da verificação de disponibilidade** (freebusy, pega também
+compromisso que o dono marcou por fora do bot — `google_calendar_email`
+continua obrigatório, nada muda em `check_and_book` pra isso) mas
+`criar_agendamento` passa a gravar **também** um espelho local numa
+collection Mongo nova (`agendamentos`: tenant_id, chat_id, título,
+início, fim, status, `google_event_id`, criado_em). Motivo: é onde
+`/agenda` e a confirmação passam a ler/escrever, em vez de bater na
+Graph API do Google toda hora — mais rápido, e resolve de vez o ponto
+que ficava em aberto na Peça 4 (webhook não tem credencial Google pra
+atualizar status lá — atualizar o Mongo local não tem esse problema).
+
+**Peça 1 — Vincular o agendamento ao contato.** `criar_agendamento`
+ainda precisa saber o telefone do cliente pra gravar no `agendamentos`.
+Duas rotas:
 - **(a) Parâmetro explícito** — a tool ganha `telefone_cliente`,
   preenchido pelo modelo a partir da conversa (mesmo padrão de confiança
   já usado pra PIX/escalação no SOUL).
@@ -756,46 +771,32 @@ não recebe nem guarda o telefone/chat_id do cliente. Duas rotas:
   certo. **Não confirmado** — Hermes é imagem vendorizada
   (`nousresearch/hermes-agent`), precisa testar numa conversa real
   antes de decidir a interface final da tool.
-Gravar em `extendedProperties.private.telefone_cliente` no evento do
-Google Calendar (metadata nativa, não aparece pro cliente, sem precisar
-de collection Mongo nova).
 
-**Peça 2 — Template por tenant (decisão 2026-08-19: um por tenant, não
-genérico compartilhado)** — Message Templates da Meta são presos à WABA
-de cada tenant; não dá pra usar o número da Duda pra confirmar
-compromisso de cliente de outro tenant (o cliente nem reconheceria quem
-está mandando). Corpo sugerido: "Oi! Confirmando seu compromisso com
-{{1}} em {{2}} às {{3}}." com botões de resposta rápida (ver Peça 3).
-Submissão via Graph API (`POST /{waba_id}/message_templates`) dá pra
-automatizar no provisionamento (best-effort, fica `PENDING` até a Meta
-aprovar — minutos a poucos dias, não instantâneo) — precisa checar
-status antes de confiar que o botão vai funcionar pra um tenant
-específico.
+**Peça 2 — Template por tenant** (decisão: um por tenant, não genérico
+compartilhado — Message Templates da Meta são presos à WABA de cada
+tenant, não dá pra usar o número da Duda pra confirmar compromisso de
+cliente de outro tenant). Corpo sugerido: "Oi! Confirmando seu
+compromisso com {{1}} em {{2}} às {{3}}." com botões de resposta rápida
+(ver Peça 3). Submissão via Graph API (`POST /{waba_id}/message_
+templates`) dá pra automatizar no provisionamento (best-effort, fica
+`PENDING` até a Meta aprovar — minutos a poucos dias, não instantâneo).
 
-**Peça 3 — Envio + espera de resposta (decisão 2026-08-19: espera
-resposta e atualiza status, não só dispara e esquece).** Duas formas de
-capturar a resposta do cliente:
-- **(a) Contextual via LLM** — resposta chega como mensagem normal de
-  conversa; SOUL instrui o bot a reconhecer que é resposta a uma
-  confirmação pendente e chamar uma tool nova (`confirmar_agendamento`)
-  pra atualizar o status. Mais rápido de construir, menos confiável
-  (depende do LLM interpretar "sim", "pode ser", "beleza" etc.
-  corretamente).
-- **(b) Botões de resposta rápida no template (Recomendado)** — clique
-  do cliente gera um payload estruturado (`button_reply.id`) no
-  webhook, elimina ambiguidade de interpretação. Exige tratamento
-  próprio no patch do webhook (`whatsapp_cloud_patched.py`, mesmo
-  overlay já usado pro handoff, ver Fase 5) pra capturar esse evento
-  específico — mais robusto, mais trabalho de engenharia.
+**Peça 3 — Envio + espera de resposta** (decisão: espera resposta e
+atualiza status, não só dispara e esquece) — **botões de resposta
+rápida no template**, não interpretação de texto livre pelo LLM: clique
+do cliente gera payload estruturado (`button_reply.id`) no webhook,
+elimina ambiguidade. Exige tratamento próprio no patch do webhook
+(`whatsapp_cloud_patched.py`, mesmo overlay já usado pro handoff, ver
+Fase 5) pra capturar esse evento e atualizar `agendamentos.status`
+direto no Mongo — sem precisar de credencial Google nesse ponto, já
+que o Mongo é local.
 
-**Peça 4 — Status visível em `/agenda`.** Chip do evento mostra estado
-(Aguardando confirmação / Confirmado / Recusado, cores tipo usage-bar).
-Se for pela rota (b), o webhook do WhatsApp roda dentro do
-Hermes/gateway sem credenciais Google — precisa de mais um hop
-(chamar de volta pro calendar-mcp ou onboarding-service via HTTP
-interno) pra atualizar `extendedProperties` no evento a partir de lá.
-Esse hop ainda não tem desenho detalhado — é o ponto mais em aberto
-do plano inteiro.
+**Peça 4 — `/agenda` lê do Mongo, não mais da Graph API a cada
+carregamento.** `listar_eventos` (ou uma rota nova equivalente) passa a
+consultar `agendamentos` filtrado por semana, com fallback pro registro
+já ter `status` nativo pro chip colorido (Aguardando confirmação /
+Confirmado / Recusado) — sem round-trip pro Google só pra desenhar a
+grade semanal.
 
 **Nada implementado ainda** — só o desenho, pra quando decidirem
 priorizar.
