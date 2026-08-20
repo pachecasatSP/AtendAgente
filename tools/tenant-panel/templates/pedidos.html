@@ -69,6 +69,8 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 .pedido-status.comprovante_recebido { background: #ffe6cc; color: #a15a00; }
 .pedido-status.pago { background: var(--leaf-pale); color: var(--leaf-deep); }
 .pedido-status.cancelado { background: var(--danger-bg); color: var(--danger); }
+.pedido-status.entregue { background: var(--leaf-pale); color: var(--leaf-deep); }
+.pedido-btn.rastreio { border-color: var(--leaf); color: var(--leaf-deep); }
 .pedido-acoes { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .pedido-btn {
   font-family: var(--font-body); font-weight: 800; font-size: 0.76rem; cursor: pointer;
@@ -121,6 +123,13 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       cancelado: 'Cancelado',
     };
 
+    const RASTREIO_SEQUENCIA = ['em_preparacao', 'enviado', 'entregue'];
+    const RASTREIO_LABEL = {
+      em_preparacao: 'Em preparação',
+      enviado: 'Enviado',
+      entregue: 'Entregue',
+    };
+
     let offset = 0;
     let carregando = false;
     let acabou = false;
@@ -156,7 +165,16 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       }
       if (p.status === 'pago' && p.chat_id) {
         acoes.push('<button type="button" class="pedido-btn" data-acao-especial="reenviar-rastreio">Reenviar aviso de rastreio</button>');
-        acoes.push('<button type="button" class="pedido-btn" data-acao-copiar="1">Copiar texto de rastreio</button>');
+      }
+      if (p.status === 'pago') {
+        const rastreioAtual = p.rastreio_status || RASTREIO_SEQUENCIA[0];
+        const indiceAtual = RASTREIO_SEQUENCIA.indexOf(rastreioAtual);
+        const proximo = RASTREIO_SEQUENCIA[indiceAtual + 1];
+        if (proximo) {
+          acoes.push(`<button type="button" class="pedido-btn rastreio" data-acao-especial="avancar-rastreio">${RASTREIO_LABEL[rastreioAtual]} → ${RASTREIO_LABEL[proximo]}</button>`);
+        } else {
+          acoes.push(`<span class="pedido-status entregue">${RASTREIO_LABEL[rastreioAtual]}</span>`);
+        }
       }
 
       const nomesItens = escapeHtml((p.itens || []).map((i) => i.item_nome).join(', '));
@@ -176,27 +194,14 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       row.querySelectorAll('.pedido-btn[data-acao]').forEach((btn) => {
         btn.addEventListener('click', () => executarAcao(p.id, btn.dataset.acao, btn, row));
       });
-      row.querySelectorAll('.pedido-btn[data-acao-especial]').forEach((btn) => {
+      row.querySelectorAll('.pedido-btn[data-acao-especial="reenviar-rastreio"]').forEach((btn) => {
         btn.addEventListener('click', () => reenviarRastreio(p.id, btn));
       });
-      row.querySelectorAll('.pedido-btn[data-acao-copiar]').forEach((btn) => {
-        btn.addEventListener('click', () => copiarTextoRastreio(p, btn));
+      row.querySelectorAll('.pedido-btn[data-acao-especial="avancar-rastreio"]').forEach((btn) => {
+        btn.addEventListener('click', () => avancarRastreio(p.id, btn));
       });
 
       return row;
-    }
-
-    async function copiarTextoRastreio(p, btn) {
-      const texto = `Qual o status do meu pedido #${p.numero_exibicao}?`;
-      const textoOriginal = btn.textContent;
-      try {
-        await navigator.clipboard.writeText(texto);
-        btn.textContent = 'Copiado ✓';
-      } catch (err) {
-        window.prompt('Copie o texto abaixo:', texto);
-      } finally {
-        setTimeout(() => { btn.textContent = textoOriginal; }, 2500);
-      }
     }
 
     async function reenviarRastreio(id, btn) {
@@ -212,6 +217,21 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       } catch (err) {
         alert(err.message);
         btn.textContent = textoOriginal;
+        btn.disabled = false;
+      }
+    }
+
+    async function avancarRastreio(id, btn) {
+      btn.disabled = true;
+      try {
+        const resp = await fetch(`/painel/api/pedidos/${id}/avancar-rastreio`, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.detail || 'Não consegui avançar o rastreio.');
+        // Recarrega pra trocar o texto do botão pro próximo estado (ou
+        // sumir e virar o badge "Entregue" quando chegar no fim).
+        recarregar();
+      } catch (err) {
+        alert(err.message);
         btn.disabled = false;
       }
     }

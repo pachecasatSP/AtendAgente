@@ -63,7 +63,15 @@
     }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: var(--font-body); color: var(--ink); background: var(--paper); overflow-x: hidden; }
-    .layout { display: flex; height: 100vh; }
+    .layout {
+      display: flex; height: 100vh; height: 100dvh;
+      /* 100vh no mobile é a altura "cheia" do viewport, sem descontar a
+         barra de endereço/teclado virtual — layout fica mais alto que
+         a área visível de verdade, e a barra de mensagem (.compose)
+         fica empurrada pra fora da tela quando o teclado abre. 100dvh
+         (dynamic viewport height) acompanha isso; navegador sem
+         suporte ignora a linha e fica só com 100vh mesmo. */
+    }
     .sidebar { width: 320px; flex-shrink: 0; border-right: 1px solid var(--line); overflow-y: auto; background: var(--sidebar-bg); display: flex; flex-direction: column; }
     .sidebar-header {
       padding: 0.9rem 1rem;
@@ -98,8 +106,12 @@
     .badge { background: var(--leaf); color: #fff; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.75rem; font-weight: 800; min-width: 1.4rem; text-align: center; flex-shrink: 0; }
     .empty { padding: 1rem; color: var(--ink-faint); font-size: 0.9rem; }
     .main {
-      flex: 1; display: flex; flex-direction: column; background-color: var(--thread-bg);
+      flex: 1; min-width: 0; display: flex; flex-direction: column; background-color: var(--thread-bg);
       background-image: var(--thread-watermark); background-repeat: repeat; background-size: 220px 220px;
+      /* min-width:0 é obrigatório aqui — um filho flex sem isso nunca
+         encolhe além da largura intrínseca do próprio conteúdo (bolha
+         de mensagem, texto sem quebra etc.), estourando a tela no
+         mobile mesmo com max-width definido nos elementos internos. */
     }
     .main-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--ink-faint); font-weight: 700; }
     .thread-header {

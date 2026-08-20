@@ -1125,6 +1125,7 @@ def api_pedidos_listar(request: Request, offset: int = 0) -> dict:
             "contato_nome": _nome_contato(primeiro.get("chat_id")),
             "criado_em": _iso_utc(primeiro.get("criado_em")),
             "tem_comprovante": bool(primeiro.get("comprovante_key")),
+            "rastreio_status": primeiro.get("rastreio_status"),
         })
 
     return {"pedidos": resultado, "tem_mais": max(offset, 0) + PEDIDOS_PAGINA_TAMANHO < len(grupos)}
@@ -1155,27 +1156,47 @@ def _texto_rastreamento_manual(lote: list) -> str:
     return (
         f"Pagamento do pedido #{numero_exibicao} confirmado! ✅\n\n"
         "O acompanhamento a partir daqui é direto com a gente — se quiser saber como está, "
-        f"é só mandar \"qual o status do meu pedido #{numero_exibicao}?\" que a gente verifica."
+        "é só tocar no botão abaixo."
     )
 
 
 def _avisar_rastreamento_manual(lote: list) -> bool:
     """Fase 12 — ao marcar pago (ou quando o tenant clica em "reenviar"
     em /pedidos), avisa o cliente que o acompanhamento a partir dali é
-    manual e ensina a frase-gatilho pra pedir status (ver pedido_status
-    em mongo_sync/sync_conversations.py). `lote` é a lista de pedidos
-    marcados juntos (1 item, ou o carrinho inteiro). Best-effort no
-    fluxo automático (nunca bloqueia o "marcar como pago"); o botão
-    manual usa o retorno pra avisar se falhou."""
+    manual, com um botão nativo "Rastrear pedido" — toca em vez de
+    digitar a frase-gatilho. O id do botão (`pedido_status:<numero>`)
+    é reconhecido por _dispatch_pedido_status_button em
+    whatsapp_cloud_patched.py, que delega pro mesmo /pedido-status que
+    o gatilho por texto já usava (ver pedido_status em mongo_sync/
+    sync_conversations.py) — sem estado em memória compartilhado entre
+    processos, o botão carrega tudo que precisa no próprio id.
+    `lote` é a lista de pedidos marcados juntos (1 item, ou o carrinho
+    inteiro). Best-effort no fluxo automático (nunca bloqueia o
+    "marcar como pago"); o botão manual usa o retorno pra avisar se
+    falhou."""
     if not lote:
         return False
     chat_id = lote[0].get("chat_id")
     if not chat_id or not (ACCESS_TOKEN and PHONE_NUMBER_ID):
         return False
+    numero_exibicao = _numero_exibicao(lote[0].get("numero"))
     texto = _texto_rastreamento_manual(lote)
     resultado = _graph_call_best_effort(
         f"{PHONE_NUMBER_ID}/messages",
-        {"messaging_product": "whatsapp", "to": chat_id, "type": "text", "text": {"body": texto}},
+        {
+            "messaging_product": "whatsapp",
+            "to": chat_id,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": texto},
+                "action": {
+                    "buttons": [
+                        {"type": "reply", "reply": {"id": f"pedido_status:{numero_exibicao}", "title": "Rastrear pedido"}},
+                    ],
+                },
+            },
+        },
     )
     return bool(resultado.get("messages"))
 
@@ -1205,10 +1226,71 @@ def api_pedido_marcar_pago(request: Request, pedido_id: str) -> dict:
     lote = _lote_do_pedido(pedido)
     pedidos_col.update_many(
         {"_id": {"$in": [p["_id"] for p in lote]}},
-        {"$set": {"status": "pago", "pago_em": datetime.now(timezone.utc)}},
+        {"$set": {"status": "pago", "pago_em": datetime.now(timezone.utc), "rastreio_status": RASTREIO_ESTADOS[0]}},
     )
     _avisar_rastreamento_manual(lote)
     return {"ok": True}
+
+
+RASTREIO_ESTADOS = ["em_preparacao", "enviado", "entregue"]
+
+# Mensagem automática só nas transições disparadas pelo botão
+# (enviado/entregue) — "em_preparacao" é setado sozinho ao marcar pago,
+# junto da mensagem de confirmação de pagamento (_avisar_rastreamento_
+# manual); mandar outra logo em seguida seria redundante/spam.
+RASTREIO_MENSAGENS = {
+    "enviado": "Seu pedido #{numero} foi enviado! 🚚",
+    "entregue": "Seu pedido #{numero} foi entregue! Obrigado pela preferência 🎉",
+}
+
+
+def _avisar_mudanca_rastreio(lote: list, novo_estado: str) -> None:
+    """Best-effort — mesmo espírito de _avisar_rastreamento_manual, mas
+    pro botão de avançar rastreio (Fase 12). Nunca bloqueia a mudança
+    de estado se o envio falhar."""
+    modelo = RASTREIO_MENSAGENS.get(novo_estado)
+    chat_id = lote[0].get("chat_id") if lote else None
+    if not modelo or not chat_id or not (ACCESS_TOKEN and PHONE_NUMBER_ID):
+        return
+    texto = modelo.format(numero=_numero_exibicao(lote[0].get("numero")))
+    _graph_call_best_effort(
+        f"{PHONE_NUMBER_ID}/messages",
+        {"messaging_product": "whatsapp", "to": chat_id, "type": "text", "text": {"body": texto}},
+    )
+
+
+@app.post("/painel/api/pedidos/{pedido_id}/avancar-rastreio")
+def api_pedido_avancar_rastreio(request: Request, pedido_id: str) -> dict:
+    """Botão em /pedidos que avança o estado de rastreio (separado do
+    status de pagamento): em_preparacao -> enviado -> entregue -> (fica
+    em entregue, não volta a girar). Só faz sentido depois de pago —
+    não existe rastreio de um pedido que ainda não foi confirmado.
+    Cada avanço avisa o cliente automaticamente."""
+    require_session(request)
+    try:
+        oid = ObjectId(pedido_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Id inválido")
+    pedido = pedidos_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    if pedido.get("status") != "pago":
+        raise HTTPException(status_code=400, detail="Só dá pra rastrear um pedido já pago")
+    atual = pedido.get("rastreio_status") or RASTREIO_ESTADOS[0]
+    try:
+        proximo_indice = RASTREIO_ESTADOS.index(atual) + 1
+    except ValueError:
+        proximo_indice = 0
+    if proximo_indice >= len(RASTREIO_ESTADOS):
+        return {"ok": True, "rastreio_status": atual}  # já em "entregue", não gira mais
+    novo_estado = RASTREIO_ESTADOS[proximo_indice]
+    lote = _lote_do_pedido(pedido)
+    pedidos_col.update_many(
+        {"_id": {"$in": [p["_id"] for p in lote]}},
+        {"$set": {"rastreio_status": novo_estado}},
+    )
+    _avisar_mudanca_rastreio(lote, novo_estado)
+    return {"ok": True, "rastreio_status": novo_estado}
 
 
 @app.post("/painel/api/pedidos/{pedido_id}/reenviar-rastreio")
