@@ -51,8 +51,19 @@ h1 {
 .item-nome { font-weight: 800; font-size: 0.96rem; margin: 0 0 0.25rem; }
 .item-preco { font-family: var(--font-display); font-weight: 800; color: var(--leaf-deep); font-size: 1.05rem; margin: 0 0 0.4rem; }
 .item-quando { font-size: 0.82rem; font-weight: 700; color: var(--ink-faint); margin: 0 0 0.4rem; }
-.item-descricao { font-size: 0.85rem; color: var(--ink-soft); margin: 0; }
+.item-descricao { font-size: 0.85rem; color: var(--ink-soft); margin: 0 0 0.6rem; }
 .vazio { color: var(--ink-faint); text-align: center; padding: 3rem 1rem; }
+.tipo-secao { margin-bottom: 2.6rem; }
+.tipo-secao > h2 { font-family: var(--font-display); font-weight: 800; font-size: 1.3rem; color: var(--ink); margin: 0 0 1rem; padding-bottom: 0.4rem; border-bottom: 2px solid var(--leaf); }
+.item-pedir-btn {
+  display: block; width: 100%; margin-top: 0.2rem; padding: 0.55rem 0.8rem;
+  border: none; border-radius: 10px; background: var(--leaf); color: #fff;
+  font-family: var(--font-body); font-weight: 800; font-size: 0.85rem; cursor: pointer;
+}
+.item-pedir-btn:hover { background: var(--leaf-deep); }
+.item-pedir-btn:disabled { opacity: 0.6; cursor: default; }
+.item[hidden] { display: none; }
+.carregar-sentinela { height: 1px; }
 </style>
 </head>
 <body>
@@ -73,35 +84,93 @@ h1 {
   </div>
 
   <div class="wrap">
-    {% if not categorias %}
+    {% if not secoes %}
       <p class="vazio">Ainda não há itens cadastrados.</p>
     {% endif %}
-    {% for categoria, itens in categorias.items() %}
-      <div class="categoria">
-        <h2>{{ categoria }}</h2>
-        <div class="grid">
-          {% for item in itens %}
-            <div class="item">
-              {% if item.foto_url %}
-                <img class="item-foto" src="{{ item.foto_url }}" alt="{{ item.nome }}" loading="lazy">
-              {% else %}
-                <div class="item-foto placeholder">📦</div>
-              {% endif %}
-              <div class="item-body">
-                <p class="item-nome">{{ item.nome }}</p>
-                <p class="item-preco">R$ {{ "%.2f"|format(item.preco or 0) }}</p>
-                {% if item.tipo == "evento" and item.data_evento %}
-                  <p class="item-quando">📅 {{ item.data_evento | data_br }}</p>
-                {% elif item.tipo == "servico" and item.horario_atendimento %}
-                  <p class="item-quando">🕒 {{ item.horario_atendimento }}</p>
-                {% endif %}
-                {% if item.descricao %}<p class="item-descricao">{{ item.descricao }}</p>{% endif %}
-              </div>
+    {% for secao in secoes %}
+      <div class="tipo-secao">
+        <h2>{{ secao.label }}</h2>
+        {% for categoria, itens in secao.categorias.items() %}
+          <div class="categoria">
+            <h2>{{ categoria }}</h2>
+            <div class="grid">
+              {% for item in itens %}
+                <div class="item" data-item="1">
+                  {% if item.foto_url %}
+                    <img class="item-foto" src="{{ item.foto_url }}" alt="{{ item.nome }}" loading="lazy">
+                  {% else %}
+                    <div class="item-foto placeholder">📦</div>
+                  {% endif %}
+                  <div class="item-body">
+                    <p class="item-nome">{{ item.nome }}</p>
+                    <p class="item-preco">R$ {{ "%.2f"|format(item.preco or 0) }}</p>
+                    {% if item.tipo == "evento" and item.data_evento %}
+                      <p class="item-quando">📅 {{ item.data_evento | data_br }}</p>
+                    {% elif item.tipo == "servico" and item.horario_atendimento %}
+                      <p class="item-quando">🕒 {{ item.horario_atendimento }}</p>
+                    {% endif %}
+                    {% if item.descricao %}<p class="item-descricao">{{ item.descricao }}</p>{% endif %}
+                    {% if secao.tipo in tipos_compraveis %}
+                      <button type="button" class="item-pedir-btn" data-item-id="{{ item.id }}">Pedir</button>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
             </div>
-          {% endfor %}
-        </div>
+          </div>
+        {% endfor %}
       </div>
     {% endfor %}
+    <div id="carregar-sentinela" class="carregar-sentinela"></div>
   </div>
+
+  <script>
+    // Scroll infinito (Fase 12) — todos os itens já vêm renderizados no
+    // HTML (catálogo de negócio pequeno não justifica paginação no
+    // backend ainda), só revela em lotes conforme o usuário rola,
+    // pra não jogar a página inteira de uma vez.
+    (function () {
+      const LOTE = 12;
+      const todos = Array.from(document.querySelectorAll('.item[data-item]'));
+      todos.forEach((el, i) => { if (i >= LOTE) el.hidden = true; });
+      let revelados = Math.min(LOTE, todos.length);
+
+      const sentinela = document.getElementById('carregar-sentinela');
+      if (!sentinela || revelados >= todos.length) return;
+
+      const observer = new IntersectionObserver((entries) => {
+        if (!entries[0].isIntersecting) return;
+        const proximoLote = todos.slice(revelados, revelados + LOTE);
+        proximoLote.forEach((el) => { el.hidden = false; });
+        revelados += proximoLote.length;
+        if (revelados >= todos.length) observer.disconnect();
+      });
+      observer.observe(sentinela);
+    })();
+
+    // Botão "Pedir" (Fase 12) — cria o pedido e abre o WhatsApp com o
+    // texto que o webhook vai reconhecer pra fechar o pedido.
+    document.querySelectorAll('.item-pedir-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const textoOriginal = btn.textContent;
+        btn.textContent = 'Preparando…';
+        try {
+          const resp = await fetch('/vitrine/api/pedido', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: btn.dataset.itemId }),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(data.detail || 'Não consegui criar o pedido.');
+          window.location.href = data.wa_link;
+        } catch (err) {
+          alert(err.message);
+          btn.disabled = false;
+          btn.textContent = textoOriginal;
+        }
+      });
+    });
+  </script>
 </body>
 </html>

@@ -78,6 +78,8 @@ messages_col = db["messages"]
 signups_col = db["signups"]
 catalogo_col = db["catalogo_itens"]
 agendamentos_col = db["agendamentos"]
+pedidos_col = db["pedidos"]
+contadores_col = db["contadores"]
 
 app = FastAPI(title=f"Painel — {TENANT_ID}")
 app.add_middleware(SessionMiddleware, secret_key=PANEL_SESSION_SECRET, session_cookie="painel_session")
@@ -872,24 +874,124 @@ async def api_fotos_bulk(request: Request, file: UploadFile = File(...)) -> dict
     return resultado
 
 
+TIPO_LABEL = {"produto": "Produtos", "evento": "Eventos", "servico": "Serviços"}
+TIPO_ORDEM = ["produto", "evento", "servico"]
+
+# Tipos que entram no fluxo de pedido+Pix (Fase 12) — serviço fica de
+# fora, continua exclusivo do caminho de agendamento (Fase 11).
+TIPOS_COMPRAVEIS = {"produto", "evento"}
+
+
 @app.get("/vitrine", response_class=HTMLResponse)
 def vitrine(request: Request):
     """Pública, sem require_session — link que o bot pode mandar pro
-    cliente final ver o catálogo inteiro (ver SOUL.md, catalog_block)."""
+    cliente final ver o catálogo inteiro (ver SOUL.md, catalog_block).
+
+    Segmentada por tipo (produto/evento/serviço, Fase 12) antes de
+    categoria — cada tipo sua própria seção, mesma ordem de
+    TIPO_ORDEM."""
     if not TENANT_ENABLED:
         return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
 
     itens = list(catalogo_col.find({"tenant_id": TENANT_ID, "ativo": True}).sort("categoria", 1))
-    categorias: dict[str, list[dict]] = {}
+    secoes: dict[str, dict[str, list[dict]]] = {}
     for item in itens:
-        categorias.setdefault(item.get("categoria") or "Outros", []).append(item)
+        tipo = item.get("tipo") or "produto"
+        categoria = item.get("categoria") or "Outros"
+        secoes.setdefault(tipo, {}).setdefault(categoria, []).append(item)
+    secoes_ordenadas = [
+        {"tipo": tipo, "label": TIPO_LABEL.get(tipo, tipo), "categorias": secoes[tipo]}
+        for tipo in TIPO_ORDEM if tipo in secoes
+    ]
 
     signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
     nome_negocio = ((signup or {}).get("config") or {}).get("nome_negocio", TENANT_ID)
     return templates.TemplateResponse(
         request, "vitrine.html",
-        {"tenant_id": TENANT_ID, "nome_negocio": nome_negocio, "categorias": categorias},
+        {"tenant_id": TENANT_ID, "nome_negocio": nome_negocio, "secoes": secoes_ordenadas,
+         "tipos_compraveis": list(TIPOS_COMPRAVEIS)},
     )
+
+
+def _proximo_numero_pedido() -> int:
+    """Contador sequencial por tenant (coleção `contadores`, `$inc`
+    atômico) — número de pedido curto (#1, #2...) pra mencionar numa
+    conversa, em vez do ObjectId de 24 caracteres do Mongo."""
+    doc = contadores_col.find_one_and_update(
+        {"_id": f"{TENANT_ID}:pedido"},
+        {"$inc": {"valor": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    return doc["valor"]
+
+
+_numero_whatsapp_cache: str | None = None
+
+
+def _numero_whatsapp_tenant() -> str | None:
+    """Número de exibição do WhatsApp do tenant, pro link `wa.me/...` da
+    vitrine — a Graph API só devolve o `phone_number_id` interno no
+    Secret, o número formatado (com DDI/DDD) precisa de uma chamada à
+    parte. Cacheado em memória (não muda com frequência; pod reinicia
+    em troca de número — Fase 10 — o que já limpa o cache)."""
+    global _numero_whatsapp_cache
+    if _numero_whatsapp_cache is not None:
+        return _numero_whatsapp_cache
+    if not (ACCESS_TOKEN and PHONE_NUMBER_ID):
+        return None
+    try:
+        body = _graph_get(PHONE_NUMBER_ID, {"fields": "display_phone_number"})
+    except HTTPException:
+        return None
+    numero = (body.get("display_phone_number") or "").replace(" ", "").replace("-", "").replace("(", "").replace(")", "").lstrip("+")
+    if numero:
+        _numero_whatsapp_cache = numero
+    return numero or None
+
+
+@app.post("/vitrine/api/pedido")
+def api_vitrine_criar_pedido(payload: dict) -> dict:
+    """Pública, sem require_session — clique em "Pedir" na vitrine.
+    Cria o pedido com o preço travado no momento (nunca atualiza se o
+    catálogo mudar depois) e devolve o link `wa.me` com o texto
+    pré-preenchido que o webhook (whatsapp_cloud_patched.py) vai casar
+    por regex pra fechar o pedido — ver Fase 12 na spec."""
+    if not TENANT_ENABLED:
+        raise HTTPException(status_code=404, detail="Não disponível")
+    item_id = str(payload.get("item_id") or "")
+    try:
+        oid = ObjectId(item_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Item inválido")
+    item = catalogo_col.find_one({"_id": oid, "tenant_id": TENANT_ID, "ativo": True})
+    if not item:
+        raise HTTPException(status_code=404, detail="Item não encontrado")
+    tipo = item.get("tipo") or "produto"
+    if tipo not in TIPOS_COMPRAVEIS:
+        raise HTTPException(status_code=400, detail="Esse item não está disponível pra pedido direto")
+
+    numero_whatsapp = _numero_whatsapp_tenant()
+    if not numero_whatsapp:
+        raise HTTPException(status_code=503, detail="WhatsApp não configurado neste momento")
+
+    numero_pedido = _proximo_numero_pedido()
+    valor = float(item.get("preco") or 0)
+    pedidos_col.insert_one({
+        "tenant_id": TENANT_ID,
+        "numero": numero_pedido,
+        "item_id": str(item["_id"]),
+        "item_nome": item.get("nome", ""),
+        "valor": valor,
+        "status": "aberto",
+        "chat_id": None,
+        "criado_em": datetime.now(timezone.utc),
+    })
+
+    valor_fmt = f"R$ {valor:.2f}".replace(".", ",")
+    texto = f"Quero fechar o pedido #{numero_pedido} ({item.get('nome', '')} - {valor_fmt})"
+    wa_link = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(texto)}"
+    return {"numero": numero_pedido, "wa_link": wa_link}
 
 
 def _calendar_mcp_post(path: str, payload: dict) -> dict:
