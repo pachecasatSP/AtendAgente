@@ -983,30 +983,62 @@ reabrir sem motivo):**
   é falsificável (print editado) — não deveria fechar o pedido sozinho
   de qualquer forma. Confirmação fica manual.
 
+**Tipos de item cobertos — produto e evento, não serviço.** Serviço
+continua exclusivamente pelo caminho de agendamento (`/agenda`, Fase
+11) — não ganha botão de compra. Produto e evento (compra de ingresso/
+vaga, por exemplo) passam a ter o fluxo de pedido+Pix desta fase.
+
+**Vitrine segmentada por tipo.** `vitrine.html` hoje agrupa só por
+`categoria`; passa a agrupar primeiro por **tipo** (produtos juntos,
+eventos juntos, serviços juntos — cada um sua própria seção), e dentro
+de cada seção continua por categoria como já é hoje.
+
+**Quantidade — só 1 unidade pelo fluxo automatizado.** Sem controle de
+estoque (decisão explícita, não rastreamos quantidade disponível). Se
+o cliente quiser mais de 1 unidade, não passa pelo pedido/Pix
+automatizado — cai no mesmo tratamento manual que cartão de crédito já
+tem (bot direciona pro combinado direto com o lojista).
+
 **Desenho:**
 
-1. **Vitrine ganha um botão "Pedir" por item** (1 item por pedido pra
-   começar, sem carrinho multi-item — cobre a maioria dos casos de
-   negócio pequeno, evita ter que construir carrinho com localStorage).
-   Clicar grava um `pedido` novo (coleção Mongo `pedidos`: tenant_id,
-   item, quantidade, valor_total, status, chat_id [nulo até o cliente
-   confirmar pela conversa], criado_em) e abre o WhatsApp
-   (`wa.me/...?text=...`) com uma mensagem pré-preenchida referenciando
-   o id do pedido.
+1. **Vitrine ganha um botão "Pedir" por item** (produto/evento, 1
+   unidade por pedido — ver acima). Clicar grava um `pedido` novo
+   (coleção Mongo `pedidos`: tenant_id, item, valor_total [**snapshot
+   do preço no momento do pedido — nunca atualiza se o catálogo mudar
+   depois**], status, chat_id [nulo até o cliente confirmar pela
+   conversa], criado_em) e abre o WhatsApp (`wa.me/...?text=...`) com
+   uma mensagem pré-preenchida contendo o número do pedido **e também
+   a lista do item + valor** (redundância proposital — mesmo que a
+   busca do pedido falhe por algum motivo, o vendedor já vê o que foi
+   pedido só de ler a mensagem).
 
-2. **Pix copia e cola gerado na hora** — payload EMV (BR Code) montado
+2. **Conexão pedido↔conversa via injeção de contexto, nunca solta.**
+   Mesmo padrão da Fase 11 Peça 1 (`pre_llm_call`, plugin
+   `agendamento_contexto`), mas os três identificadores — **chat_id +
+   número do pedido + id do tenant** — são sempre injetados **juntos,
+   como uma unidade**, nunca um deles isolado pro modelo inferir
+   sozinho. O número do pedido não pode depender do LLM "lembrar" ao
+   longo da conversa (mesmo risco já resolvido pro chat_id) — precisa
+   ser extraído de forma determinística da primeira mensagem (que já
+   carrega o número, ver item 1) e mantido injetado a cada turno
+   enquanto o pedido seguir em aberto, não só uma vez.
+
+3. **Pix copia e cola gerado na hora** — payload EMV (BR Code) montado
    a partir da chave Pix do tenant (`config.pagamento_pix_chave`, já
-   existe) + valor do pedido, sem gateway nenhum (formato público,
-   implementável só com string formatting + CRC16, sem chamada de
-   rede). Mandado como texto na conversa quando o bot processa o pedido
-   referenciado, com a instrução de uso.
+   existe) + valor do pedido (o valor travado no passo 1), sem gateway
+   nenhum (formato público, implementável só com string formatting +
+   CRC16, sem chamada de rede). Mandado como texto na conversa quando o
+   bot processa o pedido referenciado, com a instrução de uso.
 
-3. **Confirmação manual via comprovante:**
-   - Cliente manda foto/PDF do comprovante na própria conversa.
+4. **Confirmação manual via comprovante:**
+   - Cliente manda foto/PDF do comprovante na própria conversa. **O
+     bot pede o número do pedido antes de aceitar o comprovante como
+     válido** — resolve o caso de múltiplos pedidos em aberto pro
+     mesmo chat_id sem precisar de heurística tipo "o mais recente".
    - Novo ponto de interceptação no webhook patchado
      (`whatsapp_cloud_patched.py`, mesmo padrão da Fase 11 Peça 3) —
      detecta mensagem de imagem/documento numa conversa com pedido em
-     `status: "aguardando_pagamento"` pra aquele chat_id.
+     `status: "aguardando_pagamento"` pra aquele chat_id+número.
      **Sem pedido correspondente, a imagem é ignorada — segue o fluxo
      normal da conversa, sem tratamento especial.**
    - Baixa a mídia via Graph API (mesmo padrão do upload de foto de
@@ -1021,13 +1053,15 @@ reabrir sem motivo):**
      existente (`needs_operator`/`handoff`, Fase 5) — sem inventar
      notificação nova.
 
-4. **`/pedidos`** — rota nova no tenant-panel, mesmo padrão de
+5. **`/pedidos`** — rota nova no tenant-panel, mesmo padrão de
    `/agenda` (rota própria, ícone no menu). Lista pedidos por status
    (aberto / aguardando pagamento / comprovante recebido / pago /
-   cancelado), link autenticado pra abrir o comprovante, botão manual
-   "marcar como pago" (mesma UX do botão "Confirmar" da agenda).
+   cancelado), com **scroll infinito** (não paginação numerada — mesma
+   escolha de UX simples que o resto do painel já usa), link
+   autenticado pra abrir o comprovante, botão manual "marcar como
+   pago" (mesma UX do botão "Confirmar" da agenda).
 
-5. **LGPD — retenção com prazo, mesmo padrão da lixeira (Fase 9):**
+6. **LGPD — retenção com prazo, mesmo padrão da lixeira (Fase 9):**
    - **Comprovante**: apagado do object storage **30 dias** depois de
      recebido — dado financeiro/pessoal, minimização de finalidade
      (art. 6º) e direito à eliminação (art. 15/16) depois que a
@@ -1040,6 +1074,14 @@ reabrir sem motivo):**
      acumulando. Mesmo esqueleto do `lixeira_watch.py`: um cronjob de
      varredura, não implementado nesta fase (só o campo `status` +
      `criado_em` já ficam prontos pra isso desde o início).
+
+**Previsto, mas não implementado agora: lembrete de carrinho
+abandonado.** Mesmo espírito do CronJob `agenda-lembrete` (Fase 11) —
+cutucar o cliente que criou um pedido e nunca mandou a mensagem no
+WhatsApp, antes dos 30 dias de cancelamento automático. Decisão
+explícita: **não implementar nesta rodada**, mas deixar o campo
+`status`/`criado_em` do pedido já pronto pra suportar isso sem
+migração de schema quando for priorizado.
 
 **Nada implementado ainda** — só o desenho, discutido e fechado nesta
 sessão (2026-08-20), pra quando decidirem priorizar.
