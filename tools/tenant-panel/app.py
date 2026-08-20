@@ -403,6 +403,8 @@ def configuracoes_page(request: Request):
             "catalogo_applied_at_fmt": fmt_ts((signup or {}).get("catalogo_applied_at").timestamp()) if (signup or {}).get("catalogo_applied_at") else None,
             "catalogo_apply_minutes": SOUL_APPLY_MINUTES,
             "fotos_configuradas": storage.configured(),
+            "foto_limite": _foto_limite(signup),
+            "foto_count": _fotos_count(),
             "agenda_disponivel": bool(CALENDAR_MCP_TOKEN),
             "google_calendar_email": config.get("google_calendar_email", ""),
             "agendamento_duracao_minutos": config.get("agendamento_duracao_minutos", 30),
@@ -567,6 +569,36 @@ def _mark_catalogo_pending() -> None:
 
 TIPOS_CATALOGO = {"produto", "servico", "evento"}
 
+# Limite de fotos de catálogo por plano (Fase 10, 2026-08-19) — estratégia
+# comercial pro custo do storage/vitrine, não uma trava técnica de
+# verdade (o custo real de storage por foto é irrisório, ~R$0,0001/mês
+# mesmo no limite de 3MB — isso é diferencial de plano, não repasse de
+# custo). Duplicado do conceito de LIMITES em usage_watch.py — mesma
+# decisão de não fazer import cross-serviço por um dict pequeno. Plano
+# ausente daqui (ex: "sem_limite" nem existe em PLANOS) = sem trava.
+FOTO_LIMITES = {
+    "entrada": 50,
+    "comecando": 150,
+    "crescendo": 500,
+    "gratuito": 50,  # cadastro por convite, mesmo limite do Entrada
+}
+
+
+def _foto_limite(signup: dict) -> int | None:
+    """None = sem limite (plano não travado, ex: Sem Limite). Soma um
+    extra manual (`foto_limite_extra`) que a Duda pode conceder via
+    admin-mcp depois de combinar cobrança avulsa com o cliente — nunca
+    decidido sozinho pelo sistema."""
+    base = FOTO_LIMITES.get((signup or {}).get("plano"))
+    if base is None:
+        return None
+    extra = int((signup or {}).get("foto_limite_extra") or 0)
+    return base + extra
+
+
+def _fotos_count() -> int:
+    return catalogo_col.count_documents({"tenant_id": TENANT_ID, "foto_url": {"$ne": None}})
+
 
 def _catalogo_tipo_fields(tipo: str, payload: dict) -> dict:
     """Cada tipo só guarda o campo extra que faz sentido pra ele —
@@ -694,6 +726,15 @@ async def api_upload_foto_produto(item_id: str, request: Request, file: UploadFi
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Arquivo vazio")
 
+    if not item.get("foto_url"):
+        signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+        limite = _foto_limite(signup)
+        if limite is not None and _fotos_count() >= limite:
+            raise HTTPException(
+                status_code=402,
+                detail=f"Seu plano inclui até {limite} fotos no catálogo — fala com a gente pra aumentar.",
+            )
+
     storage.delete_photo(item.get("foto_url"))
     foto_url = storage.upload_photo(TENANT_ID, item["slug"], file_bytes, content_type)
     catalogo_col.update_one({"_id": item["_id"]}, {"$set": {"foto_url": foto_url, "atualizado_em": datetime.now(timezone.utc)}})
@@ -790,8 +831,12 @@ async def api_fotos_bulk(request: Request, file: UploadFile = File(...)) -> dict
     except zipfile.BadZipFile:
         raise HTTPException(status_code=400, detail="Arquivo precisa ser um .zip")
 
+    signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
+    limite = _foto_limite(signup)
+    vagas = None if limite is None else max(0, limite - _fotos_count())
+
     itens_por_slug = {i["slug"]: i for i in catalogo_col.find({"tenant_id": TENANT_ID})}
-    vinculados, sem_correspondencia = [], []
+    vinculados, sem_correspondencia, bloqueados_por_limite = [], [], []
 
     for name in zf.namelist():
         if name.endswith("/"):
@@ -804,14 +849,24 @@ async def api_fotos_bulk(request: Request, file: UploadFile = File(...)) -> dict
         if not item:
             sem_correspondencia.append(name)
             continue
+        eh_foto_nova = not item.get("foto_url")
+        if eh_foto_nova and vagas is not None and vagas <= 0:
+            bloqueados_por_limite.append(name)
+            continue
         storage.delete_photo(item.get("foto_url"))
         foto_url = storage.upload_photo(TENANT_ID, base, zf.read(name), content_type)
         catalogo_col.update_one({"_id": item["_id"]}, {"$set": {"foto_url": foto_url, "atualizado_em": datetime.now(timezone.utc)}})
         vinculados.append({"nome": item["nome"], "slug": base})
+        if eh_foto_nova and vagas is not None:
+            vagas -= 1
 
     if vinculados:
         _mark_catalogo_pending()
-    return {"ok": True, "vinculados": vinculados, "sem_correspondencia": sem_correspondencia}
+    resultado = {"ok": True, "vinculados": vinculados, "sem_correspondencia": sem_correspondencia}
+    if bloqueados_por_limite:
+        resultado["bloqueados_por_limite"] = bloqueados_por_limite
+        resultado["aviso_limite"] = f"Seu plano inclui até {limite} fotos no catálogo — {len(bloqueados_por_limite)} não foram enviadas. Fala com a gente pra aumentar."
+    return resultado
 
 
 @app.get("/vitrine", response_class=HTMLResponse)

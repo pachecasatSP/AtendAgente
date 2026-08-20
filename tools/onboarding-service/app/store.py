@@ -334,6 +334,20 @@ def mark_whatsapp_numero_falhou(signup_id: str, erro: str) -> None:
     )
 
 
+# ── Limite de fotos do catálogo (Fase 10) ───────────────────────────────
+#
+# `FOTO_LIMITES` (por plano) vive no tenant-panel — a extensão manual
+# concedida aqui é somada em cima daquele valor (ver `_foto_limite` em
+# tools/tenant-panel/app.py). Sempre uma decisão humana (Duda, PIN via
+# admin-mcp) depois de combinar cobrança avulsa — nunca automático.
+
+def set_foto_limite_extra(tenant_id: str, extra: int) -> None:
+    _signups.update_one(
+        {"tenant_id": tenant_id, "status": "live"},
+        {"$set": {"foto_limite_extra": extra}},
+    )
+
+
 # ── Fila de alterações de Catálogo vindas do painel do cliente ─────────
 #
 # Mesmo padrão da fila de SOUL (ver acima): o painel do tenant não tem

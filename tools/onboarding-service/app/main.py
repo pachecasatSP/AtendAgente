@@ -955,6 +955,24 @@ def admin_reativar_checkout(signup_id: str, request: Request):
     return {"signup_id": signup_id, "tenant_id": signup["tenant_id"], "checkout_link": checkout["link"]}
 
 
+@app.post("/api/admin/tenants/{tenant_id}/foto-limite-extra")
+def admin_set_foto_limite_extra(tenant_id: str, payload: dict, request: Request):
+    """Concede fotos extras de catálogo além do limite do plano (Fase
+    10) — sempre depois de combinar cobrança avulsa com o cliente
+    (R$1/foto/mês, cobrada manualmente, não é automático). `extra` é o
+    total concedido, não incremental (chamar de novo com um valor menor
+    reduz)."""
+    require_admin(request)
+    try:
+        extra = int(payload.get("extra"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "extra precisa ser um número inteiro")
+    if extra < 0:
+        raise HTTPException(400, "extra não pode ser negativo")
+    store.set_foto_limite_extra(tenant_id, extra)
+    return {"ok": True, "tenant_id": tenant_id, "foto_limite_extra": extra}
+
+
 @app.post("/api/admin/tenants/{tenant_id}/password-reset")
 def admin_authorize_password_reset(tenant_id: str, payload: dict, request: Request):
     """'Esqueci minha senha' resolvido na hora pela Duda, na conversa com

@@ -4,8 +4,9 @@ MCP_AUTH_TOKEN). Expõe: criar token de gratuidade, listar tenants, medir
 recursos de um tenant, pausar/reativar um tenant, alertar sobre tenants
 perto do limite do plano, listar cadastros travados no provisionamento e
 refazer o provisionamento de um deles, autorizar cancelamentos, resetar
-a senha do painel de um tenant, e (Fase 9) consultar a lixeira de
-cancelados e restaurar um tenant dentro da janela de 10 dias.
+a senha do painel de um tenant, (Fase 9) consultar a lixeira de
+cancelados e restaurar um tenant dentro da janela de 10 dias, e (Fase
+10) conceder fotos extras de catálogo além do limite do plano.
 
 Segurança em duas camadas independentes, nenhuma delas decidida pela IA:
 1. MCP_AUTH_TOKEN — Bearer estático checado por middleware antes de
@@ -191,6 +192,24 @@ def restaurar(pin: str, signup_id: str) -> dict:
     if erro:
         return {"erro": erro}
     return _admin_request("POST", f"/api/admin/signups/{signup_id}/reativar-checkout")
+
+
+@mcp.tool()
+def fotos_extra(pin: str, tenant_id: str, quantidade: int) -> dict:
+    """Concede fotos extras de catálogo além do limite do plano do
+    tenant (limites: Entrada 25, Começando 75, Crescendo 250, Sem
+    Limite sem trava). Use só depois de combinar com o cliente a
+    cobrança avulsa (R$1,00/foto/mês) — isso aqui só libera o limite
+    técnico, não cria cobrança nenhuma sozinho, é você quem já
+    combinou e vai registrar a cobrança à parte. `quantidade` é o
+    total concedido (não soma ao que já tinha) — pra tirar o extra
+    depois, chame de novo com 0."""
+    erro = _check_pin(pin)
+    if erro:
+        return {"erro": erro}
+    return _admin_request(
+        "POST", f"/api/admin/tenants/{tenant_id}/foto-limite-extra", json={"extra": quantidade}
+    )
 
 
 @mcp.tool()

@@ -348,6 +348,8 @@ button.secondary {
 
     {% if not fotos_configuradas %}
       <p class="hint" style="margin-top:0.6rem">Upload de fotos ainda não está disponível neste servidor — dá pra cadastrar produtos sem foto normalmente.</p>
+    {% elif foto_limite is not none %}
+      <p class="hint" style="margin-top:0.6rem">{{ foto_count }} de {{ foto_limite }} fotos do seu plano em uso.</p>
     {% endif %}
 
     <div id="produto-list" class="produto-list">
@@ -944,6 +946,9 @@ button.secondary {
         let msg = `${data.vinculados.length} foto(s) vinculada(s).`;
         if (data.sem_correspondencia.length) {
           msg += ` Sem produto correspondente: ${data.sem_correspondencia.join(', ')}`;
+        }
+        if (data.aviso_limite) {
+          msg += ` ⚠️ ${data.aviso_limite}`;
         }
         resultEl.textContent = msg;
         if (data.vinculados.length) setTimeout(() => location.reload(), 1200);

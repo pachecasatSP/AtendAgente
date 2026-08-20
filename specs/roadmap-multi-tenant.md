@@ -633,7 +633,7 @@ pra quem só está reativando (login do painel já existe, nunca foi
 apagado). Cosmético, não bloqueia o fluxo — ajustar se isso confundir
 clientes na prática.
 
-### Fase 10 — Troca de número de WhatsApp em tenant já configurado — PLANEJADA (2026-08-19)
+### Fase 10 — Troca de número de WhatsApp em tenant já configurado — IMPLEMENTADA (2026-08-19)
 
 **Motivação:** tenants provisionados via Embedded Signup ficam presos ao
 número gratuito de teste da Meta (`+1 555-...`) até o cliente registrar
@@ -707,14 +707,38 @@ inteira (reconectar via Embedded Signup do zero, o que também trocaria
 `waba_id` e `access_token`) fica de fora — cobre só o caso real que
 motivou isso, adicionar um número real numa WABA já conectada.
 
-**Peças a construir (nada implementado ainda):** `meta_client.
-list_waba_phone_numbers`, `meta_client.send_test_message`;
-`/painel/api/whatsapp/numeros`, `/testar-numero`, `/confirmar-troca`,
-`/status-troca` em `tools/tenant-panel/app.py`; `_whatsapp_numero_apply_
-loop` + `store.list_whatsapp_numero_pending_signups`/`mark_whatsapp_
-numero_*` em `tools/onboarding-service`; seção nova em Configurações
-(`configuracoes.html`) pro fluxo de 3 passos (listar → testar →
-confirmar).
+**Implementado e testado ponta a ponta 2026-08-19** — troca de verdade
+aplicada no `linda-ana-calcados` (saiu do número de teste `555` pro
+número real `+55 22 99287-6835`, `131037` confirmado resolvido).
+
+**Complementos entregues na mesma janela:**
+- Página `/agenda` no painel (lista próximos eventos da Google Agenda,
+  via `listar-eventos` novo no `calendar-mcp`) e `/painel/configuracoes`
+  virou `/configuracoes` — rotas do painel agora são itens isolados
+  (`/painel`, `/configuracoes`, `/agenda`, `/vitrine`), Ingress
+  atualizado pra rotear os dois caminhos novos pro serviço do painel.
+- SOUL do agendamento simplificado: manda só o `.ics` pro cliente (não
+  mais o link do evento nem o do Meet — a gente já vê o compromisso
+  marcado em `/agenda`, e Meet nem é gerado sem Google Workspace mesmo).
+- **Encurtador de link próprio** (`link.atendpragente.com.br`, Cloudflare
+  Worker + KV, `tools/calendar-mcp/shortlink-worker.js`) pro link do
+  `.ics` — decisão explícita de não usar encurtador de terceiro (trocaria
+  domínio próprio, que já passa credibilidade, por um genérico). Ver
+  [[infra_shortlink_kv]] na memória do projeto pros IDs/tokens.
+
+**Estratégia comercial pro storage da vitrine (2026-08-19):** pesquisado
+o custo real do Hetzner Object Storage (~R$0,04/GB/mês storage,
+~R$0,006/GB banda, tarifa pós-abril/2026) — custo por foto é
+irrisório (~R$0,0001/mês mesmo no limite de 3MB por foto), não
+justifica metrificação fina. Decisão: **limite de fotos por plano**
+(Entrada 50, Começando 150, Crescendo 500, Sem Limite sem trava),
+travado no próprio upload (`FOTO_LIMITES` em `tools/tenant-panel/
+app.py`) — bloqueia foto nova além do limite com mensagem clara, não
+bloqueia troca de foto já existente. Excedente: R$1,00/foto/mês,
+cobrado manualmente pela Duda (nunca automático) via nova ferramenta
+`fotos_extra` (admin-mcp) → `foto_limite_extra` no signup. Enquadramento
+pro cliente é "diferencial de plano", não "repasse de custo" — o custo
+de infra em si não justificaria cobrança nenhuma.
 
 ---
 
