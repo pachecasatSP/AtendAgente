@@ -1066,36 +1066,51 @@ def pedidos_page(request: Request):
     return templates.TemplateResponse(request, "pedidos.html", {"tenant_id": TENANT_ID})
 
 
+PEDIDOS_LOTE_BUSCA_LIMITE = 500  # teto de docs varridos pra montar os grupos — negócio pequeno não deveria chegar perto disso
+
+
 @app.get("/painel/api/pedidos")
 def api_pedidos_listar(request: Request, offset: int = 0) -> dict:
+    """Agrupa por `lote_id` (mesmo carrinho, Fase 12 revisado) — cada
+    linha da resposta é um pedido inteiro (1 ou N itens), não um doc
+    solto. `offset`/paginação contam grupos, não docs individuais
+    (senão um carrinho de 4 itens ocuparia 4 posições da página)."""
     require_session(request)
-    itens = list(
+    todos = list(
         pedidos_col.find({"tenant_id": TENANT_ID})
         .sort("criado_em", -1)
-        .skip(max(offset, 0))
-        .limit(PEDIDOS_PAGINA_TAMANHO)
+        .limit(PEDIDOS_LOTE_BUSCA_LIMITE)
     )
+
+    grupos: list[list[dict]] = []
+    indice_do_lote: dict[str, int] = {}
+    for p in todos:
+        chave = p.get("lote_id") or str(p["_id"])
+        if chave not in indice_do_lote:
+            indice_do_lote[chave] = len(grupos)
+            grupos.append([])
+        grupos[indice_do_lote[chave]].append(p)
+
+    pagina = grupos[max(offset, 0):max(offset, 0) + PEDIDOS_PAGINA_TAMANHO]
 
     def _iso_utc(dt):
         return dt.replace(tzinfo=timezone.utc).isoformat() if dt else None
 
-    return {
-        "pedidos": [
-            {
-                "id": str(p["_id"]),
-                "numero": p.get("numero"),
-                "numero_exibicao": _numero_exibicao(p.get("numero")),
-                "item_nome": p.get("item_nome"),
-                "valor": p.get("valor"),
-                "status": p.get("status"),
-                "chat_id": p.get("chat_id"),
-                "criado_em": _iso_utc(p.get("criado_em")),
-                "tem_comprovante": bool(p.get("comprovante_key")),
-            }
-            for p in itens
-        ],
-        "tem_mais": len(itens) == PEDIDOS_PAGINA_TAMANHO,
-    }
+    resultado = []
+    for grupo in pagina:
+        primeiro = grupo[0]
+        resultado.append({
+            "id": str(primeiro["_id"]),  # ações (marcar pago/cancelar) agem no lote inteiro, ver _lote_do_pedido
+            "numero_exibicao": _numero_exibicao(primeiro.get("numero")),
+            "itens": [{"item_nome": p.get("item_nome"), "valor": p.get("valor")} for p in grupo],
+            "valor_total": sum(p.get("valor") or 0 for p in grupo),
+            "status": primeiro.get("status"),
+            "chat_id": primeiro.get("chat_id"),
+            "criado_em": _iso_utc(primeiro.get("criado_em")),
+            "tem_comprovante": bool(primeiro.get("comprovante_key")),
+        })
+
+    return {"pedidos": resultado, "tem_mais": max(offset, 0) + PEDIDOS_PAGINA_TAMANHO < len(grupos)}
 
 
 @app.get("/painel/api/pedidos/{pedido_id}/comprovante")

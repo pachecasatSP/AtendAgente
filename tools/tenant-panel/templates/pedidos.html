@@ -149,11 +149,14 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         acoes.push('<button type="button" class="pedido-btn cancelar" data-acao="cancelar">Cancelar</button>');
       }
 
+      const nomesItens = (p.itens || []).map((i) => i.item_nome).join(', ');
+      const contagem = (p.itens || []).length > 1 ? ` (${p.itens.length} itens)` : '';
+
       row.innerHTML = `
-        <span class="pedido-numero">#${p.numero_exibicao || p.numero}</span>
+        <span class="pedido-numero">#${p.numero_exibicao}</span>
         <div class="pedido-info">
-          <div class="pedido-item">${p.item_nome || ''}</div>
-          <div class="pedido-meta">${fmtValor(p.valor)} · ${fmtData(p.criado_em)}${p.chat_id ? ' · ' + p.chat_id : ''}</div>
+          <div class="pedido-item">${nomesItens}${contagem}</div>
+          <div class="pedido-meta">${fmtValor(p.valor_total)} · ${fmtData(p.criado_em)}${p.chat_id ? ' · ' + p.chat_id : ''}</div>
         </div>
         <span class="pedido-status ${p.status}">${statusLabel}</span>
         <div class="pedido-acoes">${acoes.join('')}</div>
