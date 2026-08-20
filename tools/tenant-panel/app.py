@@ -1069,6 +1069,18 @@ def pedidos_page(request: Request):
 PEDIDOS_LOTE_BUSCA_LIMITE = 500  # teto de docs varridos pra montar os grupos — negócio pequeno não deveria chegar perto disso
 
 
+def _nome_contato(chat_id: str | None) -> str | None:
+    """Nome de exibição do WhatsApp do cliente (`display_name`,
+    sincronizado pelo mongo-sync a partir do state.db) — mais
+    reconhecível pro dono do negócio do que o número cru."""
+    if not chat_id:
+        return None
+    sessao = sessions_col.find_one(
+        {"tenant_id": TENANT_ID, "chat_id": chat_id}, sort=[("last_activity_at", -1)]
+    )
+    return (sessao or {}).get("display_name") or None
+
+
 @app.get("/painel/api/pedidos")
 def api_pedidos_listar(request: Request, offset: int = 0) -> dict:
     """Agrupa por `lote_id` (mesmo carrinho, Fase 12 revisado) — cada
@@ -1106,6 +1118,7 @@ def api_pedidos_listar(request: Request, offset: int = 0) -> dict:
             "valor_total": sum(p.get("valor") or 0 for p in grupo),
             "status": primeiro.get("status"),
             "chat_id": primeiro.get("chat_id"),
+            "contato_nome": _nome_contato(primeiro.get("chat_id")),
             "criado_em": _iso_utc(primeiro.get("criado_em")),
             "tem_comprovante": bool(primeiro.get("comprovante_key")),
         })

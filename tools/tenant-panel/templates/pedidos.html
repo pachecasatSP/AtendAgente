@@ -125,6 +125,12 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
     let carregando = false;
     let acabou = false;
 
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s == null ? '' : String(s);
+      return div.innerHTML;
+    }
+
     function fmtValor(v) {
       return 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
     }
@@ -149,14 +155,15 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         acoes.push('<button type="button" class="pedido-btn cancelar" data-acao="cancelar">Cancelar</button>');
       }
 
-      const nomesItens = (p.itens || []).map((i) => i.item_nome).join(', ');
+      const nomesItens = escapeHtml((p.itens || []).map((i) => i.item_nome).join(', '));
       const contagem = (p.itens || []).length > 1 ? ` (${p.itens.length} itens)` : '';
+      const contato = escapeHtml(p.contato_nome || p.chat_id || '');
 
       row.innerHTML = `
         <span class="pedido-numero">#${p.numero_exibicao}</span>
         <div class="pedido-info">
           <div class="pedido-item">${nomesItens}${contagem}</div>
-          <div class="pedido-meta">${fmtValor(p.valor_total)} · ${fmtData(p.criado_em)}${p.chat_id ? ' · ' + p.chat_id : ''}</div>
+          <div class="pedido-meta">${fmtValor(p.valor_total)} · ${fmtData(p.criado_em)}${contato ? ' · ' + contato : ''}</div>
         </div>
         <span class="pedido-status ${p.status}">${statusLabel}</span>
         <div class="pedido-acoes">${acoes.join('')}</div>
