@@ -72,6 +72,15 @@ CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
 CLOUDFLARE_KV_NAMESPACE_ID = os.environ.get("CLOUDFLARE_KV_NAMESPACE_ID", "")
 SHORTLINK_BASE_URL = os.environ.get("SHORTLINK_BASE_URL", "https://link.atendpragente.com.br").rstrip("/")
 
+# Confirmação de agendamento via WhatsApp (Fase 11, Peça 2/3, 2026-08-20).
+# calendar-mcp é um serviço único compartilhado por todos os tenants (não
+# tem credencial WhatsApp própria via env), então lê access_token/waba_id
+# do próprio doc do tenant em `signups` (mesmos campos que o onboarding-service
+# grava — ver store.py:create_signup) pra falar com a Graph API em nome dele.
+GRAPH_API_VERSION = "v21.0"
+AGENDA_TEMPLATE_NAME = "agenda_confirmacao"
+_template_waba_ids_ok: set[str] = set()  # cache em memória — evita checar de novo a cada agendamento
+
 _mongo = MongoClient(MONGO_URI)
 _db = _mongo.get_default_database()
 _signups = _db["signups"]
@@ -155,6 +164,105 @@ def upload_ics(tenant_id: str, ics_bytes: bytes) -> str | None:
 
 def _shortlink_configured() -> bool:
     return bool(CLOUDFLARE_KV_TOKEN and CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_KV_NAMESPACE_ID)
+
+
+def _graph_call(access_token: str, path: str, payload: dict | None = None, method: str = "GET") -> dict:
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{path}"
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(
+        url, data=data, method=method,
+        headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            return json.loads(exc.read())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {"error": {"message": f"HTTP {exc.code}"}}
+    except urllib.error.URLError as exc:
+        return {"error": {"message": str(exc)}}
+
+
+def _ensure_agenda_template(waba_id: str, access_token: str) -> None:
+    """Cria o template de confirmação (categoria UTILITY, 1 parâmetro de
+    corpo + 2 botões de resposta rápida) na primeira vez que esse WABA
+    precisa dele. Best-effort e idempotente — a Graph API rejeita criação
+    duplicada com "already exists", tratado como sucesso silencioso.
+    Fica em PENDING até a Meta aprovar (pode levar horas/dias); enviar
+    usando um template ainda não aprovado falha na hora do envio, não
+    aqui — ver _enviar_confirmacao_agenda."""
+    if waba_id in _template_waba_ids_ok or not waba_id or not access_token:
+        return
+    resultado = _graph_call(
+        access_token, f"{waba_id}/message_templates", method="POST",
+        payload={
+            "name": AGENDA_TEMPLATE_NAME,
+            "language": "pt_BR",
+            "category": "UTILITY",
+            "components": [
+                {
+                    "type": "BODY",
+                    "text": "Oi! Confirmando seu compromisso: {{1}}.\nSe puder, toca em um dos botões abaixo.",
+                    "example": {"body_text": [["quinta-feira (21/08) às 15:00"]]},
+                },
+                {
+                    "type": "BUTTONS",
+                    "buttons": [
+                        {"type": "QUICK_REPLY", "text": "Confirmar"},
+                        {"type": "QUICK_REPLY", "text": "Remarcar"},
+                    ],
+                },
+            ],
+        },
+    )
+    erro = (resultado.get("error") or {}).get("message", "")
+    if resultado.get("id") or "already exists" in erro.lower():
+        _template_waba_ids_ok.add(waba_id)
+
+
+_DIAS_SEMANA = ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"]
+
+
+def _formatar_quando(start: datetime) -> str:
+    return f"{_DIAS_SEMANA[start.weekday()]} ({start.strftime('%d/%m')}) às {start.strftime('%H:%M')}"
+
+
+def _enviar_confirmacao_agenda(tenant: dict, agendamento_id, chat_id: str, start: datetime) -> bool:
+    """Manda o template `agenda_confirmacao` pro cliente, com o payload
+    dos botões carregando o id do agendamento (`agenda_confirmar:<id>` /
+    `agenda_remarcar:<id>`) — é isso que o webhook patchado do Hermes
+    (whatsapp_cloud_patched.py) usa pra atualizar o status sem depender
+    do LLM interpretar a resposta. Best-effort: se o template ainda não
+    tiver sido aprovado pela Meta, ou faltar credencial, retorna False e
+    o agendamento continua com status "agendado" (sem confirmação ativa)."""
+    access_token = tenant.get("access_token") or ""
+    phone_number_id = tenant.get("phone_number_id") or ""
+    waba_id = tenant.get("waba_id") or ""
+    if not (access_token and phone_number_id and waba_id and chat_id):
+        return False
+    _ensure_agenda_template(waba_id, access_token)
+    resultado = _graph_call(
+        access_token, f"{phone_number_id}/messages", method="POST",
+        payload={
+            "messaging_product": "whatsapp",
+            "to": chat_id,
+            "type": "template",
+            "template": {
+                "name": AGENDA_TEMPLATE_NAME,
+                "language": {"code": "pt_BR"},
+                "components": [
+                    {"type": "body", "parameters": [{"type": "text", "text": _formatar_quando(start)}]},
+                    {"type": "button", "sub_type": "quick_reply", "index": "0",
+                     "parameters": [{"type": "payload", "payload": f"agenda_confirmar:{agendamento_id}"}]},
+                    {"type": "button", "sub_type": "quick_reply", "index": "1",
+                     "parameters": [{"type": "payload", "payload": f"agenda_remarcar:{agendamento_id}"}]},
+                ],
+            },
+        },
+    )
+    return bool((resultado.get("messages") or []))
 
 
 def shorten_url(long_url: str) -> str:
@@ -284,7 +392,7 @@ def check_and_book(
     # Espelho local — best-effort, nunca derruba o agendamento em si (o
     # evento já foi criado na Google Agenda de verdade nesse ponto).
     try:
-        _agendamentos.insert_one({
+        insercao = _agendamentos.insert_one({
             "tenant_id": tenant_id,
             "chat_id": chat_id or None,
             "titulo": titulo,
@@ -296,6 +404,21 @@ def check_and_book(
             "link_meet": created.get("hangoutLink"),
             "criado_em": datetime.now(timezone.utc),
         })
+        # Confirmação por WhatsApp (Fase 11, Peça 2/3) — só faz sentido se
+        # temos o chat_id de quem marcou (pre_llm_call injeta isso, ver
+        # o plugin agendamento_contexto). Best-effort: se falhar (template
+        # ainda pendente de aprovação na Meta, credencial ausente etc.) o
+        # agendamento continua valendo, só sem o fluxo de confirmação.
+        if chat_id:
+            tenant_doc = _signups.find_one({"tenant_id": tenant_id, "status": "live"}) or {}
+            try:
+                enviado = _enviar_confirmacao_agenda(tenant_doc, insercao.inserted_id, chat_id, start)
+            except Exception:
+                enviado = False
+            if enviado:
+                _agendamentos.update_one(
+                    {"_id": insercao.inserted_id}, {"$set": {"status": "aguardando_confirmacao"}}
+                )
     except Exception:
         pass
 

@@ -13,6 +13,8 @@ import os
 import sqlite3
 import threading
 import time
+from bson import ObjectId
+from bson.errors import InvalidId
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -39,6 +41,14 @@ ESCALATION_MARKER = "acionar o adolfo"
 # Mongo (só este sidecar tem).
 _handoff_chat_ids: set = set()
 _handoff_lock = threading.Lock()
+
+# Coleção `agendamentos`, resolvida uma vez em main() — usada pelo endpoint
+# /agenda-confirmar (Fase 11, Peça 3) pra marcar confirmação/remarcação sem
+# passar pelo LLM. Mesma razão do handoff: o container hermes não fala com
+# o Mongo diretamente, só este sidecar.
+_agendamentos_coll = None
+
+AGENDA_ACAO_PARA_STATUS = {"confirmar": "confirmado", "remarcar": "recusado"}
 
 
 def refresh_handoff_cache(sessions_coll) -> None:
@@ -68,6 +78,42 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
         with _handoff_lock:
             active = chat_id in _handoff_chat_ids
         body = json.dumps({"handoff": active}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        if parsed.path != "/agenda-confirmar":
+            self.send_response(404)
+            self.end_headers()
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            payload = json.loads(self.rfile.read(length) or b"{}")
+        except json.JSONDecodeError:
+            payload = {}
+        agendamento_id = str(payload.get("agendamento_id") or "")
+        acao = str(payload.get("acao") or "")
+        novo_status = AGENDA_ACAO_PARA_STATUS.get(acao)
+        ok = False
+        if novo_status is not None and agendamento_id and _agendamentos_coll is not None:
+            try:
+                oid = ObjectId(agendamento_id)
+            except InvalidId:
+                oid = None
+            if oid is not None:
+                # Só marca se ainda estiver aguardando — evita que um duplo
+                # tap (ou reenvio do webhook, comum na Cloud API) sobrescreva
+                # uma resposta já processada.
+                resultado = _agendamentos_coll.update_one(
+                    {"_id": oid, "status": "aguardando_confirmacao"},
+                    {"$set": {"status": novo_status, "confirmado_em": now()}},
+                )
+                ok = resultado.modified_count > 0
+        body = json.dumps({"ok": ok}).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -220,11 +266,13 @@ def ensure_indexes(db) -> None:
 
 
 def main() -> None:
+    global _agendamentos_coll
     client = MongoClient(MONGO_URI)
     db = client.get_default_database()
     ensure_indexes(db)
     sync_state_coll = db["sync_state"]
     sessions_coll = db["sessions"]
+    _agendamentos_coll = db["agendamentos"]
 
     start_handoff_http_server()
     print(f"[mongo-sync] tenant={TENANT_ID} interval={SYNC_INTERVAL_SECONDS}s iniciado")

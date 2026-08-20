@@ -78,6 +78,13 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 .evento-chip:hover { border-color: var(--leaf); background: var(--leaf-pale); }
 .evento-hora { font-weight: 800; color: var(--leaf-deep); font-size: 0.72rem; }
 .evento-titulo { font-weight: 700; }
+.evento-status {
+  align-self: flex-start; font-size: 0.66rem; font-weight: 800; padding: 0.1rem 0.45rem;
+  border-radius: 999px; margin-top: 0.1rem;
+}
+.evento-status.aguardando { background: #fff3d6; color: #8a6100; }
+.evento-status.confirmado { background: #dcf5e3; color: #1c6b3a; }
+.evento-status.recusado { background: #fde2e2; color: #a12525; }
 .day-vazio { font-size: 0.72rem; color: var(--ink-faint); text-align: center; padding: 0.4rem 0; }
 [hidden] { display: none !important; }
 </style>
@@ -125,6 +132,12 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
     function fmtData(d) {
       return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
     }
+
+    const STATUS_LABEL = {
+      aguardando_confirmacao: ['aguardando', 'Aguardando confirmação'],
+      confirmado: ['confirmado', 'Confirmado'],
+      recusado: ['recusado', 'Pediu remarcação'],
+    };
 
     async function carregarSemana() {
       const gridEl = document.getElementById('week-grid');
@@ -179,6 +192,13 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
               const hora = new Date(ev.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
               chip.innerHTML = `<span class="evento-hora">${hora}</span><span class="evento-titulo"></span>`;
               chip.querySelector('.evento-titulo').textContent = ev.titulo;
+              const statusInfo = STATUS_LABEL[ev.status];
+              if (statusInfo) {
+                const statusEl = document.createElement('span');
+                statusEl.className = `evento-status ${statusInfo[0]}`;
+                statusEl.textContent = statusInfo[1];
+                chip.appendChild(statusEl);
+              }
               col.appendChild(chip);
             });
           }

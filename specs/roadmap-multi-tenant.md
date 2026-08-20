@@ -740,7 +740,7 @@ cobrado manualmente pela Duda (nunca automático) via nova ferramenta
 pro cliente é "diferencial de plano", não "repasse de custo" — o custo
 de infra em si não justificaria cobrança nenhuma.
 
-### Fase 11 — Confirmação de compromisso via WhatsApp — PLANEJADA (2026-08-19, revisada)
+### Fase 11 — Confirmação de compromisso via WhatsApp — IMPLEMENTADA (2026-08-19/20)
 
 **Objetivo:** botão "Confirmar compromisso" em `/agenda` que manda uma
 mensagem de confirmação pro cliente, espera a resposta (confirma/
@@ -790,34 +790,67 @@ agendamento real via WhatsApp** (2026-08-20): `chat_id` chegou
 corretamente preenchido no espelho Mongo, sem o modelo precisar
 escrever nada.
 
-**Peça 2 — Template por tenant** (decisão: um por tenant, não genérico
-compartilhado — Message Templates da Meta são presos à WABA de cada
-tenant, não dá pra usar o número da Duda pra confirmar compromisso de
-cliente de outro tenant). Corpo sugerido: "Oi! Confirmando seu
-compromisso com {{1}} em {{2}} às {{3}}." com botões de resposta rápida
-(ver Peça 3). Submissão via Graph API (`POST /{waba_id}/message_
-templates`) dá pra automatizar no provisionamento (best-effort, fica
-`PENDING` até a Meta aprovar — minutos a poucos dias, não instantâneo).
+**Peça 2 — Template por tenant — CONCLUÍDA (2026-08-20).** Um por
+tenant (não genérico compartilhado) — Message Templates da Meta são
+presos à WABA de cada tenant. Implementado em
+`tools/calendar-mcp/server.py`: `_ensure_agenda_template` cria (best-
+effort, idempotente — "already exists" tratado como sucesso) o template
+`agenda_confirmacao` (categoria UTILITY, corpo com 1 parâmetro — dia da
+semana + data + hora, ex: "quinta-feira (21/08) às 15:00" — e 2 botões
+QUICK_REPLY: "Confirmar"/"Remarcar") na primeira vez que o WABA do
+tenant precisa dele, direto no fluxo de `check_and_book`. Fica
+`PENDING` até a Meta aprovar (minutos a poucos dias); enviar antes da
+aprovação simplesmente falha o envio (ver Peça 3), sem quebrar o
+agendamento em si. Credenciais (`access_token`/`waba_id`/
+`phone_number_id`) lidas do próprio doc do tenant em `signups` — mesmos
+campos gravados por `store.py:create_signup` — porque calendar-mcp é
+serviço único compartilhado, sem env var de WhatsApp por tenant.
 
-**Peça 3 — Envio + espera de resposta** (decisão: espera resposta e
-atualiza status, não só dispara e esquece) — **botões de resposta
-rápida no template**, não interpretação de texto livre pelo LLM: clique
-do cliente gera payload estruturado (`button_reply.id`) no webhook,
-elimina ambiguidade. Exige tratamento próprio no patch do webhook
-(`whatsapp_cloud_patched.py`, mesmo overlay já usado pro handoff, ver
-Fase 5) pra capturar esse evento e atualizar `agendamentos.status`
-direto no Mongo — sem precisar de credencial Google nesse ponto, já
-que o Mongo é local.
+**Peça 3 — Envio + espera de resposta — CONCLUÍDA (2026-08-20).**
+Espera resposta e atualiza status (não só dispara e esquece).
+**Botões de resposta rápida no template**, não interpretação de texto
+livre pelo LLM: o payload de cada botão é setado *no envio* (não no
+template) como `agenda_confirmar:<agendamento_id>` /
+`agenda_remarcar:<agendamento_id>` (`_enviar_confirmacao_agenda`,
+mesmo arquivo) — a Cloud API permite override do payload por botão por
+envio via `components: [{type: button, sub_type: quick_reply, index,
+parameters: [{type: payload, payload: "..."}]}]`, o que carrega o id do
+agendamento sem precisar de estado em memória.
 
-**Peça 4 — `/agenda` lê do Mongo, não mais da Graph API a cada
-carregamento.** `listar_eventos` (ou uma rota nova equivalente) passa a
-consultar `agendamentos` filtrado por semana, com fallback pro registro
-já ter `status` nativo pro chip colorido (Aguardando confirmação /
-Confirmado / Recusado) — sem round-trip pro Google só pra desenhar a
-grade semanal.
+O clique chega no webhook como `type: "button"` (não
+`interactive.button_reply` — isso é só pra prompts que o próprio bot
+manda mid-conversa, ver `_dispatch_interactive_reply`, já existente da
+Fase 5). Novo método `_dispatch_agenda_button_reply` em
+`whatsapp_cloud_patched.py` intercepta antes do dispatch genérico de
+texto, olha o prefixo do `button.payload`, e — como o container hermes
+não fala com o Mongo diretamente — chama um novo endpoint HTTP local
+`POST 127.0.0.1:8091/agenda-confirmar` exposto pelo sidecar mongo-sync
+(mesmo pod, mesmo padrão do endpoint `/handoff` da Fase 5), que atualiza
+`agendamentos.status` (`confirmado`/`recusado`) só se o doc ainda
+estiver `aguardando_confirmacao` (evita duplo-tap/reenvio de webhook
+sobrescrever uma resposta já processada). Depois manda a resposta
+("Combinado, presença confirmada! ✅" / pedido de novo horário) direto
+via `self.send`, sem passar pelo LLM.
 
-**Nada implementado ainda** — só o desenho, pra quando decidirem
-priorizar.
+**Testado (2026-08-20):** doc sintético inserido com status
+`aguardando_confirmacao`, chamada ao endpoint de dentro do pod
+confirmou a atualização pra `confirmado`; segunda chamada com o mesmo id
+devolveu `{"ok": false}` corretamente (idempotência). O laço completo
+via WhatsApp real depende da Meta aprovar o template — só é testável de
+ponta a ponta depois disso.
+
+**Peça 4 — `/agenda` lê do Mongo — CONCLUÍDA (2026-08-20).**
+`/painel/api/agenda/eventos` já lia `agendamentos` (implementado junto
+da Peça 1); faltava só o chip. `agenda.html` agora mostra um chip
+colorido por evento (Aguardando confirmação / Confirmado / Pediu
+remarcação) a partir do campo `status` que o backend já devolvia —
+eventos sem confirmação ativa (`status: "agendado"`, o caso antigo)
+não mostram chip nenhum.
+
+**Publicado:** ConfigMaps compartilhados `mongo-sync-script` e
+`whatsapp-cloud-patch` atualizados via `setup_mongo.py`; `calendar-mcp`
+e os 3 `*-hermes` (linda-ana-calcados, novo-negocio, sandbox-tenant)
+reiniciados; os 2 `*-hermes-panel` com agenda ativa também.
 
 ---
 

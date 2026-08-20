@@ -1915,6 +1915,59 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         # we don't know about; treating it as text is the safe default.
         return False
 
+    # ------------------------------------------------------------------ agenda confirmation (Fase 11, Peça 3)
+    #
+    # Unlike the interactive prompts above (which the bot itself sends
+    # mid-conversation and resolves via in-memory state), the "Confirmar"/
+    # "Remarcar" buttons come from a Message Template (calendar-mcp sends
+    # it — see _enviar_confirmacao_agenda in tools/calendar-mcp/server.py)
+    # and can arrive minutes or days later, possibly after a pod restart.
+    # Meta delivers template quick-reply taps as ``type: "button"`` with
+    # the payload we set at send time (``agenda_confirmar:<id>`` /
+    # ``agenda_remarcar:<id>``) — not as ``interactive.button_reply``.
+    # Handled here, before generic text dispatch, so the LLM never sees
+    # "Confirmar" as an ambiguous freeform message.
+    async def _dispatch_agenda_button_reply(self, raw_message: Dict[str, Any]) -> bool:
+        button = raw_message.get("button") or {}
+        payload = str(button.get("payload") or "")
+        if ":" not in payload:
+            return False
+        prefixo, _, agendamento_id = payload.partition(":")
+        if prefixo not in ("agenda_confirmar", "agenda_remarcar") or not agendamento_id:
+            return False
+
+        chat_id = str(raw_message.get("from") or "")
+        acao = "confirmar" if prefixo == "agenda_confirmar" else "remarcar"
+        ok = False
+        if self._http_client is not None:
+            try:
+                resp = await self._http_client.post(
+                    "http://127.0.0.1:8091/agenda-confirmar",
+                    json={"agendamento_id": agendamento_id, "acao": acao},
+                    timeout=5.0,
+                )
+                if resp.status_code == 200:
+                    ok = bool(resp.json().get("ok"))
+            except Exception:
+                logger.exception("[whatsapp_cloud] agenda-confirmar HTTP call failed")
+
+        if not ok:
+            # Já processado antes (duplo tap / reenvio do webhook) ou o
+            # agendamento não existe mais — não manda nada, silêncio é
+            # mais seguro que confirmar/negar de novo pro cliente.
+            return True
+
+        resposta = (
+            "Combinado, presença confirmada! ✅"
+            if acao == "confirmar"
+            else "Sem problemas! Me diga um novo horário que funcione melhor pra você que a gente reagenda 🙂"
+        )
+        try:
+            await self.send(chat_id, resposta)
+        except Exception:
+            logger.exception("[whatsapp_cloud] agenda-confirmar reply send failed")
+        return True
+
     async def _build_message_event_from_cloud(
         self,
         raw_message: Dict[str, Any],
@@ -1945,6 +1998,11 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             handled = await self._dispatch_interactive_reply(
                 raw_message, contacts_by_waid
             )
+            if handled:
+                return None
+
+        if msg_type_str == "button":
+            handled = await self._dispatch_agenda_button_reply(raw_message)
             if handled:
                 return None
 
