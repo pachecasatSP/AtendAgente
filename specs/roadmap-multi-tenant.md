@@ -991,7 +991,10 @@ vaga, por exemplo) passam a ter o fluxo de pedido+Pix desta fase.
 **Vitrine segmentada por tipo.** `vitrine.html` hoje agrupa só por
 `categoria`; passa a agrupar primeiro por **tipo** (produtos juntos,
 eventos juntos, serviços juntos — cada um sua própria seção), e dentro
-de cada seção continua por categoria como já é hoje.
+de cada seção continua por categoria como já é hoje. **A própria
+vitrine também passa a usar scroll infinito** pra listar os itens
+(hoje renderiza tudo de uma vez via Jinja) — mesma escolha de UX do
+`/pedidos`, importante conforme o catálogo cresce.
 
 **Quantidade — só 1 unidade pelo fluxo automatizado.** Sem controle de
 estoque (decisão explícita, não rastreamos quantidade disponível). Se
@@ -1085,7 +1088,7 @@ tem (bot direciona pro combinado direto com o lojista).
      existente (`needs_operator`/`handoff`, Fase 5) — sem inventar
      notificação nova.
 
-5. **`/pedidos`** — rota nova no tenant-panel, mesmo padrão de
+4. **`/pedidos`** — rota nova no tenant-panel, mesmo padrão de
    `/agenda` (rota própria, ícone no menu). Lista pedidos por status
    (aberto / aguardando pagamento / comprovante recebido / pago /
    cancelado), com **scroll infinito** (não paginação numerada — mesma
@@ -1094,6 +1097,28 @@ tem (bot direciona pro combinado direto com o lojista).
    pago" (mesma UX do botão "Confirmar" da agenda) **e também "cancelar
    manualmente"** (cliente desistiu, pediu errado etc. — não dá pra
    depender só do cancelamento automático de 30 dias pra esses casos).
+
+5. **Aviso de rastreamento manual, disparado quando o pedido vira
+   `pago`.** Confirmação de pagamento não implica em nenhuma
+   integração de rastreamento/entrega — a partir daí o acompanhamento
+   é 100% manual entre cliente e lojista. Assim que o "marcar como
+   pago" é clicado em `/pedidos`, o painel manda automaticamente uma
+   mensagem pro cliente (Graph API, mesmo padrão de envio best-effort
+   já usado pra confirmação de agenda) explicando isso e ensinando a
+   frase-gatilho pra pedir status depois: *"Pagamento confirmado! ✅ O
+   acompanhamento a partir daqui é direto com a gente — se quiser saber
+   como está o pedido, é só mandar 'qual o status do meu pedido #47?'
+   que a gente verifica."*
+   - Essa frase-gatilho (`status do meu pedido #N`) ganha **seu próprio
+     ponto de interceptação no webhook**, igual ao gatilho de
+     fechamento (regex exigindo o pedaço da frase + número, nunca só
+     `#N` solto, sempre escopado por tenant_id) — mas a ação é
+     diferente: como não existe informação de rastreamento nenhuma pra
+     dar automaticamente, o webhook só **marca a sessão como
+     precisando de atenção** (reaproveita `needs_operator`/`handoff`
+     da Fase 5, mesmo mecanismo já usado pro comprovante) pra um
+     operador responder manualmente — não tenta gerar uma resposta
+     sozinho.
 
 6. **LGPD — retenção com prazo, mesmo padrão da lixeira (Fase 9):**
    - **Comprovante**: apagado do object storage **30 dias** depois de
