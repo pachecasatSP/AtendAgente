@@ -943,6 +943,18 @@ pagamento nenhuma. Esta fase conecta as duas pontas com um conceito de
 continua indo direto do cliente pra conta do tenant via Pix, a
 AtendPraGente nunca fica no meio do fluxo financeiro.
 
+**Escopo explícito — só Pix.** Esse fluxo (pedido → copia-e-cola →
+comprovante → `/pedidos`) cobre **exclusivamente pagamento via Pix**.
+Cartão de crédito **não entra nesse fluxo de forma nenhuma** — continua
+sendo resolvido **diretamente entre o cliente e o lojista**, fora da
+automação da AtendPraGente (o SOUL já orienta isso hoje: "se escolher
+cartão, informe que a maquininha vai até o cliente", ver
+`build_payment_block` em `generate_soul.py`). Nenhuma peça desta fase
+(pedido, `/pedidos`, comprovante) trata ou registra pagamento em
+cartão — se o cliente escolher cartão, o pedido nem chega a virar
+cobrança Pix; o bot só direciona pro combinado manual com o lojista,
+como já faz.
+
 **Descartado nesta fase (decisão explícita, registrada pra não
 reabrir sem motivo):**
 - **QR code Pix** — descartado a favor do **Pix copia e cola em
