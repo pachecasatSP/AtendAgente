@@ -158,8 +158,24 @@ def _pedido_sugestoes(chat_id: str) -> list:
     ).sort("numero", 1))
 
 
+def _agrupar_por_lote(pedidos: list) -> list:
+    """Agrupa uma lista de pedidos pelo `lote_id` (mesmo carrinho) —
+    pedido sem lote_id vira grupo de 1 item só. Usado sempre que se
+    lista pedidos em aberto pro cliente, pra não mostrar cada item de
+    um mesmo carrinho como se fosse um pedido separado."""
+    grupos: dict = {}
+    for p in pedidos:
+        chave = p.get("lote_id") or str(p["_id"])
+        grupos.setdefault(chave, []).append(p)
+    return list(grupos.values())
+
+
 def _pedido_formatar_sugestoes(pedidos: list) -> str:
-    linhas = [f"#{_numero_exibicao(p['numero'])} — {p['item_nome']}" for p in pedidos]
+    grupos = _agrupar_por_lote(pedidos)
+    linhas = [
+        f"#{_numero_exibicao(grupo[0]['numero'])} — " + ", ".join(p["item_nome"] for p in grupo)
+        for grupo in grupos
+    ]
     return (
         "Não encontrei esse pedido, mas você tem esses em aberto:\n"
         + "\n".join(linhas)
@@ -167,7 +183,7 @@ def _pedido_formatar_sugestoes(pedidos: list) -> str:
     )
 
 
-def _gerar_pix_do_pedido(pedido: dict) -> str | None:
+def _gerar_pix(valor: float, txid: str) -> str | None:
     if _signups_coll is None:
         return None
     tenant = _signups_coll.find_one({"tenant_id": TENANT_ID, "status": "live"})
@@ -178,7 +194,22 @@ def _gerar_pix_do_pedido(pedido: dict) -> str | None:
     if not chave:
         return None
     nome = config.get("nome_negocio") or "AtendPraGente"
-    return montar_payload_pix(chave, pedido["valor"], nome, "BRASIL", f"PED{pedido['numero']}")
+    return montar_payload_pix(chave, valor, nome, "BRASIL", txid)
+
+
+def _pedido_lote(pedido: dict) -> list:
+    """Pedido de referência + irmãos do mesmo `lote_id` (mesmo carrinho
+    da vitrine, Fase 12 revisado) ainda elegíveis. Pedido sem lote_id
+    (avulso, ou de antes dessa revisão) vira um "lote" de 1 item só —
+    mantém compatibilidade sem exigir migração de dado antigo."""
+    lote_id = pedido.get("lote_id")
+    if not lote_id or _pedidos_coll is None:
+        return [pedido]
+    itens = list(_pedidos_coll.find({
+        "tenant_id": TENANT_ID, "lote_id": lote_id,
+        "status": {"$in": ["aberto", "aguardando_pagamento"]},
+    }).sort("numero", 1))
+    return itens or [pedido]
 
 
 def pedido_fechar(chat_id: str, texto: str) -> dict:
@@ -187,7 +218,9 @@ def pedido_fechar(chat_id: str, texto: str) -> dict:
     sem o LLM decidir nada (mesmo bypass da Fase 11 Peça 3). Sempre
     escopado por TENANT_ID (chat_id sozinho não identifica o pedido —
     o mesmo número de telefone pode falar com bots de tenants
-    diferentes)."""
+    diferentes). O número referenciado pode ser só o primeiro item de
+    um carrinho com vários — `_pedido_lote` acha os irmãos e o Pix sai
+    com o valor somado do lote inteiro, um código só."""
     if _pedidos_coll is None:
         return {"ok": False}
     numero = _pedido_extrair_numero(texto)
@@ -205,17 +238,26 @@ def pedido_fechar(chat_id: str, texto: str) -> dict:
         not pedido.get("chat_id") or pedido["chat_id"] == chat_id
     )
     if elegivel:
-        payload_pix = _gerar_pix_do_pedido(pedido)
+        lote = _pedido_lote(pedido)
+        total = sum(p["valor"] for p in lote)
+        txid = f"LOTE{pedido['lote_id'][:8]}" if pedido.get("lote_id") else f"PED{pedido['numero']}"
+        payload_pix = _gerar_pix(total, txid)
         if payload_pix is None:
             return {
                 "ok": True,
                 "resposta": "Consegui achar seu pedido, mas ainda não tenho uma forma de pagamento configurada — vou verificar e te aviso.",
             }
-        _pedidos_coll.update_one(
-            {"_id": pedido["_id"]}, {"$set": {"chat_id": chat_id, "status": "aguardando_pagamento"}}
+        _pedidos_coll.update_many(
+            {"_id": {"$in": [p["_id"] for p in lote]}},
+            {"$set": {"chat_id": chat_id, "status": "aguardando_pagamento"}},
         )
+        if len(lote) == 1:
+            resumo = f"Pedido #{_numero_exibicao(lote[0]['numero'])} — {lote[0]['item_nome']}"
+        else:
+            linhas = [f"• {p['item_nome']} (R$ {p['valor']:.2f})" for p in lote]
+            resumo = f"Pedido #{_numero_exibicao(lote[0]['numero'])} ({len(lote)} itens):\n" + "\n".join(linhas)
         resposta = (
-            f"Pedido #{_numero_exibicao(pedido['numero'])} — {pedido['item_nome']} (R$ {pedido['valor']:.2f})\n\n"
+            f"{resumo}\nTotal: R$ {total:.2f}\n\n"
             f"Pix Copia e Cola:\n{payload_pix}\n\n"
             "Abre o Pix do seu banco → Copia e Cola → cola esse código → confere o valor → confirma o "
             "pagamento. Depois é só mandar o comprovante aqui que a gente confirma pra você."
@@ -325,7 +367,9 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
     """Cliente mandou foto/PDF do comprovante — chamado pelo webhook
     quando há pedido `aguardando_pagamento` pra esse chat_id. Sem
     pedido correspondente, quem chama já nem deveria ter invocado isso
-    (o webhook só chama quando sabe que há pelo menos 1 candidato)."""
+    (o webhook só chama quando sabe que há pelo menos 1 candidato).
+    Agrupado por `lote_id` (Fase 12 revisado) — um comprovante só
+    fecha o carrinho inteiro, não item por item."""
     if _pedidos_coll is None:
         return {"ok": False}
     candidatos = list(_pedidos_coll.find(
@@ -334,15 +378,19 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
     if not candidatos:
         return {"ok": False}
 
-    pedido = None
-    if len(candidatos) == 1:
-        pedido = candidatos[0]
+    grupos = _agrupar_por_lote(candidatos)
+    lote = None
+    if len(grupos) == 1:
+        lote = grupos[0]
     else:
         numero = _pedido_extrair_numero(legenda)
         if numero is not None:
-            pedido = next((p for p in candidatos if p["numero"] == numero), None)
-        if pedido is None:
-            linhas = [f"#{_numero_exibicao(p['numero'])} — {p['item_nome']}" for p in candidatos]
+            lote = next((g for g in grupos if any(p["numero"] == numero for p in g)), None)
+        if lote is None:
+            linhas = [
+                f"#{_numero_exibicao(grupo[0]['numero'])} — " + ", ".join(p["item_nome"] for p in grupo)
+                for grupo in grupos
+            ]
             return {
                 "ok": True,
                 "resposta": "Antes de eu confirmar o recebimento, me diz o número do pedido:\n" + "\n".join(linhas),
@@ -355,8 +403,8 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
             "resposta": "Recebi sua mensagem, mas não consegui salvar o comprovante agora — pode tentar mandar de novo em instantes?",
         }
 
-    _pedidos_coll.update_one(
-        {"_id": pedido["_id"]},
+    _pedidos_coll.update_many(
+        {"_id": {"$in": [p["_id"] for p in lote]}},
         {"$set": {
             "status": "comprovante_recebido",
             "comprovante_key": comprovante_key,
@@ -364,7 +412,7 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
         }},
     )
     _marcar_handoff_pedido(chat_id)
-    return {"ok": True, "resposta": f"Recebi o comprovante do pedido #{_numero_exibicao(pedido['numero'])}! Vou confirmar e já te aviso. 🙏"}
+    return {"ok": True, "resposta": f"Recebi o comprovante do pedido #{_numero_exibicao(lote[0]['numero'])}! Vou confirmar e já te aviso. 🙏"}
 
 
 def _marcar_handoff_pedido(chat_id: str) -> None:

@@ -172,15 +172,22 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         const resp = await fetch(`/painel/api/pedidos/${id}/${acao}`, { method: 'POST' });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) throw new Error(data.detail || 'Não consegui atualizar o pedido.');
-        const statusEl = row.querySelector('.pedido-status');
-        const novoStatus = acao === 'pago' ? 'pago' : 'cancelado';
-        statusEl.className = `pedido-status ${novoStatus}`;
-        statusEl.textContent = STATUS_LABEL[novoStatus];
-        row.querySelector('.pedido-acoes').innerHTML = '';
+        // Recarrega a lista inteira em vez de só ajustar a linha clicada —
+        // marcar pago/cancelar age no lote inteiro (Fase 12 revisado,
+        // carrinho com vários itens), pode afetar outras linhas já
+        // visíveis na tela além da que foi clicada.
+        recarregar();
       } catch (err) {
         alert(err.message);
         btn.disabled = false;
       }
+    }
+
+    function recarregar() {
+      offset = 0;
+      acabou = false;
+      document.getElementById('pedidos-lista').innerHTML = '';
+      carregarMais();
     }
 
     async function carregarMais() {

@@ -977,48 +977,79 @@ def _numero_exibicao(numero_pedido: int) -> str:
     return f"{numero_pedido}-{_sufixo_tenant()}"
 
 
+MAX_ITENS_CARRINHO = 20
+
+
 @app.post("/vitrine/api/pedido")
 def api_vitrine_criar_pedido(payload: dict) -> dict:
-    """Pública, sem require_session — clique em "Pedir" na vitrine.
-    Cria o pedido com o preço travado no momento (nunca atualiza se o
-    catálogo mudar depois) e devolve o link `wa.me` com o texto
-    pré-preenchido que o webhook (whatsapp_cloud_patched.py) vai casar
-    por regex pra fechar o pedido — ver Fase 12 na spec."""
+    """Pública, sem require_session — clique no carrinho da vitrine
+    (Fase 12, revisado: carrinho com múltiplos itens, 1 unidade cada).
+    Aceita `item_ids` (lista) — cada item vira seu próprio doc em
+    `pedidos` (preço travado, mesmo schema de sempre), todos
+    compartilhando um `lote_id` novo. O Pix é um só, com o valor
+    somado do lote inteiro; o webhook reconhece o número do PRIMEIRO
+    pedido do lote e busca os irmãos por `lote_id` — não precisa
+    mencionar vários números na mesma mensagem."""
     if not TENANT_ENABLED:
         raise HTTPException(status_code=404, detail="Não disponível")
-    item_id = str(payload.get("item_id") or "")
-    try:
-        oid = ObjectId(item_id)
-    except InvalidId:
-        raise HTTPException(status_code=400, detail="Item inválido")
-    item = catalogo_col.find_one({"_id": oid, "tenant_id": TENANT_ID, "ativo": True})
-    if not item:
-        raise HTTPException(status_code=404, detail="Item não encontrado")
-    tipo = item.get("tipo") or "produto"
-    if tipo not in TIPOS_COMPRAVEIS:
-        raise HTTPException(status_code=400, detail="Esse item não está disponível pra pedido direto")
+    item_ids = payload.get("item_ids")
+    if not item_ids and payload.get("item_id"):
+        item_ids = [payload["item_id"]]  # compat: chamada antiga com 1 item só
+    item_ids = [str(i) for i in (item_ids or [])][:MAX_ITENS_CARRINHO]
+    if not item_ids:
+        raise HTTPException(status_code=400, detail="Carrinho vazio")
+
+    itens = []
+    for item_id in item_ids:
+        try:
+            oid = ObjectId(item_id)
+        except InvalidId:
+            raise HTTPException(status_code=400, detail="Item inválido")
+        item = catalogo_col.find_one({"_id": oid, "tenant_id": TENANT_ID, "ativo": True})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item não encontrado")
+        tipo = item.get("tipo") or "produto"
+        if tipo not in TIPOS_COMPRAVEIS:
+            raise HTTPException(status_code=400, detail="Esse item não está disponível pra pedido direto")
+        itens.append(item)
 
     numero_whatsapp = _numero_whatsapp_tenant()
     if not numero_whatsapp:
         raise HTTPException(status_code=503, detail="WhatsApp não configurado neste momento")
 
-    numero_pedido = _proximo_numero_pedido()
-    valor = float(item.get("preco") or 0)
-    pedidos_col.insert_one({
-        "tenant_id": TENANT_ID,
-        "numero": numero_pedido,
-        "item_id": str(item["_id"]),
-        "item_nome": item.get("nome", ""),
-        "valor": valor,
-        "status": "aberto",
-        "chat_id": None,
-        "criado_em": datetime.now(timezone.utc),
-    })
+    lote_id = uuid.uuid4().hex
+    criado_em = datetime.now(timezone.utc)
+    pedidos_criados = []
+    for item in itens:
+        numero_pedido = _proximo_numero_pedido()
+        valor = float(item.get("preco") or 0)
+        pedidos_col.insert_one({
+            "tenant_id": TENANT_ID,
+            "numero": numero_pedido,
+            "lote_id": lote_id,
+            "item_id": str(item["_id"]),
+            "item_nome": item.get("nome", ""),
+            "valor": valor,
+            "status": "aberto",
+            "chat_id": None,
+            "criado_em": criado_em,
+        })
+        pedidos_criados.append({"numero": numero_pedido, "item_nome": item.get("nome", ""), "valor": valor})
 
-    valor_fmt = f"R$ {valor:.2f}".replace(".", ",")
-    texto = f"Quero fechar o pedido #{_numero_exibicao(numero_pedido)} ({item.get('nome', '')} - {valor_fmt})"
+    total = sum(p["valor"] for p in pedidos_criados)
+    total_fmt = f"R$ {total:.2f}".replace(".", ",")
+    primeiro_numero_exibicao = _numero_exibicao(pedidos_criados[0]["numero"])
+    if len(pedidos_criados) == 1:
+        descricao = pedidos_criados[0]["item_nome"]
+    else:
+        descricao = ", ".join(p["item_nome"] for p in pedidos_criados)
+    texto = f"Quero fechar o pedido #{primeiro_numero_exibicao} ({descricao} - {total_fmt})"
     wa_link = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(texto)}"
-    return {"numero": numero_pedido, "numero_exibicao": _numero_exibicao(numero_pedido), "wa_link": wa_link}
+    return {
+        "numero": pedidos_criados[0]["numero"],
+        "numero_exibicao": primeiro_numero_exibicao,
+        "wa_link": wa_link,
+    }
 
 
 # ── /pedidos (Fase 12) ───────────────────────────────────────────────
@@ -1087,17 +1118,20 @@ def api_pedido_comprovante(request: Request, pedido_id: str) -> Response:
     return Response(content=obj["Body"].read(), media_type=obj.get("ContentType", "application/octet-stream"))
 
 
-def _avisar_rastreamento_manual(pedido: dict) -> None:
+def _avisar_rastreamento_manual(lote: list) -> None:
     """Fase 12 — ao marcar pago, avisa o cliente que o acompanhamento a
     partir dali é manual e ensina a frase-gatilho pra pedir status
-    (ver pedido_status em mongo_sync/sync_conversations.py). Best-
-    effort: sem chat_id (pedido nunca foi fechado pela conversa) não
-    tem pra quem mandar, e a própria _graph_call_best_effort já
+    (ver pedido_status em mongo_sync/sync_conversations.py). `lote` é a
+    lista de pedidos marcados juntos (1 item, ou o carrinho inteiro).
+    Best-effort: sem chat_id (pedido nunca foi fechado pela conversa)
+    não tem pra quem mandar, e a própria _graph_call_best_effort já
     engole erro de rede/API — nunca bloqueia o "marcar como pago"."""
-    chat_id = pedido.get("chat_id")
+    if not lote:
+        return
+    chat_id = lote[0].get("chat_id")
     if not chat_id or not (ACCESS_TOKEN and PHONE_NUMBER_ID):
         return
-    numero_exibicao = _numero_exibicao(pedido.get("numero"))
+    numero_exibicao = _numero_exibicao(lote[0].get("numero"))
     texto = (
         f"Pagamento do pedido #{numero_exibicao} confirmado! ✅\n\n"
         "O acompanhamento a partir daqui é direto com a gente — se quiser saber como está, "
@@ -1110,6 +1144,18 @@ def _avisar_rastreamento_manual(pedido: dict) -> None:
 
 
 @app.post("/painel/api/pedidos/{pedido_id}/pago")
+def _lote_do_pedido(pedido: dict) -> list:
+    """Pedido + irmãos do mesmo `lote_id` (mesmo carrinho, Fase 12
+    revisado) — mesma lógica de `mongo_sync/sync_conversations.py:
+    _pedido_lote`, duplicada aqui (processo separado). Sem lote_id,
+    vira grupo de 1 item só."""
+    lote_id = pedido.get("lote_id")
+    if not lote_id:
+        return [pedido]
+    itens = list(pedidos_col.find({"tenant_id": TENANT_ID, "lote_id": lote_id}))
+    return itens or [pedido]
+
+
 def api_pedido_marcar_pago(request: Request, pedido_id: str) -> dict:
     require_session(request)
     try:
@@ -1119,8 +1165,12 @@ def api_pedido_marcar_pago(request: Request, pedido_id: str) -> dict:
     pedido = pedidos_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
-    pedidos_col.update_one({"_id": oid}, {"$set": {"status": "pago", "pago_em": datetime.now(timezone.utc)}})
-    _avisar_rastreamento_manual(pedido)
+    lote = _lote_do_pedido(pedido)
+    pedidos_col.update_many(
+        {"_id": {"$in": [p["_id"] for p in lote]}},
+        {"$set": {"status": "pago", "pago_em": datetime.now(timezone.utc)}},
+    )
+    _avisar_rastreamento_manual(lote)
     return {"ok": True}
 
 
@@ -1131,12 +1181,14 @@ def api_pedido_cancelar(request: Request, pedido_id: str) -> dict:
         oid = ObjectId(pedido_id)
     except InvalidId:
         raise HTTPException(status_code=400, detail="Id inválido")
-    resultado = pedidos_col.update_one(
-        {"_id": oid, "tenant_id": TENANT_ID},
+    pedido = pedidos_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    lote = _lote_do_pedido(pedido)
+    pedidos_col.update_many(
+        {"_id": {"$in": [p["_id"] for p in lote]}},
         {"$set": {"status": "cancelado", "cancelado_em": datetime.now(timezone.utc)}},
     )
-    if resultado.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Pedido não encontrado")
     return {"ok": True}
 
 
