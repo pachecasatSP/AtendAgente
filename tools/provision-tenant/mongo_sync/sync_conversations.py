@@ -285,11 +285,20 @@ def pedido_fechar(chat_id: str, texto: str) -> dict:
     return {"ok": False}
 
 
+RASTREIO_MENSAGENS_STATUS = {
+    "em_preparacao": "Seu pedido #{numero} está em preparação! 📦 Assim que for enviado eu te aviso.",
+    "enviado": "Seu pedido #{numero} já foi enviado! 🚚",
+    "entregue": "Seu pedido #{numero} já foi entregue! 🎉 Qualquer coisa, é só chamar.",
+}
+
+
 def pedido_status(chat_id: str, texto: str) -> dict:
-    """Frase-gatilho "qual o status do meu pedido #N" — não existe
-    rastreamento automatizado nenhum (decisão explícita da Fase 12), só
-    marca a sessão precisando de atenção (mesmo handoff da Fase 5) pra
-    um operador responder manualmente."""
+    """Frase-gatilho "qual o status do meu pedido #N" (ou toque no botão
+    nativo "Rastrear pedido" da confirmação de pagamento). Responde
+    direto com o `rastreio_status` já registrado no painel (Fase 12) —
+    sem precisar de operador. Só aciona handoff (Fase 5) quando não há
+    rastreio pra informar (pedido ainda não pago, ou não encontrado) —
+    nesses casos não tem o que o bot responder sozinho."""
     if _pedidos_coll is None:
         return {"ok": False}
     numero = _pedido_extrair_numero(texto)
@@ -302,6 +311,11 @@ def pedido_status(chat_id: str, texto: str) -> dict:
         )
     if not pedido:
         return {"ok": False}
+
+    modelo = RASTREIO_MENSAGENS_STATUS.get(pedido.get("rastreio_status"))
+    if modelo:
+        return {"ok": True, "resposta": modelo.format(numero=_numero_exibicao(pedido["numero"]))}
+
     _marcar_handoff_pedido(chat_id)
     return {
         "ok": True,
