@@ -586,6 +586,13 @@ spec:
                 name: {prefix}-panel
                 port:
                   number: 8000
+          - path: /pedidos
+            pathType: Prefix
+            backend:
+              service:
+                name: {prefix}-panel
+                port:
+                  number: 8000
           - path: /
             pathType: Prefix
             backend:
