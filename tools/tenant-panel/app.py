@@ -229,7 +229,11 @@ def panel_shell(request: Request):
         return RedirectResponse("/painel/login")
     signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
     agenda_disponivel = bool(CALENDAR_MCP_TOKEN) and bool(((signup or {}).get("config") or {}).get("agendamento_ativo"))
-    return templates.TemplateResponse(request, "index.html", {"tenant_id": TENANT_ID, "agenda_disponivel": agenda_disponivel})
+    pedidos_disponivel = bool(((signup or {}).get("config") or {}).get("pagamento_pix_ativo"))
+    return templates.TemplateResponse(
+        request, "index.html",
+        {"tenant_id": TENANT_ID, "agenda_disponivel": agenda_disponivel, "pedidos_disponivel": pedidos_disponivel},
+    )
 
 
 @app.get("/painel/api/usage")
@@ -992,6 +996,104 @@ def api_vitrine_criar_pedido(payload: dict) -> dict:
     texto = f"Quero fechar o pedido #{numero_pedido} ({item.get('nome', '')} - {valor_fmt})"
     wa_link = f"https://wa.me/{numero_whatsapp}?text={urllib.parse.quote(texto)}"
     return {"numero": numero_pedido, "wa_link": wa_link}
+
+
+# ── /pedidos (Fase 12) ───────────────────────────────────────────────
+
+PEDIDOS_PAGINA_TAMANHO = 20
+
+
+@app.get("/pedidos", response_class=HTMLResponse)
+def pedidos_page(request: Request):
+    if not TENANT_ENABLED:
+        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+    if not request.session.get("username"):
+        return RedirectResponse("/painel/login")
+    return templates.TemplateResponse(request, "pedidos.html", {"tenant_id": TENANT_ID})
+
+
+@app.get("/painel/api/pedidos")
+def api_pedidos_listar(request: Request, offset: int = 0) -> dict:
+    require_session(request)
+    itens = list(
+        pedidos_col.find({"tenant_id": TENANT_ID})
+        .sort("criado_em", -1)
+        .skip(max(offset, 0))
+        .limit(PEDIDOS_PAGINA_TAMANHO)
+    )
+
+    def _iso_utc(dt):
+        return dt.replace(tzinfo=timezone.utc).isoformat() if dt else None
+
+    return {
+        "pedidos": [
+            {
+                "id": str(p["_id"]),
+                "numero": p.get("numero"),
+                "item_nome": p.get("item_nome"),
+                "valor": p.get("valor"),
+                "status": p.get("status"),
+                "chat_id": p.get("chat_id"),
+                "criado_em": _iso_utc(p.get("criado_em")),
+                "comprovante_url": p.get("comprovante_url"),
+            }
+            for p in itens
+        ],
+        "tem_mais": len(itens) == PEDIDOS_PAGINA_TAMANHO,
+    }
+
+
+def _avisar_rastreamento_manual(pedido: dict) -> None:
+    """Fase 12 — ao marcar pago, avisa o cliente que o acompanhamento a
+    partir dali é manual e ensina a frase-gatilho pra pedir status
+    (ver pedido_status em mongo_sync/sync_conversations.py). Best-
+    effort: sem chat_id (pedido nunca foi fechado pela conversa) não
+    tem pra quem mandar, e a própria _graph_call_best_effort já
+    engole erro de rede/API — nunca bloqueia o "marcar como pago"."""
+    chat_id = pedido.get("chat_id")
+    if not chat_id or not (ACCESS_TOKEN and PHONE_NUMBER_ID):
+        return
+    numero = pedido.get("numero")
+    texto = (
+        f"Pagamento do pedido #{numero} confirmado! ✅\n\n"
+        "O acompanhamento a partir daqui é direto com a gente — se quiser saber como está, "
+        f"é só mandar \"qual o status do meu pedido #{numero}?\" que a gente verifica."
+    )
+    _graph_call_best_effort(
+        f"{PHONE_NUMBER_ID}/messages",
+        {"messaging_product": "whatsapp", "to": chat_id, "type": "text", "text": {"body": texto}},
+    )
+
+
+@app.post("/painel/api/pedidos/{pedido_id}/pago")
+def api_pedido_marcar_pago(request: Request, pedido_id: str) -> dict:
+    require_session(request)
+    try:
+        oid = ObjectId(pedido_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Id inválido")
+    pedido = pedidos_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    pedidos_col.update_one({"_id": oid}, {"$set": {"status": "pago", "pago_em": datetime.now(timezone.utc)}})
+    _avisar_rastreamento_manual(pedido)
+    return {"ok": True}
+
+
+@app.post("/painel/api/pedidos/{pedido_id}/cancelar")
+def api_pedido_cancelar(request: Request, pedido_id: str) -> dict:
+    require_session(request)
+    try:
+        oid = ObjectId(pedido_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Id inválido")
+    resultado = pedidos_col.update_one(
+        {"_id": oid, "tenant_id": TENANT_ID},
+        {"$set": {"status": "cancelado", "cancelado_em": datetime.now(timezone.utc)}},
+    )
+    if resultado.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    return {"ok": True}
 
 
 def _calendar_mcp_post(path: str, payload: dict) -> dict:

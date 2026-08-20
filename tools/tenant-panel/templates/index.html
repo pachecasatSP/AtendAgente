@@ -237,6 +237,14 @@
           </svg>
         </a>
         {% endif %}
+        {% if pedidos_disponivel %}
+        <a href="/pedidos" class="logout-link" title="Pedidos" aria-label="Pedidos" style="margin-right:0.7rem;color:var(--leaf);display:inline-flex">
+          <svg viewBox="0 0 24 24" width="1.15em" height="1.15em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 2l1.5 4h9L18 2M4 6h16l-1.5 14a2 2 0 0 1-2 1.8H7.5a2 2 0 0 1-2-1.8L4 6z"/>
+            <path d="M9 10v6M15 10v6"/>
+          </svg>
+        </a>
+        {% endif %}
         <a href="/configuracoes" class="logout-link" title="Configurações" aria-label="Configurações" style="margin-right:0.7rem;color:var(--leaf);display:inline-flex">
           <svg viewBox="0 0 24 24" width="1.15em" height="1.15em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3"/>
