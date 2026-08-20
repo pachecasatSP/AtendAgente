@@ -154,6 +154,9 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         acoes.push('<button type="button" class="pedido-btn pagar" data-acao="pago">Marcar como pago</button>');
         acoes.push('<button type="button" class="pedido-btn cancelar" data-acao="cancelar">Cancelar</button>');
       }
+      if (p.status === 'pago' && p.chat_id) {
+        acoes.push('<button type="button" class="pedido-btn" data-acao-especial="reenviar-rastreio">Reenviar aviso de rastreio</button>');
+      }
 
       const nomesItens = escapeHtml((p.itens || []).map((i) => i.item_nome).join(', '));
       const contagem = (p.itens || []).length > 1 ? ` (${p.itens.length} itens)` : '';
@@ -169,11 +172,31 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         <div class="pedido-acoes">${acoes.join('')}</div>
       `;
 
-      row.querySelectorAll('.pedido-btn').forEach((btn) => {
+      row.querySelectorAll('.pedido-btn[data-acao]').forEach((btn) => {
         btn.addEventListener('click', () => executarAcao(p.id, btn.dataset.acao, btn, row));
+      });
+      row.querySelectorAll('.pedido-btn[data-acao-especial]').forEach((btn) => {
+        btn.addEventListener('click', () => reenviarRastreio(p.id, btn));
       });
 
       return row;
+    }
+
+    async function reenviarRastreio(id, btn) {
+      btn.disabled = true;
+      const textoOriginal = btn.textContent;
+      btn.textContent = 'Enviando…';
+      try {
+        const resp = await fetch(`/painel/api/pedidos/${id}/reenviar-rastreio`, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.detail || 'Não consegui mandar a mensagem.');
+        btn.textContent = 'Enviado ✓';
+        setTimeout(() => { btn.textContent = textoOriginal; btn.disabled = false; }, 2500);
+      } catch (err) {
+        alert(err.message);
+        btn.textContent = textoOriginal;
+        btn.disabled = false;
+      }
     }
 
     async function executarAcao(id, acao, btn, row) {

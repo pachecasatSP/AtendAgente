@@ -1146,29 +1146,34 @@ def api_pedido_comprovante(request: Request, pedido_id: str) -> Response:
     return Response(content=obj["Body"].read(), media_type=obj.get("ContentType", "application/octet-stream"))
 
 
-def _avisar_rastreamento_manual(lote: list) -> None:
-    """Fase 12 — ao marcar pago, avisa o cliente que o acompanhamento a
-    partir dali é manual e ensina a frase-gatilho pra pedir status
-    (ver pedido_status em mongo_sync/sync_conversations.py). `lote` é a
-    lista de pedidos marcados juntos (1 item, ou o carrinho inteiro).
-    Best-effort: sem chat_id (pedido nunca foi fechado pela conversa)
-    não tem pra quem mandar, e a própria _graph_call_best_effort já
-    engole erro de rede/API — nunca bloqueia o "marcar como pago"."""
-    if not lote:
-        return
-    chat_id = lote[0].get("chat_id")
-    if not chat_id or not (ACCESS_TOKEN and PHONE_NUMBER_ID):
-        return
+def _texto_rastreamento_manual(lote: list) -> str:
     numero_exibicao = _numero_exibicao(lote[0].get("numero"))
-    texto = (
+    return (
         f"Pagamento do pedido #{numero_exibicao} confirmado! ✅\n\n"
         "O acompanhamento a partir daqui é direto com a gente — se quiser saber como está, "
         f"é só mandar \"qual o status do meu pedido #{numero_exibicao}?\" que a gente verifica."
     )
-    _graph_call_best_effort(
+
+
+def _avisar_rastreamento_manual(lote: list) -> bool:
+    """Fase 12 — ao marcar pago (ou quando o tenant clica em "reenviar"
+    em /pedidos), avisa o cliente que o acompanhamento a partir dali é
+    manual e ensina a frase-gatilho pra pedir status (ver pedido_status
+    em mongo_sync/sync_conversations.py). `lote` é a lista de pedidos
+    marcados juntos (1 item, ou o carrinho inteiro). Best-effort no
+    fluxo automático (nunca bloqueia o "marcar como pago"); o botão
+    manual usa o retorno pra avisar se falhou."""
+    if not lote:
+        return False
+    chat_id = lote[0].get("chat_id")
+    if not chat_id or not (ACCESS_TOKEN and PHONE_NUMBER_ID):
+        return False
+    texto = _texto_rastreamento_manual(lote)
+    resultado = _graph_call_best_effort(
         f"{PHONE_NUMBER_ID}/messages",
         {"messaging_product": "whatsapp", "to": chat_id, "type": "text", "text": {"body": texto}},
     )
+    return bool(resultado.get("messages"))
 
 
 def _lote_do_pedido(pedido: dict) -> list:
@@ -1199,6 +1204,27 @@ def api_pedido_marcar_pago(request: Request, pedido_id: str) -> dict:
         {"$set": {"status": "pago", "pago_em": datetime.now(timezone.utc)}},
     )
     _avisar_rastreamento_manual(lote)
+    return {"ok": True}
+
+
+@app.post("/painel/api/pedidos/{pedido_id}/reenviar-rastreio")
+def api_pedido_reenviar_rastreio(request: Request, pedido_id: str) -> dict:
+    """Botão manual em /pedidos — reenvia a mesma mensagem de
+    rastreamento (a mesma que sai sozinha ao marcar como pago), pra
+    quando o cliente perdeu/não recebeu ou o tenant quer lembrar."""
+    require_session(request)
+    try:
+        oid = ObjectId(pedido_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Id inválido")
+    pedido = pedidos_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    lote = _lote_do_pedido(pedido)
+    if not lote[0].get("chat_id"):
+        raise HTTPException(status_code=400, detail="Esse pedido não tem um contato de WhatsApp vinculado")
+    if not _avisar_rastreamento_manual(lote):
+        raise HTTPException(status_code=502, detail="Não consegui mandar a mensagem agora — tenta de novo em instantes")
     return {"ok": True}
 
 
