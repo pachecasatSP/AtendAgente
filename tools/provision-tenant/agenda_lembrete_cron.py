@@ -89,7 +89,37 @@ def _ensure_template(waba_id: str, access_token: str, done: set) -> None:
         done.add(waba_id)
 
 
-def _enviar(tenant: dict, agendamento: dict, done_templates: set) -> bool:
+def _registrar_mensagem(db, tenant_id: str, chat_id: str, role: str, content: str, msg_key: str) -> None:
+    """Grava uma entrada em `messages` pra essa ação aparecer no histórico
+    da conversa no painel — sem isso, o operador via handoff (Fase 11)
+    não tinha nenhum contexto do que o cliente/bot trocaram, só o banner
+    de alerta. Best-effort: nunca deve derrubar o envio de verdade.
+
+    `_id` usa um sufixo string (não o inteiro `message_id` que o
+    mongo-sync usa pras mensagens reais do SQLite) — evita colidir com
+    uma mensagem futura sincronizada da conversa normal. `msg_key`
+    (ex: agendamento_id + ação) faz o upsert ser idempotente contra
+    reenvio de webhook/reexecução do cron."""
+    sessions_coll = db["sessions"]
+    messages_coll = db["messages"]
+    sessao = sessions_coll.find_one({"tenant_id": tenant_id, "chat_id": chat_id}, sort=[("last_activity_at", -1)])
+    if not sessao:
+        return
+    messages_coll.update_one(
+        {"_id": f"{tenant_id}:agenda:{msg_key}"},
+        {"$set": {
+            "tenant_id": tenant_id,
+            "session_id": sessao["session_id"],
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now(timezone.utc).timestamp(),
+            "synced_at": datetime.now(timezone.utc),
+        }},
+        upsert=True,
+    )
+
+
+def _enviar(db, tenant: dict, agendamento: dict, done_templates: set) -> bool:
     access_token = tenant.get("access_token") or ""
     phone_number_id = tenant.get("phone_number_id") or ""
     waba_id = tenant.get("waba_id") or ""
@@ -98,6 +128,7 @@ def _enviar(tenant: dict, agendamento: dict, done_templates: set) -> bool:
         return False
     _ensure_template(waba_id, access_token, done_templates)
     agendamento_id = str(agendamento["_id"])
+    quando = _formatar_quando(agendamento["inicio"])
     resultado = _graph_call(
         access_token, f"{phone_number_id}/messages",
         {
@@ -108,7 +139,7 @@ def _enviar(tenant: dict, agendamento: dict, done_templates: set) -> bool:
                 "name": AGENDA_TEMPLATE_NAME,
                 "language": {"code": "pt_BR"},
                 "components": [
-                    {"type": "body", "parameters": [{"type": "text", "text": _formatar_quando(agendamento["inicio"])}]},
+                    {"type": "body", "parameters": [{"type": "text", "text": quando}]},
                     {"type": "button", "sub_type": "quick_reply", "index": "0",
                      "parameters": [{"type": "payload", "payload": f"agenda_confirmar:{agendamento_id}"}]},
                     {"type": "button", "sub_type": "quick_reply", "index": "1",
@@ -117,7 +148,17 @@ def _enviar(tenant: dict, agendamento: dict, done_templates: set) -> bool:
             },
         },
     )
-    return bool(resultado.get("messages") or [])
+    enviado = bool(resultado.get("messages") or [])
+    if enviado:
+        try:
+            _registrar_mensagem(
+                db, agendamento["tenant_id"], chat_id, "assistant",
+                f"Oi! Confirmando seu compromisso: {quando}.\nSe puder, toca em um dos botões abaixo.",
+                f"{agendamento_id}:enviado",
+            )
+        except Exception as e:
+            print(f"[agenda-lembrete] registrar mensagem ERRO: {e}")
+    return enviado
 
 
 def run() -> None:
@@ -151,7 +192,7 @@ def run() -> None:
         }))
         for agendamento in pendentes:
             try:
-                enviado = _enviar(tenant, agendamento, done_templates)
+                enviado = _enviar(db, tenant, agendamento, done_templates)
             except Exception as e:
                 print(f"[agenda-lembrete] {tenant_id} agendamento={agendamento['_id']} ERRO: {e}")
                 continue

@@ -80,6 +80,12 @@ _signups_coll = None
 _pedidos_coll = None
 _sessions_coll = None
 
+# `messages` — usada só pra registrar, no histórico da conversa, ações
+# de fluxos laterais que não passam pelo `hermes` (confirmação de
+# agenda, rastreio de pedido). Sem isso o operador via handoff só via
+# um banner de alerta, sem nenhum contexto do que realmente aconteceu.
+_messages_coll = None
+
 PEDIDO_NUMERO_REGEX = re.compile(r"pedido\D{0,10}#?\s*(\d+)", re.IGNORECASE)
 PEDIDO_STATUS_KEYWORDS = ("status", "andamento", "rastre")
 PEDIDO_STATUS_TERMINAIS = ("pago", "cancelado")
@@ -437,6 +443,40 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
     return {"ok": True, "resposta": f"Recebi o comprovante do pedido #{_numero_exibicao(lote[0]['numero'])}! Vou confirmar e já te aviso. 🙏"}
 
 
+def _registrar_mensagem(chat_id: str, role: str, content: str, msg_key: str) -> None:
+    """Grava uma entrada em `messages` pra uma ação de fluxo lateral
+    (tap de botão de agenda, gatilho de pedido) aparecer no histórico
+    da conversa no painel — sem isso, o operador que recebe um handoff
+    só via o banner de alerta, sem contexto nenhum do que aconteceu.
+    Best-effort, nunca deve derrubar a resposta que o cliente já
+    recebeu.
+
+    `_id` usa um sufixo string próprio do fluxo (não o `message_id`
+    inteiro que o sync do SQLite usa) — evita colidir com uma mensagem
+    futura da conversa normal. `msg_key` deve ser único e estável pra
+    essa ação (ex: agendamento_id + tipo) — faz o upsert ser
+    idempotente contra reenvio de webhook."""
+    if _sessions_coll is None or _messages_coll is None:
+        return
+    sessao = _sessions_coll.find_one(
+        {"tenant_id": TENANT_ID, "chat_id": chat_id}, sort=[("last_activity_at", -1)]
+    )
+    if not sessao:
+        return
+    _messages_coll.update_one(
+        {"_id": f"{TENANT_ID}:{msg_key}"},
+        {"$set": {
+            "tenant_id": TENANT_ID,
+            "session_id": sessao["session_id"],
+            "role": role,
+            "content": content,
+            "timestamp": now().timestamp(),
+            "synced_at": now(),
+        }},
+        upsert=True,
+    )
+
+
 def _marcar_handoff_pedido(chat_id: str, motivo: str = "pedido (rastreamento manual)") -> None:
     """Marca só a sessão MAIS RECENTE desse chat_id — nunca `update_many`
     por chat_id sozinho. Bug real encontrado 2026-08-20: um chat_id tem
@@ -588,6 +628,26 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
                     return_document=ReturnDocument.AFTER,
                 )
                 ok = doc_atualizado is not None
+                if ok:
+                    # Espelha os dois lados da troca que já aconteceu de
+                    # verdade no WhatsApp (tap do cliente + resposta fixa do
+                    # whatsapp_cloud_patched.py::_dispatch_agenda_button_reply)
+                    # — duplicado aqui de propósito (mesmo raciocínio de
+                    # sempre nesse projeto pra lógica cross-serviço), não
+                    # existe canal de volta desse HTTP pra saber o texto
+                    # exato enviado.
+                    chat_id = str(doc_atualizado.get("chat_id") or "")
+                    if acao == "confirmar":
+                        tap_texto, resposta_texto = "Confirmou o compromisso", "Combinado, presença confirmada! ✅"
+                    else:
+                        tap_texto = "Pediu para remarcar o compromisso"
+                        resposta_texto = "Sem problemas! Já avisei nossa equipe pra te ajudar a encontrar um novo horário 🙂"
+                    if chat_id:
+                        try:
+                            _registrar_mensagem(chat_id, "user", f"[{tap_texto}]", f"agenda:{agendamento_id}:{acao}:tap")
+                            _registrar_mensagem(chat_id, "assistant", resposta_texto, f"agenda:{agendamento_id}:{acao}:resposta")
+                        except Exception as e:
+                            print(f"[mongo-sync] registrar mensagem (agenda) ERRO: {e}")
                 if ok and acao == "remarcar":
                     try:
                         _cancelar_evento_google(doc_atualizado)
@@ -752,7 +812,7 @@ def ensure_indexes(db) -> None:
 
 
 def main() -> None:
-    global _agendamentos_coll, _signups_coll, _pedidos_coll, _sessions_coll
+    global _agendamentos_coll, _signups_coll, _pedidos_coll, _sessions_coll, _messages_coll
     client = MongoClient(MONGO_URI)
     db = client.get_default_database()
     ensure_indexes(db)
@@ -762,6 +822,7 @@ def main() -> None:
     _signups_coll = db["signups"]
     _pedidos_coll = db["pedidos"]
     _sessions_coll = sessions_coll
+    _messages_coll = db["messages"]
 
     start_handoff_http_server()
     print(f"[mongo-sync] tenant={TENANT_ID} interval={SYNC_INTERVAL_SECONDS}s iniciado")

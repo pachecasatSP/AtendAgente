@@ -1960,7 +1960,9 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         resposta = (
             "Combinado, presença confirmada! ✅"
             if acao == "confirmar"
-            else "Sem problemas! Me diga um novo horário que funcione melhor pra você que a gente reagenda 🙂"
+            # Remarcar aciona handoff pra um operador (ver mongo_sync._handle_agenda_confirmar) —
+            # a resposta não pode prometer que o bot vai reagendar sozinho.
+            else "Sem problemas! Já avisei nossa equipe pra te ajudar a encontrar um novo horário 🙂"
         )
         try:
             await self.send(chat_id, resposta)
@@ -2049,6 +2051,38 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
                 logger.exception("[whatsapp_cloud] pedido-comprovante reply send failed")
         return True
 
+    # Botão nativo "Rastrear pedido" na mensagem de confirmação de
+    # pagamento (Fase 12) — enviado pelo tenant-panel (processo
+    # separado, sem estado em memória compartilhado com o gateway),
+    # por isso usa um prefixo próprio no id do botão em vez do esquema
+    # de _dispatch_interactive_reply (que resolve só prompts que o
+    # próprio bot gerou nesta execução, via dict em memória). Delega
+    # pro mesmo endpoint /pedido-status que o gatilho por texto usa —
+    # o cliente não precisa mais digitar nada, só tocar no botão.
+    async def _dispatch_pedido_status_button(self, chat_id: str, button_id: str) -> bool:
+        if not button_id.startswith("pedido_status:") or self._http_client is None:
+            return False
+        numero_exibicao = button_id.split(":", 1)[1]
+        try:
+            resp = await self._http_client.post(
+                "http://127.0.0.1:8091/pedido-status",
+                json={"chat_id": chat_id, "texto": f"pedido #{numero_exibicao}"},
+                timeout=8.0,
+            )
+            if resp.status_code != 200:
+                return False
+            data = resp.json()
+        except Exception:
+            logger.exception("[whatsapp_cloud] pedido_status button HTTP call failed")
+            return False
+
+        resposta = data.get("resposta") or "Já avisei nossa equipe — em breve alguém te responde por aqui! 🙏"
+        try:
+            await self.send(chat_id, resposta)
+        except Exception:
+            logger.exception("[whatsapp_cloud] pedido_status button reply send failed")
+        return True
+
     async def _build_message_event_from_cloud(
         self,
         raw_message: Dict[str, Any],
@@ -2081,6 +2115,14 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             )
             if handled:
                 return None
+            inter = raw_message.get("interactive") or {}
+            button_id = str((inter.get("button_reply") or {}).get("id") or "").strip()
+            if button_id:
+                handled = await self._dispatch_pedido_status_button(
+                    str(raw_message.get("from") or ""), button_id
+                )
+                if handled:
+                    return None
 
         if msg_type_str == "button":
             handled = await self._dispatch_agenda_button_reply(raw_message)
