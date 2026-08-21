@@ -437,7 +437,7 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
     return {"ok": True, "resposta": f"Recebi o comprovante do pedido #{_numero_exibicao(lote[0]['numero'])}! Vou confirmar e já te aviso. 🙏"}
 
 
-def _marcar_handoff_pedido(chat_id: str) -> None:
+def _marcar_handoff_pedido(chat_id: str, motivo: str = "pedido (rastreamento manual)") -> None:
     """Marca só a sessão MAIS RECENTE desse chat_id — nunca `update_many`
     por chat_id sozinho. Bug real encontrado 2026-08-20: um chat_id tem
     várias sessões ao longo do tempo (reinícios de conversa, etc.); o
@@ -446,7 +446,11 @@ def _marcar_handoff_pedido(chat_id: str) -> None:
     então marcar sessões antigas/mortas junto contaminava o número
     inteiro pra sempre, mesmo depois da sessão viva ser resolvida. Mesmo
     cuidado que o handoff da Fase 5 (escalação) já tinha, que filtra por
-    `session_id` específico, não por chat_id solto."""
+    `session_id` específico, não por chat_id solto.
+
+    `motivo` vira `handoff_by` — reaproveitado por outros gatilhos além
+    do pedido (ex: remarcação de agendamento) que precisam do mesmo
+    cuidado de escopo por sessão."""
     if _sessions_coll is None:
         return
     sessao_atual = _sessions_coll.find_one(
@@ -458,7 +462,7 @@ def _marcar_handoff_pedido(chat_id: str) -> None:
         {"_id": sessao_atual["_id"]},
         {"$set": {
             "needs_operator": True, "needs_operator_at": now(),
-            "handoff": True, "handoff_by": "pedido (rastreamento manual)", "handoff_at": now(),
+            "handoff": True, "handoff_by": motivo, "handoff_at": now(),
         }},
     )
 
@@ -589,6 +593,17 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
                         _cancelar_evento_google(doc_atualizado)
                     except Exception as e:
                         print(f"[mongo-sync] cancelar-evento ERRO: {e}")
+                    # Cliente pediu remarcação — o bot não escolhe horário
+                    # novo sozinho, então já entrega a conversa pra um
+                    # operador em vez de deixar o cliente tendo que pedir
+                    # de novo. Mesmo helper/cuidado de escopo por sessão
+                    # que o handoff de pedido já usa.
+                    chat_id = str(doc_atualizado.get("chat_id") or "")
+                    if chat_id:
+                        try:
+                            _marcar_handoff_pedido(chat_id, motivo="agenda (remarcação)")
+                        except Exception as e:
+                            print(f"[mongo-sync] handoff remarcação ERRO: {e}")
         return {"ok": ok}
 
 

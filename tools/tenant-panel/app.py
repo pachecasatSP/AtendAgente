@@ -273,6 +273,7 @@ def api_sessions(request: Request) -> list[dict]:
             "message_count": s.get("message_count") or 0,
             "handoff": bool(s.get("handoff")),
             "needs_operator": bool(s.get("needs_operator")),
+            "handoff_by": s.get("handoff_by"),
         }
         for s in sessions
     ]

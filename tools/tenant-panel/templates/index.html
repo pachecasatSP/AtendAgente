@@ -299,7 +299,7 @@
         <button id="handoff-btn" class="handoff-btn bot" type="button"></button>
       </div>
       <div id="operator-alert" class="operator-alert" style="display:none">
-        🚨 O bot sinalizou que essa conversa precisa de um humano assumindo.
+        <span id="operator-alert-text">🚨 O bot sinalizou que essa conversa precisa de um humano assumindo.</span>
         <button id="resolve-btn" type="button">Marcar como resolvido</button>
       </div>
       <div id="thread-area" class="main-empty">Selecione uma conversa</div>
@@ -336,6 +336,22 @@
 
     function seenKey(sessionId) { return 'painel-seen-' + sessionId; }
 
+    // `handoff_by` guarda o gatilho técnico que acionou o handoff
+    // automático (ver sync_conversations.py) — mapeado aqui pra uma
+    // frase que faz sentido pro operador do painel, que não precisa
+    // saber o nome interno da rotina que disparou.
+    const HANDOFF_MOTIVO_LABEL = {
+      'bot (auto-escalação)': 'o bot identificou que precisa de uma pessoa',
+      'pedido (rastreamento manual)': 'cliente perguntou sobre um pedido sem rastreio cadastrado',
+      'agenda (remarcação)': 'cliente pediu pra remarcar um horário',
+    };
+
+    function handoffMotivoTexto(handoffBy) {
+      if (!handoffBy) return 'O bot sinalizou que essa conversa precisa de um humano assumindo.';
+      const label = HANDOFF_MOTIVO_LABEL[handoffBy];
+      return label ? `Motivo: ${label}.` : `Motivo: ${handoffBy}`;
+    }
+
     function escapeHtml(str) {
       const div = document.createElement('div');
       div.textContent = str || '';
@@ -358,6 +374,7 @@
         const unread = Math.max(0, (s.message_count || 0) - seenCount);
         const item = document.createElement('div');
         item.className = 'conv-item' + (s.session_id === activeSessionId ? ' active' : '') + (s.needs_operator ? ' needs-operator' : '');
+        if (s.needs_operator) item.title = handoffMotivoTexto(s.handoff_by);
         item.innerHTML = `
           <div>
             <div class="conv-name">${s.needs_operator ? '🚨 ' : ''}${escapeHtml(s.display_name || s.chat_id || s.session_id)}</div>
@@ -386,6 +403,9 @@
         composeFormEl.style.display = 'none';
       }
       operatorAlertEl.style.display = s.needs_operator ? 'flex' : 'none';
+      if (s.needs_operator) {
+        document.getElementById('operator-alert-text').textContent = '🚨 ' + handoffMotivoTexto(s.handoff_by);
+      }
     }
 
     async function renderThread(sessionId, { silent } = {}) {
