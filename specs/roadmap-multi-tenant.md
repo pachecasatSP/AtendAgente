@@ -1219,6 +1219,102 @@ comprovante fechou os 2 pedidos juntos sem precisar perguntar o número
 (só 1 grupo em aberto) → "marcar como pago" em qualquer um dos 2
 propagou pro outro.
 
+**Segunda rodada de revisão (mesmo dia, uso real pós-publicação):**
+
+1. **Bugs reais encontrados e corrigidos** durante o uso ao vivo pelo
+   usuário:
+   - `/vitrine` montava as seções direto dos docs crus do Mongo (só
+     `_id`, sem `id`), deixando o botão "Adicionar" mandar `item_id=""`
+     e voltar "Item inválido" — corrigido adicionando `item["id"] =
+     str(item["_id"])` antes de agrupar.
+   - `/pedidos` nunca tinha sido adicionado ao Ingress — existia no
+     FastAPI mas não era roteável de fora do cluster.
+   - `_marcar_handoff_pedido` usava `update_many` filtrando só por
+     `chat_id`, marcando **todas** as sessões (inclusive mortas/antigas)
+     daquele número com `handoff: true` — o cache de supressão de envio
+     olha "existe qualquer sessão desse chat_id com handoff ativo", então
+     uma sessão morta contaminava o número inteiro pra sempre. Esse foi o
+     bug real por trás de mensagens do bot não chegarem (a hipótese
+     inicial, `WHATSAPP_CLOUD_HOME_CHANNEL`, foi descartada). Corrigido
+     pra marcar só a sessão mais recente — ver
+     `infra_handoff_update_many_bug` nas memórias.
+   - Uma edição anterior tinha deixado o decorator
+     `@app.post(".../pago")` colado na função errada
+     (`_lote_do_pedido`), deixando `api_pedido_marcar_pago` sem rota
+     registrada — corrigido reordenando as definições.
+   - Tentativa de remover o hífen do `numero_exibicao` (só deixar
+     maiúsculo colado, ex: `#477EBB6532`) quebrava o regex de extração
+     — sufixo hex pode começar com dígito e colar no número sequencial.
+     Revertido só essa parte; mantido o hífen, aplicado o uppercase.
+
+2. **Fluxo de escalação revisado** (`SOUL.template.md`, afeta todo
+   tenant AtendPraGente, não só quem tem Fase 12 ativa): o bot não dita
+   mais o telefone de quem escala pro cliente — só diz "Vou chamar
+   {nome} e {pronome} vai te atender rapidinho pra isso!", frase que já
+   dispara o handoff automaticamente (nova frase-gatilho genérica,
+   `"vai te atender rapidinho"`, somada à já existente da AC Soluções
+   em `ESCALATION_MARKERS`). Motivo: dar o telefone de escalação pro
+   cliente é frágil quando esse número é o mesmo configurado como
+   `WHATSAPP_CLOUD_HOME_CHANNEL` do tenant (comum, já que costuma ser o
+   próprio dono/atendente) — e some ponto secundário mas real, evita
+   vazar o número pessoal de quem atende.
+
+3. **`/pedidos` agrupa visualmente por lote** — motivo: marcar um item
+   como pago propagava pro carrinho inteiro (comportamento correto,
+   decisão já tomada), mas a UI mostrava 4 linhas soltas parecendo 4
+   pedidos independentes, confundindo o usuário. Agora cada "pedido" na
+   lista é um card com a lista de itens + total, `offset`/paginação
+   contam grupos (lotes), não docs individuais.
+
+4. **`/pedidos` mostra o nome de exibição do WhatsApp do cliente**
+   (`contato_nome`, lido de `sessions.display_name`) em vez do número
+   cru — mais reconhecível pro dono do negócio.
+
+5. **Confirmação de pagamento vira botão nativo, não texto pra
+   digitar.** A mensagem de "pagamento confirmado" agora é uma
+   mensagem interativa (`type: interactive`) com um botão "Rastrear
+   pedido" (`id: pedido_status:<numero_exibicao>`) em vez de pedir pro
+   cliente digitar a frase-gatilho manualmente. Novo dispatcher
+   `_dispatch_pedido_status_button` em `whatsapp_cloud_patched.py`
+   reconhece o toque (prefixo próprio, não usa o esquema de estado em
+   memória de `_dispatch_interactive_reply` — processos diferentes) e
+   delega pro mesmo `/pedido-status` que o gatilho por texto já usava.
+
+6. **Estado de rastreio da entrega** (`rastreio_status`, campo
+   separado do status de pagamento): `em_preparacao` → `enviado` →
+   `entregue`, avançado por um botão em `/pedidos` (só aparece em
+   pedido pago, trava em "entregue"). Setado automaticamente pra
+   `em_preparacao` ao marcar como pago. Cada avanço via botão avisa o
+   cliente automaticamente (mensagem por estado — `enviado`/`entregue`;
+   `em_preparacao` não manda nada extra, já é implícito na mensagem de
+   confirmação de pagamento).
+
+7. **`pedido_status` responde direto com o rastreio, sem handoff.**
+   Como agora existe um `rastreio_status` de verdade, o gatilho "qual o
+   status do meu pedido?" (texto ou toque no botão nativo) responde
+   direto com o estado real ("já foi enviado 🚚" etc.) — só aciona
+   handoff quando não há rastreio pra informar (pedido ainda não pago,
+   ou não encontrado).
+
+8. **Fix de mobile no painel de conversas** (`index.html`, não é Fase
+   12, mas resolvido na mesma sessão): `.main` ganhou `min-width: 0`
+   (filho flex sem isso nunca encolhe além da largura intrínseca do
+   conteúdo, estourando a tela mesmo com `max-width` nas bolhas de
+   mensagem); `.layout` passou a usar `100dvh` com fallback `100vh`
+   (100vh no mobile não desconta o teclado virtual, empurrando a barra
+   de mensagem pra fora da área visível quando o teclado abre).
+
+9. **Confirmado, não é bug:** um cliente com o link da vitrine salvo
+   consegue abrir direto (sem conversa anterior nenhuma), montar o
+   carrinho e fechar o pedido — `/vitrine` e `/vitrine/api/pedido` são
+   rotas públicas sem `require_session`, testado com uma chamada "fria"
+   simulando exatamente esse cenário.
+
+**Descartado nesta rodada:** botões "Reenviar aviso de rastreio" e
+"Copiar texto de rastreio" em `/pedidos` — ambos ficaram obsoletos
+depois que a confirmação de pagamento virou botão nativo no WhatsApp
+(peça 5 acima), removidos do código.
+
 ---
 
 ## Riscos / decisões a revisitar cedo
