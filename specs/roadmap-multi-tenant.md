@@ -1317,14 +1317,179 @@ depois que a confirmação de pagamento virou botão nativo no WhatsApp
 
 ---
 
+## Teste de carga real + estrutura de custo por tenant (2026-08-20/21)
+
+Substituída a projeção teórica de capacidade (que existia só como
+risco em aberto, ver abaixo) por **medição real**, em duas rodadas:
+
+1. **Metodologia**: 10 webhooks WhatsApp sintéticos (assinatura HMAC
+   válida, mesmo caminho que a Meta usa de verdade — `X-Hub-Signature-256`
+   sobre `WHATSAPP_CLOUD_APP_SECRET`) disparados em paralelo de dentro
+   do próprio pod (`kubectl exec ... python3 script.py`) contra
+   `http://127.0.0.1:8090/whatsapp/webhook` — **porta 8090**, não a
+   porta 80 do Service/Ingress (`DEFAULT_WEBHOOK_PORT` em
+   `whatsapp_cloud_patched.py`). Cada mensagem completa um turno real
+   (LLM pago + consulta ao catálogo). Sessões sintéticas (`chat_id`
+   fake) removidas do Mongo (`sessions`/`messages`) logo depois de
+   cada rodada.
+2. **Primeira rodada** — `sandbox-tenant` (isolado, sem dado de
+   cliente): baseline 2–3m CPU/165Mi → pico **377m CPU/264Mi**, todos
+   os 10 turnos completos em ~16s de parede (confirma paralelismo
+   real, não fila).
+3. **Segunda rodada** — repetida no `linda-ana-calcados` (tenant de
+   produção real, a pedido do usuário, pra confirmar que o número não
+   era peculiaridade do sandbox): baseline 21m CPU/214Mi → pico **421m
+   CPU/260Mi**. Mesma ordem de grandeza da primeira rodada.
+   - Bug próprio encontrado durante a limpeza: script de `delete_many`
+     usava um formato de número de telefone com um dígito a menos
+     (`"551199991%02d"` em vez de `"5511999910%02d"`), então a
+     primeira tentativa de limpeza não encontrou nenhuma sessão pra
+     apagar. Corrigido, confirmado 0 sessões residuais depois.
+4. **Extrapolação linear** sobre as duas medições (custo marginal
+   médio ~38,7m CPU / ~7,3Mi memória por conversa simultânea): CPU
+   satura antes de memória em ambos os cenários — um único tenant
+   chega a 95% do limite de CPU do container (1000m) com **~24
+   conversas simultâneas nesse mesmo número**; memória fica bem
+   folgada nesse ponto (~35% do limite de 1Gi).
+5. **Estrutura de custo corrigida com preços reais** (não mais
+   estimativa pública) — trabalhando o cenário do artefato como
+   **máquina/bucket 100% dedicados ao AtendPraGente** (não mais
+   comparado ao namespace `consultor`, que só existia porque o cluster
+   de hoje ainda é compartilhado):
+   - Object Storage da Hetzner: modelo real é uma **taxa-base fixa de
+     US$7,99/mês** (não €/GB) — nosso uso total fica muito abaixo do
+     1TB-hora já incluso nela, então o custo real é essa taxa inteira,
+     não algo que cai a zero com pouco uso.
+   - Nó Hetzner (8vCPU/16GB, `ubuntu-16gb-hel1-1`, hel1): preço real
+     cobrado é **US$81,99/mês** — bem acima da referência pública que
+     tinha sido estimada antes (~€30-35).
+   - **Capacidade de planejamento adotada: 42 tenants/máquina** (por
+     limite de memória) — orçando ~356Mi/tenant, o pico real medido
+     do pod completo (tabela 4.1 do artefato), sem folga extra além
+     dele. Antes disso a capacidade calculada era ~36 tenants com
+     ~400Mi/tenant (padding extra sobre o pico) — 42 é uma decisão
+     consciente do usuário de reduzir essa margem de segurança. O
+     teto de **CPU em burst extremo** (todos os tenants com 10
+     clientes simultâneos no mesmo segundo exato, cenário raro) é um
+     recurso diferente e não mudou: continua em ~19 tenants.
+   - Rateando os dois custos reais pelos 42 tenants: ~R$10,99/tenant
+     (nó) + ~R$1,07/tenant (storage). **Margem bruta final**: Entrada
+     ~83%, Começando ~80%, Crescendo ~84% — o nó é o item de custo
+     mais relevante da conta, mas a margem segue acima de 80% em
+     todos os planos.
+   - Essa mudança de 36→42 tenants foi feita **só no artefato/
+     documento de planejamento** — nenhum `limits`/`requests` real
+     dos pods foi alterado em `provision_tenant.py`.
+6. **Ensaio de ajuste de preço do plano Começando** (margem estava em
+   ~78% antes da revisão pra 42 tenants, abaixo da meta informal de
+   80%): simulado — não aplicado — um reajuste de R$157,90 para
+   **R$174,90/mês** chegaria a ~80,5% de margem, mantendo desconto
+   visível na página de planos ("de R$197,00 por..."). Fica registrado
+   como opção pronta caso a margem real (com mais tenants em produção)
+   confirme a pressão; a mudança tocaria `PLANOS["comecando"]["valor"]`
+   em `tools/onboarding-service/app/main.py:50` e o checkout via Asaas.
+7. **Artefato publicado** com toda essa análise (arquitetura, casos de
+   uso, estrutura de custo completa, projeção de carga):
+   `https://claude.ai/code/artifact/d18856f0-af24-4adf-b9f9-6088005a11fb`
+   ("Arquitetura AtendPraGente"). Detalhes completos também na memória
+   `project_load_test_capacity`.
+8. **Identidade visual do artefato alinhada à marca real**: fontes
+   trocadas pra `Baloo 2` (display) + `Nunito` (corpo), paleta ajustada
+   pros tons exatos do site (`--paper #FFFCF5`, `--ink #17231D`),
+   cantos mais arredondados (10-12px → 16-22px). Wordmark
+   "Atend**Pra**Gente" com "Pra" em verde (`--leaf-deep #0E7A3D`) e o
+   resto em tinta escura, mais o logo SVG real do site (badge verde
+   arredondado) — aplicados na sidebar e no cabeçalho do documento.
+   Tokens e SVG completos salvos na memória
+   `project_atendpragente_brand` pra reuso em qualquer artefato futuro
+   da marca.
+
+---
+
+## Interpretação de áudio (voice notes) via Groq STT (2026-08-21)
+
+Cliente mandou áudio pro bot de um tenant e recebeu uma resposta em
+inglês seguida de "não consigo ouvir o áudio diretamente por aqui" —
+investigação (`kubectl exec` read-only, autorizado) achou que o
+`hermes-agent` já vem com STT embutido (`stt: enabled: true`), só que
+sem backend funcional: nenhuma chave de provedor de nuvem configurada
+e o pacote de Whisper local nem instalado na imagem
+(`ModuleNotFoundError`). Mais dois defaults errados no mesmo bloco:
+`language: en` (forçava a transcrição pro inglês) e
+`echo_transcripts: true` (ecoava o texto transcrito como mensagem
+própria antes de responder). Spec completa em
+`specs/interpretacao-audio-whatsapp.md`.
+
+**Decisões e mudanças:**
+- Backend escolhido: **Groq (`whisper-large-v3-turbo`)**, não local
+  (pod roda com 1 vCPU/1Gi, apertado — Whisper local competiria por
+  CPU) nem OpenAI. Groq não é roteável via OpenRouter — exige
+  `GROQ_API_KEY` própria (endpoint de transcrição não é chat
+  completions). Sem API de gerenciamento de chaves da Groq, então
+  **uma `GROQ_API_KEY` só, compartilhada por todos os tenants**
+  (mesmo padrão do `OPENROUTER_API_KEY`) — decisão forçada pela
+  Groq, não preferência.
+- `provision_tenant.py` atualizado: `GROQ_API_KEY` em `REQUIRED_ENV` +
+  `build_secret_manifest()` (todo tenant novo já nasce configurado) +
+  três `hermes config set` novos em `apply_display_defaults()`
+  (`stt.provider=groq`, `stt.language=pt`, `stt.echo_transcripts=false`).
+- Aplicado manualmente nos 3 tenants já vivos na época
+  (`linda-ana-calcados`, `novo-negocio`, `sandbox-tenant`) e também em
+  `hermes-duda` (cluster separado da AC Soluções, `hermes-env`) — essa
+  precisou de uma **segunda `GROQ_API_KEY`, conta separada** (decisão
+  do usuário, "a chave é separada").
+- Testado com áudio real em português: funcionou em `hermes-duda` e em
+  `linda-ana-calcados`.
+- **Incidente durante o rollout**: um comando de verificação (`kubectl
+  exec ... echo ${GROQ_API_KEY:+yes}${GROQ_API_KEY:-no}`) tinha um bug
+  de expansão de parâmetro do bash — `${VAR:-default}` só substitui
+  quando a variável está *vazia/unset*, não quando setada — e acabou
+  imprimindo a `GROQ_API_KEY` inteira no chat. Usuário revogou a chave
+  na hora; uma chave nova foi gerada e repatchada nos 3 tenants sem
+  reincidência (checagens seguintes usaram só `${#VAR}`, nunca o valor).
+  Detalhes na memória `security_groq_key_leak`.
+- **TTS (voz de saída) testado à parte, só na Duda**: Groq não tem
+  backend de TTS nesse `hermes-agent` (só STT). O framework já tem
+  `tts: provider: edge` (Microsoft Edge TTS, grátis) com voz default
+  em inglês — trocado pra `pt-BR-FranciscaNeural` só na Duda pra um
+  teste pontual ("a voz de saída" pedida pelo usuário, não relacionada
+  à chave Groq). Ficou boa, mas o usuário decidiu não adotar por
+  enquanto — configuração revertida (`hermes config unset
+  tts.edge.voice`) depois do teste. Nenhum tenant do AtendPraGente foi
+  tocado por essa parte.
+
+## Decommission de tenants de teste (2026-08-21)
+
+`novo-negocio` e `sandbox-tenant` eram tenants internos (`plano:
+gratuito`, sem `nome_negocio`/cobrança) usados pra desenvolver/testar
+features ao longo do projeto (agendamento, catálogo, teste de carga,
+etc.) — `novo-negocio` também carregava um problema conhecido não
+corrigido (`WHATSAPP_CLOUD_ACCESS_TOKEN` inválido desde 2026-08-19,
+ver memória `infra_novo_negocio_token_invalido`, agora encerrada por
+essa exclusão). Pra reduzir esforço de manutenção, o usuário decidiu
+eliminar os dois definitivamente. Executado via `delete_tenant_infra()`
+(mesma função que o CronJob `lixeira_watch.py` usa depois dos 10 dias
+de cancelamento — chamada aqui diretamente, sem esperar o prazo, por
+ser decisão administrativa e não cancelamento de cliente): registro DNS
++ Ingress/Deployment/Service/Secret/PVC (hermes + painel) removidos dos
+dois; `signups` no Mongo marcado `status: excluido` (mantido pra
+auditoria); `panel_auth` apagado. Único tenant AtendPraGente restante
+hoje: `linda-ana-calcados`.
+
+---
+
 ## Riscos / decisões a revisitar cedo
 
-- **Capacidade do cluster novo**: 8.2GB livres / 8 vCPU hoje, mas o
-  namespace `consultor` já compartilha a máquina. Definir, já na Fase 1,
-  o footprint real de um pod `hermes-agent` (idle e sob carga) pra
-  projetar quantos tenants cabem antes de precisar de outro nó — o
-  `consultor` não deve sofrer contenção de recursos por causa do
-  AtendAgente (considerar `ResourceQuota` no namespace `atendagente` cedo).
+- **Capacidade do cluster novo — MEDIDA (2026-08-20/21), ver seção
+  acima**: dois testes de carga reais (sandbox + tenant de produção)
+  confirmaram ~377-421m CPU / ~260Mi memória de pico pra 10 conversas
+  simultâneas num único tenant, bem dentro dos limits configurados
+  (1000m/1Gi). Numa máquina dedicada, capacidade estimada de ~36
+  tenants (limite de memória) ou ~19-21 em burst extremo simultâneo
+  (limite de CPU). O namespace `consultor` continua compartilhando a
+  máquina hoje — ainda vale considerar `ResourceQuota` no namespace
+  `atendagente` pra formalizar o isolamento, mesmo que a contenção não
+  tenha aparecido na prática até agora.
 - **Automação de DNS**: cada tenant novo precisa de um registro A na
   Cloudflare antes do Ingress — se isso ficar manual demais, vira gargalo
   do self-service (Fase 4). A Fase 3 já assume automação via API da

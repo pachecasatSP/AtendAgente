@@ -15,6 +15,7 @@ Uso:
     export WHATSAPP_ACCESS_TOKEN=...
     export WHATSAPP_APP_SECRET=...
     export OPENROUTER_API_KEY=...
+    export GROQ_API_KEY=...
     export CLOUDFLARE_API_TOKEN=...
     export CLOUDFLARE_ZONE_ID=...      # zone do domínio usado no tenant
     export SERVER_IP=62.238.103.17     # IP pro registro DNS
@@ -46,6 +47,7 @@ REQUIRED_ENV = [
     "WHATSAPP_ACCESS_TOKEN",
     "WHATSAPP_APP_SECRET",
     "OPENROUTER_API_KEY",
+    "GROQ_API_KEY",
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ZONE_ID",
     "SERVER_IP",
@@ -260,6 +262,32 @@ def apply_display_defaults(prefix: str) -> None:
     )
     if result.returncode != 0:
         raise ProvisionError(f"hermes config set (model.default) falhou:\n{result.stderr}")
+
+    # Sem isso, o tenant herda o `stt:` default embutido na imagem: sem
+    # `provider` definido cai no backend "local", cujo pacote de Whisper
+    # nem está instalado na imagem (ModuleNotFoundError), então todo
+    # áudio falha silenciosamente; `language: en` força a transcrição pro
+    # inglês; `echo_transcripts: true` ecoa o texto transcrito como
+    # mensagem própria antes de responder. Descoberto 2026-08-21
+    # investigando por que um áudio de teste no novo-negocio voltou uma
+    # resposta em inglês seguida de "não consigo ouvir o áudio". Groq
+    # escolhido em vez de local (pod roda com 1 vCPU/1Gi, apertado — ver
+    # teste de carga no roadmap) e em vez de OpenAI (Groq tem free tier
+    # que cobre o volume atual); exige GROQ_API_KEY própria porque a
+    # transcrição de áudio não é um endpoint que o OpenRouter proxeia.
+    # Ver specs/interpretacao-audio-whatsapp.md.
+    for key, value in (
+        ("stt.provider", "groq"),
+        ("stt.language", "pt"),
+        ("stt.echo_transcripts", "false"),
+    ):
+        result = subprocess.run(
+            ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
+             "hermes", "config", "set", key, value],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            raise ProvisionError(f"hermes config set ({key}) falhou:\n{result.stderr}")
 
 
 def publish_soul(tenant_id: str, config: dict) -> None:
@@ -656,6 +684,7 @@ stringData:
   WHATSAPP_CLOUD_ACCESS_TOKEN: "{env['WHATSAPP_ACCESS_TOKEN']}"
   WHATSAPP_CLOUD_APP_SECRET: "{env['WHATSAPP_APP_SECRET']}"
   OPENROUTER_API_KEY: "{env['OPENROUTER_API_KEY']}"
+  GROQ_API_KEY: "{env['GROQ_API_KEY']}"
   GATEWAY_ALLOW_ALL_USERS: "true"
   WHATSAPP_CLOUD_HOME_CHANNEL: "{home_channel}"
   WHATSAPP_CLOUD_HOME_CHANNEL_NAME: "{home_channel_name}"
@@ -792,7 +821,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
     if dry_run:
         print("--- Secret (valores sensíveis mascarados) ---")
         for line in secret_yaml.splitlines():
-            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "VERIFY_TOKEN", "PANEL_SETUP_TOKEN", "PANEL_SESSION_SECRET", "CALENDAR_MCP_TOKEN", "TWO_STEP_PIN")):
+            if any(k in line for k in ("ACCESS_TOKEN", "APP_SECRET", "OPENROUTER_API_KEY", "GROQ_API_KEY", "VERIFY_TOKEN", "PANEL_SETUP_TOKEN", "PANEL_SESSION_SECRET", "CALENDAR_MCP_TOKEN", "TWO_STEP_PIN")):
                 key = line.split(":", 1)[0]
                 print(f"{key}: <mascarado>")
             else:
