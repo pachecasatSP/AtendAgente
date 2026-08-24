@@ -85,7 +85,10 @@ def build_catalog_block(config: dict) -> str:
         "responder com uma leitura antiga é o mesmo erro que inventar "
         "informação. Não invente item, preço, data ou horário que não "
         "esteja lá — se não achar, diga que vai confirmar. Pra mostrar o "
-        f"catálogo inteiro, pode mandar o link da vitrine: `{vitrine_url}`.\n"
+        f"catálogo inteiro, pode mandar o link da vitrine: `{vitrine_url}`. "
+        "Cliente de restaurante/lanchonete costuma pedir isso como "
+        "**\"cardápio\"** ou **\"menu\"** em vez de \"catálogo\" — trate como "
+        "sinônimo, mesma resposta.\n"
     )
 
 
