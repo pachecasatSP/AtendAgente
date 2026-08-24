@@ -172,6 +172,27 @@ def _pedido_sugestoes(chat_id: str) -> list:
     ).sort("numero", 1))
 
 
+def _endereco_anterior(chat_id: str) -> str | None:
+    """Endereço do pedido mais recente desse cliente que já tem um
+    registrado — usado pra sugerir em vez de perguntar do zero de novo
+    (cliente recorrente costuma entregar no mesmo lugar). Não filtra por
+    status: mesmo um pedido cancelado tem um endereço de entrega válido
+    pra reaproveitar como sugestão."""
+    if _pedidos_coll is None:
+        return None
+    pedido = _pedidos_coll.find_one(
+        {"tenant_id": TENANT_ID, "chat_id": chat_id, "endereco": {"$nin": [None, ""]}},
+        sort=[("criado_em", -1)],
+    )
+    return (pedido or {}).get("endereco") if pedido else None
+
+
+_ENDERECO_CONFIRMACAO_RE = re.compile(
+    r"^(sim|isso mesmo|isso|correto|confirmo|confirmado|ok|certo|esse mesmo|pode ser|é esse mesmo|exato)[.!\s]*$",
+    re.IGNORECASE,
+)
+
+
 def _agrupar_por_lote(pedidos: list) -> list:
     """Agrupa uma lista de pedidos pelo `lote_id` (mesmo carrinho) —
     pedido sem lote_id vira grupo de 1 item só. Usado sempre que se
@@ -284,17 +305,27 @@ def pedido_fechar(chat_id: str, texto: str) -> dict:
             (p.get("tipo") or "produto") == "produto" and not p.get("endereco") for p in lote
         )
         if precisa_endereco:
+            # Cliente recorrente já tem endereço de um pedido anterior —
+            # sugere em vez de perguntar do zero de novo. `endereco_sugerido`
+            # fica gravado no lote pra pedido_endereco saber o que aplicar
+            # se a resposta for só uma confirmação curta ("sim").
+            sugestao = _endereco_anterior(chat_id)
+            if sugestao:
+                _pedidos_coll.update_many(
+                    {"_id": {"$in": [p["_id"] for p in lote]}},
+                    {"$set": {"endereco_sugerido": sugestao}},
+                )
+                pergunta_endereco = (
+                    f"Pra entregar, é nesse endereço do seu último pedido?\n{sugestao}\n\n"
+                    "Responde \"sim\" pra confirmar, ou já manda o endereço certo se for outro."
+                )
+            else:
+                pergunta_endereco = "Pra gente entregar, me manda o endereço completo (rua, número, bairro, cidade e CEP)."
             # Mensagem separada da do Pix — mais claro pro cliente que são
             # duas coisas distintas (pagamento x entrega), e a intercepção
             # do endereço em texto livre (pedido_endereco) não precisa
             # brigar com o texto do Pix já lido/copiado pelo cliente.
-            return {
-                "ok": True,
-                "respostas": [
-                    resposta,
-                    "Pra gente entregar, me manda o endereço completo (rua, número, bairro, cidade e CEP).",
-                ],
-            }
+            return {"ok": True, "respostas": [resposta, pergunta_endereco]}
         return {"ok": True, "resposta": resposta}
 
     sugestoes = _pedido_sugestoes(chat_id)
@@ -366,11 +397,18 @@ def pedido_endereco(chat_id: str, texto: str) -> dict:
     chat_id+tenant_id; do contrário devolve ok=False rapidinho e a
     mensagem segue o fluxo normal (LLM). Texto curto demais (< 8
     caracteres) é ignorado de cara — não é endereço, evita confundir
-    "oi"/"ok" com resposta."""
+    "oi"/"ok" com resposta — EXCETO quando é uma confirmação curta
+    ("sim", "isso mesmo"...) pra uma sugestão de endereço de pedido
+    anterior (`endereco_sugerido`, ver `_endereco_anterior` em
+    `pedido_fechar`); nesse caso aplica a sugestão em vez do texto
+    literal."""
     if _pedidos_coll is None:
         return {"ok": False}
     texto = (texto or "").strip()
-    if len(texto) < 8:
+    if not texto:
+        return {"ok": False}
+    eh_confirmacao_curta = bool(_ENDERECO_CONFIRMACAO_RE.match(texto))
+    if len(texto) < 8 and not eh_confirmacao_curta:
         return {"ok": False}
     candidatos = list(_pedidos_coll.find({
         "tenant_id": TENANT_ID, "chat_id": chat_id, "tipo": "produto", "endereco": None,
@@ -381,6 +419,11 @@ def pedido_endereco(chat_id: str, texto: str) -> dict:
 
     grupos = _agrupar_por_lote(candidatos)
     if len(grupos) > 1:
+        if eh_confirmacao_curta:
+            # Não dá pra saber qual dos pedidos em aberto o "sim" confirma
+            # quando há mais de um — precisa do texto completo ou do
+            # número do pedido, mesma exigência de sempre.
+            return {"ok": False}
         linhas = [
             f"#{_numero_exibicao(grupo[0]['numero'])} — " + ", ".join(p["item_nome"] for p in grupo)
             for grupo in grupos
@@ -391,9 +434,17 @@ def pedido_endereco(chat_id: str, texto: str) -> dict:
         }
 
     lote = grupos[0]
+    sugestao = lote[0].get("endereco_sugerido")
+    if eh_confirmacao_curta and sugestao:
+        endereco_final = sugestao
+    elif len(texto) >= 8:
+        endereco_final = texto
+    else:
+        return {"ok": False}
+
     _pedidos_coll.update_many(
         {"_id": {"$in": [p["_id"] for p in lote]}},
-        {"$set": {"endereco": texto}},
+        {"$set": {"endereco": endereco_final}, "$unset": {"endereco_sugerido": ""}},
     )
     return {
         "ok": True,
