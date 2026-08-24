@@ -2043,12 +2043,54 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             # responder normalmente, não força nada.
             return False
 
+        # `respostas` (lista) manda cada item como mensagem separada, em
+        # ordem — usado por pedido_fechar pra separar o Pix da pergunta
+        # de endereço (mais claro que emendar tudo numa mensagem só).
+        # `resposta` (string) continua valendo pro caso comum de 1
+        # mensagem (pedido_status, sugestões, etc.).
+        respostas = data.get("respostas") or ([data["resposta"]] if data.get("resposta") else [])
+        for msg in respostas:
+            if not msg:
+                continue
+            try:
+                await self.send(chat_id, msg)
+            except Exception:
+                logger.exception("[whatsapp_cloud] pedido reply send failed")
+        return True
+
+    # Endereço de entrega (Fase 12) — resposta em texto livre à
+    # pergunta feita no final de pedido_fechar, sem frase-gatilho fixa
+    # (não dá pra filtrar por palavra-chave local como os outros dois
+    # gatilhos acima). Roda em TODA mensagem de texto — o filtro real
+    # (existe exatamente 1 lote de produto aguardando endereço pra esse
+    # chat_id?) mora inteiro em mongo-sync, ver pedido_endereco.
+    async def _dispatch_pedido_endereco(self, chat_id: str, texto: str) -> bool:
+        if not chat_id or self._http_client is None:
+            return False
+        try:
+            resp = await self._http_client.post(
+                "http://127.0.0.1:8091/pedido-endereco",
+                json={"chat_id": chat_id, "texto": texto},
+                timeout=8.0,
+            )
+            if resp.status_code != 200:
+                return False
+            data = resp.json()
+        except Exception:
+            logger.exception("[whatsapp_cloud] pedido-endereco dispatch HTTP call failed")
+            return False
+
+        if not data.get("ok"):
+            # Nenhum lote aguardando endereço pra esse chat_id — mensagem
+            # comum, segue o fluxo normal (LLM).
+            return False
+
         resposta = data.get("resposta") or ""
         if resposta:
             try:
                 await self.send(chat_id, resposta)
             except Exception:
-                logger.exception("[whatsapp_cloud] pedido reply send failed")
+                logger.exception("[whatsapp_cloud] pedido-endereco reply send failed")
         return True
 
     # Comprovante de pagamento (Fase 12) — imagem/PDF numa conversa com
@@ -2172,8 +2214,12 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         if msg_type_str == "text":
             text = raw_message.get("text") or {}
             body = str(text.get("body") or "")
+            from_id = str(raw_message.get("from") or "")
+            handled = await self._dispatch_pedido_endereco(from_id, body)
+            if handled:
+                return None
             if "pedido" in body.lower():
-                handled = await self._dispatch_pedido_texto(str(raw_message.get("from") or ""), body)
+                handled = await self._dispatch_pedido_texto(from_id, body)
                 if handled:
                     return None
         elif msg_type_str in {"button", "interactive"}:

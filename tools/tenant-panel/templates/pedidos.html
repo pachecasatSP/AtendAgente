@@ -82,6 +82,14 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 .pedido-btn.cancelar { border-color: var(--danger); color: var(--danger); }
 .pedido-btn.cancelar:hover { background: var(--danger-bg); }
 .pedido-btn:disabled { opacity: 0.6; cursor: default; }
+.pedido-endereco { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.4rem; flex: 1 1 100%; flex-wrap: wrap; }
+.pedido-endereco-input {
+  font-family: var(--font-body); font-weight: 500; font-size: 0.8rem; padding: 0.3rem 0.6rem;
+  border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  flex: 1 1 220px; min-width: 160px;
+}
+.pedido-btn.endereco { border-color: var(--leaf); color: var(--leaf-deep); }
+.pedido-btn.endereco:hover { background: var(--leaf-pale); }
 .carregar-sentinela { height: 1px; }
 [hidden] { display: none !important; }
 </style>
@@ -178,11 +186,25 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       const contagem = (p.itens || []).length > 1 ? ` (${p.itens.length} itens)` : '';
       const contato = escapeHtml(p.contato_nome || p.chat_id || '');
 
+      // Endereço só faz sentido pra pedido com item tipo "produto"
+      // (evento não entrega nada). Captura automática pelo webhook
+      // (ver pedido_endereco em mongo_sync/sync_conversations.py)
+      // preenche isso sozinha, mas fica editável aqui como fallback —
+      // cliente que nunca respondeu, ou tinha mais de 1 pedido em
+      // aberto e a captura automática pediu esclarecimento.
+      const enderecoHtml = p.precisa_endereco ? `
+        <div class="pedido-endereco">
+          <input type="text" class="pedido-endereco-input" placeholder="Endereço de entrega ainda não informado" value="${escapeHtml(p.endereco || '')}">
+          <button type="button" class="pedido-btn endereco" data-acao-especial="salvar-endereco">Salvar</button>
+        </div>
+      ` : '';
+
       row.innerHTML = `
         <span class="pedido-numero">#${p.numero_exibicao}</span>
         <div class="pedido-info">
           <div class="pedido-item">${nomesItens}${contagem}</div>
           <div class="pedido-meta">${fmtValor(p.valor_total)} · ${fmtData(p.criado_em)}${contato ? ' · ' + contato : ''}</div>
+          ${enderecoHtml}
         </div>
         <span class="pedido-status ${p.status}">${statusLabel}</span>
         <div class="pedido-acoes">${acoes.join('')}</div>
@@ -194,8 +216,35 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       row.querySelectorAll('.pedido-btn[data-acao-especial="avancar-rastreio"]').forEach((btn) => {
         btn.addEventListener('click', () => avancarRastreio(p.id, btn));
       });
+      row.querySelectorAll('.pedido-btn[data-acao-especial="salvar-endereco"]').forEach((btn) => {
+        btn.addEventListener('click', () => salvarEndereco(p.id, btn, row));
+      });
 
       return row;
+    }
+
+    async function salvarEndereco(id, btn, row) {
+      const input = row.querySelector('.pedido-endereco-input');
+      const endereco = (input.value || '').trim();
+      if (!endereco) {
+        alert('Digite o endereço.');
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const resp = await fetch(`/painel/api/pedidos/${id}/endereco`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ endereco }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.detail || 'Não consegui salvar o endereço.');
+        btn.textContent = 'Salvo ✓';
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     async function avancarRastreio(id, btn) {

@@ -276,6 +276,25 @@ def pedido_fechar(chat_id: str, texto: str) -> dict:
             "Abre o Pix do seu banco → Copia e Cola → cola esse código → confere o valor → confirma o "
             "pagamento. Depois é só mandar o comprovante aqui que a gente confirma pra você."
         )
+        # Só produto entrega — evento (ingresso/vaga) não precisa de
+        # endereço. `tipo` pode faltar em pedido antigo (de antes desta
+        # revisão); trata como produto por segurança (melhor perguntar
+        # de mais do que deixar um produto sem endereço de entrega).
+        precisa_endereco = any(
+            (p.get("tipo") or "produto") == "produto" and not p.get("endereco") for p in lote
+        )
+        if precisa_endereco:
+            # Mensagem separada da do Pix — mais claro pro cliente que são
+            # duas coisas distintas (pagamento x entrega), e a intercepção
+            # do endereço em texto livre (pedido_endereco) não precisa
+            # brigar com o texto do Pix já lido/copiado pelo cliente.
+            return {
+                "ok": True,
+                "respostas": [
+                    resposta,
+                    "Pra gente entregar, me manda o endereço completo (rua, número, bairro, cidade e CEP).",
+                ],
+            }
         return {"ok": True, "resposta": resposta}
 
     sugestoes = _pedido_sugestoes(chat_id)
@@ -326,6 +345,53 @@ def pedido_status(chat_id: str, texto: str) -> dict:
     return {
         "ok": True,
         "resposta": "Já avisei nossa equipe pra verificar o status do seu pedido — em breve alguém te responde por aqui! 🙏",
+    }
+
+
+def pedido_endereco(chat_id: str, texto: str) -> dict:
+    """Captura o endereço de entrega em texto livre. Diferente dos
+    outros gatilhos desta fase (fechar/status), endereço não tem
+    frase-gatilho fixa — é o que quer que o cliente digite depois de
+    ser perguntado (ver o final de `pedido_fechar`). Por isso quem
+    chama (whatsapp_cloud_patched.py) roda isso em TODA mensagem de
+    texto recebida, antes até do filtro barato por "pedido" do gatilho
+    de fechamento — mas só tem efeito quando existe exatamente 1 lote
+    (produto, sem endereço ainda) aguardando resposta pra esse
+    chat_id+tenant_id; do contrário devolve ok=False rapidinho e a
+    mensagem segue o fluxo normal (LLM). Texto curto demais (< 8
+    caracteres) é ignorado de cara — não é endereço, evita confundir
+    "oi"/"ok" com resposta."""
+    if _pedidos_coll is None:
+        return {"ok": False}
+    texto = (texto or "").strip()
+    if len(texto) < 8:
+        return {"ok": False}
+    candidatos = list(_pedidos_coll.find({
+        "tenant_id": TENANT_ID, "chat_id": chat_id, "tipo": "produto", "endereco": None,
+        "status": {"$in": ["aguardando_pagamento", "comprovante_recebido", "pago"]},
+    }))
+    if not candidatos:
+        return {"ok": False}
+
+    grupos = _agrupar_por_lote(candidatos)
+    if len(grupos) > 1:
+        linhas = [
+            f"#{_numero_exibicao(grupo[0]['numero'])} — " + ", ".join(p["item_nome"] for p in grupo)
+            for grupo in grupos
+        ]
+        return {
+            "ok": True,
+            "resposta": "Antes de eu salvar o endereço, me diz de qual pedido:\n" + "\n".join(linhas),
+        }
+
+    lote = grupos[0]
+    _pedidos_coll.update_many(
+        {"_id": {"$in": [p["_id"] for p in lote]}},
+        {"$set": {"endereco": texto}},
+    )
+    return {
+        "ok": True,
+        "resposta": f"Endereço registrado pro pedido #{_numero_exibicao(lote[0]['numero'])}! ✅",
     }
 
 
@@ -633,6 +699,8 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
                 str(payload.get("chat_id") or ""), str(payload.get("media_id") or ""),
                 str(payload.get("mime_type") or ""), str(payload.get("legenda") or ""),
             )
+        elif parsed.path == "/pedido-endereco":
+            result = pedido_endereco(str(payload.get("chat_id") or ""), str(payload.get("texto") or ""))
         else:
             self.send_response(404)
             self.end_headers()

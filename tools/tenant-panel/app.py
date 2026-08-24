@@ -1035,9 +1035,11 @@ def api_vitrine_criar_pedido(payload: dict) -> dict:
             "lote_id": lote_id,
             "item_id": str(item["_id"]),
             "item_nome": item.get("nome", ""),
+            "tipo": item.get("tipo") or "produto",
             "valor": valor,
             "status": "aberto",
             "chat_id": None,
+            "endereco": None,
             "criado_em": criado_em,
         })
         pedidos_criados.append({"numero": numero_pedido, "item_nome": item.get("nome", ""), "valor": valor})
@@ -1128,6 +1130,8 @@ def api_pedidos_listar(request: Request, offset: int = 0) -> dict:
             "criado_em": _iso_utc(primeiro.get("criado_em")),
             "tem_comprovante": bool(primeiro.get("comprovante_key")),
             "rastreio_status": primeiro.get("rastreio_status"),
+            "endereco": primeiro.get("endereco"),
+            "precisa_endereco": any((p.get("tipo") or "produto") == "produto" for p in grupo),
         })
 
     return {"pedidos": resultado, "tem_mais": max(offset, 0) + PEDIDOS_PAGINA_TAMANHO < len(grupos)}
@@ -1293,6 +1297,33 @@ def api_pedido_avancar_rastreio(request: Request, pedido_id: str) -> dict:
     )
     _avisar_mudanca_rastreio(lote, novo_estado)
     return {"ok": True, "rastreio_status": novo_estado}
+
+
+@app.post("/painel/api/pedidos/{pedido_id}/endereco")
+def api_pedido_salvar_endereco(request: Request, pedido_id: str, payload: dict) -> dict:
+    """Preenchimento manual/edição do endereço de entrega pelo painel —
+    fallback pro caminho automático (captura via webhook em texto livre,
+    ver pedido_endereco em mongo_sync/sync_conversations.py), útil
+    quando o cliente nunca respondeu ou quando havia mais de um pedido
+    em aberto e a captura automática pediu esclarecimento. Age no lote
+    inteiro, mesmo padrão de marcar pago/cancelar."""
+    require_session(request)
+    try:
+        oid = ObjectId(pedido_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Id inválido")
+    pedido = pedidos_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    endereco = (payload.get("endereco") or "").strip()
+    if not endereco:
+        raise HTTPException(status_code=400, detail="Endereço vazio")
+    lote = _lote_do_pedido(pedido)
+    pedidos_col.update_many(
+        {"_id": {"$in": [p["_id"] for p in lote]}},
+        {"$set": {"endereco": endereco}},
+    )
+    return {"ok": True}
 
 
 @app.post("/painel/api/pedidos/{pedido_id}/cancelar")
