@@ -51,15 +51,29 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 .hint { font-weight: 500; color: var(--ink-faint); font-size: 0.85rem; text-align: center; padding: 1.5rem 0; }
 .banner { padding: 0.7rem 0.9rem; border-radius: 10px; margin-bottom: 1.2rem; font-weight: 700; font-size: 0.86rem; }
 .banner.erro { background: var(--error-bg); color: var(--error); }
+.banner.alerta { background: #fff3d6; color: #8a6100; display: flex; align-items: center; gap: 0.5rem; }
+:root:not([data-theme="light"]) .banner.alerta { background: #3a2f10; color: #ffd666; }
+:root[data-theme="dark"] .banner.alerta { background: #3a2f10; color: #ffd666; }
 .pedido-row {
-  display: flex; align-items: center; gap: 0.9rem; padding: 0.85rem 0.6rem;
-  border-bottom: 1px solid var(--line); flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: 0.5rem; padding: 0.9rem 0.6rem;
+  border-bottom: 1px solid var(--line);
 }
 .pedido-row:last-child { border-bottom: none; }
-.pedido-numero { font-family: var(--font-display); font-weight: 800; color: var(--leaf-deep); min-width: 7.5rem; font-size: 0.85rem; }
-.pedido-info { flex: 1 1 220px; min-width: 0; }
-.pedido-item { font-weight: 700; }
+.pedido-top { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+.pedido-numero { font-family: var(--font-display); font-weight: 800; color: var(--leaf-deep); font-size: 0.85rem; }
+.pedido-destaque { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.pedido-valor { font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; color: var(--ink); }
+.pedido-cliente { font-weight: 800; font-size: 0.92rem; }
+.pedido-btn.itens { border-color: var(--line); color: var(--ink-soft); font-weight: 700; }
+.pedido-btn.itens:hover { background: var(--paper-soft); }
 .pedido-meta { font-size: 0.78rem; color: var(--ink-faint); }
+.pedido-alerta-rastreio {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; background: #fff3d6; color: #8a6100;
+  border-radius: 10px; padding: 0.5rem 0.7rem; font-size: 0.8rem; font-weight: 700;
+}
+:root:not([data-theme="light"]) .pedido-alerta-rastreio { background: #3a2f10; color: #ffd666; }
+:root[data-theme="dark"] .pedido-alerta-rastreio { background: #3a2f10; color: #ffd666; }
+.pedido-btn.rastreio-visto { border-color: currentColor; color: inherit; background: transparent; }
 .pedido-status {
   font-size: 0.68rem; font-weight: 800; padding: 0.15rem 0.55rem; border-radius: 999px;
   text-transform: uppercase; letter-spacing: 0.02em;
@@ -82,14 +96,35 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 .pedido-btn.cancelar { border-color: var(--danger); color: var(--danger); }
 .pedido-btn.cancelar:hover { background: var(--danger-bg); }
 .pedido-btn:disabled { opacity: 0.6; cursor: default; }
-.pedido-endereco { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.4rem; flex: 1 1 100%; flex-wrap: wrap; }
+.pedido-endereco { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; background: var(--paper-soft); border-radius: 10px; padding: 0.5rem 0.6rem; }
+.pedido-endereco-label { font-weight: 800; font-size: 0.78rem; color: var(--ink-soft); white-space: nowrap; }
 .pedido-endereco-input {
-  font-family: var(--font-body); font-weight: 500; font-size: 0.8rem; padding: 0.3rem 0.6rem;
-  border-radius: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-weight: 600; font-size: 0.85rem; padding: 0.35rem 0.6rem;
+  border-radius: 8px; border: 1px solid var(--line); background: var(--paper-card); color: var(--ink);
   flex: 1 1 220px; min-width: 160px;
 }
 .pedido-btn.endereco { border-color: var(--leaf); color: var(--leaf-deep); }
 .pedido-btn.endereco:hover { background: var(--leaf-pale); }
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(23,35,29,0.5); display: flex; align-items: center;
+  justify-content: center; padding: 1rem; z-index: 100;
+}
+.modal-box {
+  background: var(--paper-card); border-radius: 16px; padding: 1.5rem; max-width: 420px; width: 100%;
+  max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 50px -20px rgba(23,35,29,0.4);
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.9rem; }
+.modal-head h2 { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; margin: 0; }
+.modal-close {
+  border: none; background: transparent; color: var(--ink-faint); font-size: 1.3rem; cursor: pointer;
+  line-height: 1; padding: 0.1rem 0.4rem;
+}
+.modal-close:hover { color: var(--ink); }
+.modal-item-row { display: flex; justify-content: space-between; gap: 0.8rem; padding: 0.5rem 0; border-bottom: 1px solid var(--line); font-size: 0.88rem; }
+.modal-item-row:last-child { border-bottom: none; }
+.modal-item-nome { font-weight: 700; }
+.modal-item-valor { color: var(--ink-soft); white-space: nowrap; }
+.modal-total { display: flex; justify-content: space-between; margin-top: 0.6rem; padding-top: 0.6rem; border-top: 2px solid var(--line); font-weight: 800; }
 .carregar-sentinela { height: 1px; }
 .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
 .atualizar-wrap { display: flex; align-items: center; gap: 0.5rem; }
@@ -131,11 +166,22 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
     </div>
     <p class="lead">Pedidos fechados pelos clientes pela vitrine — confirme o pagamento depois de conferir o Pix na sua conta. A lista se atualiza sozinha a cada 15s (novo pedido, endereço, comprovante).</p>
 
+    <div id="banner-rastreio" class="banner alerta" hidden>🔔 <span id="banner-rastreio-texto"></span></div>
     <div id="pedidos-erro" class="banner erro" hidden></div>
     <div id="pedidos-lista"></div>
     <p id="pedidos-vazio" class="hint" hidden>Nenhum pedido ainda.</p>
     <div id="carregar-sentinela" class="carregar-sentinela"></div>
     <p id="pedidos-carregando" class="hint">Carregando…</p>
+  </div>
+
+  <div id="modal-itens" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2 id="modal-itens-titulo">Itens do pedido</h2>
+        <button type="button" class="modal-close" id="modal-itens-fechar" aria-label="Fechar">&times;</button>
+      </div>
+      <div id="modal-itens-lista"></div>
+    </div>
   </div>
 
   <script>
@@ -199,8 +245,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         }
       }
 
-      const nomesItens = escapeHtml((p.itens || []).map((i) => i.item_nome).join(', '));
-      const contagem = (p.itens || []).length > 1 ? ` (${p.itens.length} itens)` : '';
+      const qtdItens = (p.itens || []).length;
       const contato = escapeHtml(p.contato_nome || p.chat_id || '');
 
       // Endereço só faz sentido pra pedido com item tipo "produto"
@@ -211,19 +256,36 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       // aberto e a captura automática pediu esclarecimento.
       const enderecoHtml = p.precisa_endereco ? `
         <div class="pedido-endereco">
-          <input type="text" class="pedido-endereco-input" placeholder="Endereço de entrega ainda não informado" value="${escapeHtml(p.endereco || '')}">
+          <span class="pedido-endereco-label">📍 Endereço:</span>
+          <input type="text" class="pedido-endereco-input" placeholder="Ainda não informado" value="${escapeHtml(p.endereco || '')}">
           <button type="button" class="pedido-btn endereco" data-acao-especial="salvar-endereco">Salvar</button>
         </div>
       ` : '';
 
-      row.innerHTML = `
-        <span class="pedido-numero">#${p.numero_exibicao}</span>
-        <div class="pedido-info">
-          <div class="pedido-item">${nomesItens}${contagem}</div>
-          <div class="pedido-meta">${fmtValor(p.valor_total)} · ${fmtData(p.criado_em)}${contato ? ' · ' + contato : ''}</div>
-          ${enderecoHtml}
+      // Cliente perguntou "qual o status do meu pedido" e não havia
+      // rastreio pra responder sozinho (ver pedido_status em mongo_sync/
+      // sync_conversations.py) — fica visível até o operador confirmar
+      // que já respondeu manualmente.
+      const alertaRastreioHtml = p.rastreio_solicitado_em ? `
+        <div class="pedido-alerta-rastreio">
+          🔔 Cliente perguntou o rastreio às ${fmtData(p.rastreio_solicitado_em)} — responda manualmente
+          <button type="button" class="pedido-btn rastreio-visto" data-acao-especial="rastreio-visto">Marcar como visto</button>
         </div>
-        <span class="pedido-status ${p.status}">${statusLabel}</span>
+      ` : '';
+
+      row.innerHTML = `
+        <div class="pedido-top">
+          <span class="pedido-numero">#${p.numero_exibicao}</span>
+          <span class="pedido-status ${p.status}">${statusLabel}</span>
+        </div>
+        ${alertaRastreioHtml}
+        <div class="pedido-destaque">
+          <span class="pedido-valor">${fmtValor(p.valor_total)}</span>
+          <span class="pedido-cliente">👤 ${contato || 'sem contato'}</span>
+          <button type="button" class="pedido-btn itens" data-acao-especial="ver-itens">🛍️ ${qtdItens} ${qtdItens === 1 ? 'item' : 'itens'}</button>
+        </div>
+        <div class="pedido-meta">${fmtData(p.criado_em)}</div>
+        ${enderecoHtml}
         <div class="pedido-acoes">${acoes.join('')}</div>
       `;
 
@@ -236,8 +298,70 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       row.querySelectorAll('.pedido-btn[data-acao-especial="salvar-endereco"]').forEach((btn) => {
         btn.addEventListener('click', () => salvarEndereco(p.id, btn, row));
       });
+      row.querySelectorAll('.pedido-btn[data-acao-especial="ver-itens"]').forEach((btn) => {
+        btn.addEventListener('click', () => abrirModalItens(p));
+      });
+      row.querySelectorAll('.pedido-btn[data-acao-especial="rastreio-visto"]').forEach((btn) => {
+        btn.addEventListener('click', () => marcarRastreioVisto(p.id, btn, row));
+      });
 
       return row;
+    }
+
+    function abrirModalItens(p) {
+      document.getElementById('modal-itens-titulo').textContent = `Pedido #${p.numero_exibicao}`;
+      const listaEl = document.getElementById('modal-itens-lista');
+      const linhas = (p.itens || []).map((i) => `
+        <div class="modal-item-row">
+          <span class="modal-item-nome">${escapeHtml(i.item_nome)}</span>
+          <span class="modal-item-valor">${fmtValor(i.valor)}</span>
+        </div>
+      `).join('');
+      listaEl.innerHTML = linhas + `<div class="modal-total"><span>Total</span><span>${fmtValor(p.valor_total)}</span></div>`;
+      document.getElementById('modal-itens').hidden = false;
+    }
+
+    function fecharModalItens() {
+      document.getElementById('modal-itens').hidden = true;
+    }
+
+    document.getElementById('modal-itens-fechar').addEventListener('click', fecharModalItens);
+    document.getElementById('modal-itens').addEventListener('click', (ev) => {
+      if (ev.target.id === 'modal-itens') fecharModalItens();
+    });
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') fecharModalItens();
+    });
+
+    async function marcarRastreioVisto(id, btn, row) {
+      btn.disabled = true;
+      try {
+        const resp = await fetch(`/painel/api/pedidos/${id}/rastreio-visto`, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.detail || 'Não consegui marcar como visto.');
+        row.querySelector('.pedido-alerta-rastreio')?.remove();
+        atualizarBannerRastreio();
+      } catch (err) {
+        alert(err.message);
+        btn.disabled = false;
+      }
+    }
+
+    // Banner no topo somando quantos pedidos (dentre os carregados na
+    // tela) têm alerta de rastreio pendente — dá visibilidade sem
+    // precisar rolar a lista pra achar a linha certa.
+    function atualizarBannerRastreio() {
+      const pendentes = [...pedidosPorId.values()].filter((row) => row.querySelector('.pedido-alerta-rastreio'));
+      const banner = document.getElementById('banner-rastreio');
+      if (pendentes.length === 0) {
+        banner.hidden = true;
+        return;
+      }
+      document.getElementById('banner-rastreio-texto').textContent =
+        pendentes.length === 1
+          ? '1 cliente perguntou o rastreio e está esperando resposta manual.'
+          : `${pendentes.length} clientes perguntaram o rastreio e estão esperando resposta manual.`;
+      banner.hidden = false;
     }
 
     // Insere/atualiza uma linha sem redesenhar a lista inteira — usado
@@ -351,6 +475,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         acabou = !data.tem_mais;
         document.getElementById('pedidos-vazio').hidden = pedidosPorId.size > 0;
         marcarAtualizado();
+        atualizarBannerRastreio();
       } catch (err) {
         erroEl.textContent = err.message;
         erroEl.hidden = false;
@@ -389,6 +514,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
           document.getElementById('pedidos-vazio').hidden = true;
         }
         marcarAtualizado();
+        atualizarBannerRastreio();
       } catch (err) {
         // silencioso — poll de fundo não deve incomodar o operador
       } finally {

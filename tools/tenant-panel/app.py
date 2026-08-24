@@ -1132,6 +1132,13 @@ def api_pedidos_listar(request: Request, offset: int = 0) -> dict:
             "rastreio_status": primeiro.get("rastreio_status"),
             "endereco": primeiro.get("endereco"),
             "precisa_endereco": any((p.get("tipo") or "produto") == "produto" for p in grupo),
+            # `rastreio_solicitado_em` é marcado só no doc individual que
+            # casou (ver pedido_status em mongo_sync/sync_conversations.py),
+            # não necessariamente o "primeiro" do lote — pega de qualquer
+            # item do grupo, não só do primeiro.
+            "rastreio_solicitado_em": _iso_utc(next(
+                (p.get("rastreio_solicitado_em") for p in grupo if p.get("rastreio_solicitado_em")), None
+            )),
         })
 
     return {"pedidos": resultado, "tem_mais": max(offset, 0) + PEDIDOS_PAGINA_TAMANHO < len(grupos)}
@@ -1331,6 +1338,29 @@ def api_pedido_salvar_endereco(request: Request, pedido_id: str, payload: dict) 
     pedidos_col.update_many(
         {"_id": {"$in": [p["_id"] for p in lote]}},
         {"$set": {"endereco": endereco}},
+    )
+    return {"ok": True}
+
+
+@app.post("/painel/api/pedidos/{pedido_id}/rastreio-visto")
+def api_pedido_rastreio_visto(request: Request, pedido_id: str) -> dict:
+    """Dispensa o alerta de 'cliente pediu rastreio' — chamado quando o
+    operador já respondeu manualmente. Sem isso o alerta ficaria pra
+    sempre na tela depois de resolvido. Limpa no lote inteiro (mesmo
+    padrão de marcar pago/cancelar) porque o cliente só enxerga 1
+    conversa, não sabe de qual item específico do carrinho perguntou."""
+    require_session(request)
+    try:
+        oid = ObjectId(pedido_id)
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Id inválido")
+    pedido = pedidos_col.find_one({"_id": oid, "tenant_id": TENANT_ID})
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    lote = _lote_do_pedido(pedido)
+    pedidos_col.update_many(
+        {"_id": {"$in": [p["_id"] for p in lote]}},
+        {"$unset": {"rastreio_solicitado_em": ""}},
     )
     return {"ok": True}
 

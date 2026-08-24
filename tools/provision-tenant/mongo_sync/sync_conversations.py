@@ -341,6 +341,12 @@ def pedido_status(chat_id: str, texto: str) -> dict:
     if modelo:
         return {"ok": True, "resposta": modelo.format(numero=_numero_exibicao(pedido["numero"]))}
 
+    # Marca no próprio pedido (não só na sessão) pra /pedidos conseguir
+    # mostrar um alerta na linha certa — o handoff da sessão já avisa o
+    # operador na tela de conversas, mas quem está de olho em /pedidos
+    # não vê aquilo. `rastreio_solicitado_em` fica até o operador
+    # confirmar que viu (ver /pedidos/{id}/rastreio-visto no painel).
+    _pedidos_coll.update_one({"_id": pedido["_id"]}, {"$set": {"rastreio_solicitado_em": now()}})
     _marcar_handoff_pedido(chat_id)
     return {
         "ok": True,
@@ -505,7 +511,12 @@ def pedido_comprovante(chat_id: str, media_id: str, mime_type: str, legenda: str
             "comprovante_recebido_em": now(),
         }},
     )
-    _marcar_handoff_pedido(chat_id)
+    # Motivo explícito — o default de _marcar_handoff_pedido ("pedido
+    # (rastreamento manual)") é o que o /pedidos usa pra saber que
+    # precisa mostrar o alerta de rastreio; comprovante é outro evento
+    # (precisa confirmar pagamento, não rastreio) e não pode reusar o
+    # mesmo motivo sob risco de disparar o alerta errado.
+    _marcar_handoff_pedido(chat_id, motivo="pedido (comprovante recebido)")
     return {"ok": True, "resposta": f"Recebi o comprovante do pedido #{_numero_exibicao(lote[0]['numero'])}! Vou confirmar e já te aviso. 🙏"}
 
 
