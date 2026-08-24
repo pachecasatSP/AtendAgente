@@ -47,16 +47,25 @@ h1 {
 .item { background: var(--paper-card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; }
 .item-foto { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: var(--paper-soft); display: block; }
 .item-foto.placeholder { display: flex; align-items: center; justify-content: center; color: var(--ink-faint); font-size: 1.8rem; }
-.item-body { padding: 0.9rem 1rem 1.1rem; }
+.item-body { padding: 0.9rem 1rem 1.1rem; display: flex; flex-direction: column; flex: 1; }
 .item-nome { font-weight: 800; font-size: 0.96rem; margin: 0 0 0.25rem; }
 .item-preco { font-family: var(--font-display); font-weight: 800; color: var(--leaf-deep); font-size: 1.05rem; margin: 0 0 0.4rem; }
 .item-quando { font-size: 0.82rem; font-weight: 700; color: var(--ink-faint); margin: 0 0 0.4rem; }
-.item-descricao { font-size: 0.85rem; color: var(--ink-soft); margin: 0 0 0.6rem; }
+.item-descricao-scroll { height: 7.5rem; overflow-y: auto; margin-bottom: 0.6rem; }
+.item-descricao { font-size: 0.85rem; color: var(--ink-soft); margin: 0; }
 .vazio { color: var(--ink-faint); text-align: center; padding: 3rem 1rem; }
 .tipo-secao { margin-bottom: 2.6rem; }
 .tipo-secao > h2 { font-family: var(--font-display); font-weight: 800; font-size: 1.3rem; color: var(--ink); margin: 0 0 1rem; padding-bottom: 0.4rem; border-bottom: 2px solid var(--leaf); }
+.tipo-chips { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
+.tipo-chip {
+  font-family: var(--font-body); font-weight: 800; font-size: 0.85rem; cursor: pointer;
+  border: 1.5px solid var(--line); border-radius: 999px; padding: 0.5rem 1.1rem;
+  background: var(--paper-card); color: var(--ink-soft);
+}
+.tipo-chip:hover { border-color: var(--leaf); }
+.tipo-chip.ativo { background: var(--leaf); border-color: var(--leaf); color: #fff; }
 .item-pedir-btn {
-  display: block; width: 100%; margin-top: 0.2rem; padding: 0.55rem 0.8rem;
+  display: block; width: 100%; margin-top: auto; padding: 0.55rem 0.8rem;
   border: none; border-radius: 10px; background: var(--leaf); color: #fff;
   font-family: var(--font-body); font-weight: 800; font-size: 0.85rem; cursor: pointer;
 }
@@ -131,8 +140,15 @@ h1 {
     {% if not secoes %}
       <p class="vazio">Ainda não há itens cadastrados.</p>
     {% endif %}
+    {% if secoes|length > 1 %}
+      <div class="tipo-chips">
+        {% for secao in secoes %}
+          <button type="button" class="tipo-chip" data-tipo="{{ secao.tipo }}">{{ secao.label }} ({{ secao.total }})</button>
+        {% endfor %}
+      </div>
+    {% endif %}
     {% for secao in secoes %}
-      <div class="tipo-secao">
+      <div class="tipo-secao" data-tipo="{{ secao.tipo }}">
         <h2>{{ secao.label }}</h2>
         {% for categoria, itens in secao.categorias.items() %}
           <div class="categoria">
@@ -153,7 +169,9 @@ h1 {
                     {% elif item.tipo == "servico" and item.horario_atendimento %}
                       <p class="item-quando">🕒 {{ item.horario_atendimento }}</p>
                     {% endif %}
-                    {% if item.descricao %}<p class="item-descricao">{{ item.descricao }}</p>{% endif %}
+                    <div class="item-descricao-scroll">
+                      {% if item.descricao %}<p class="item-descricao">{{ item.descricao }}</p>{% endif %}
+                    </div>
                     {% if secao.tipo in tipos_compraveis %}
                       <button type="button" class="item-pedir-btn" data-item-id="{{ item.id }}" data-item-nome="{{ item.nome }}" data-item-preco="{{ item.preco or 0 }}">Adicionar</button>
                     {% endif %}
@@ -186,25 +204,51 @@ h1 {
   </div>
 
   <script>
-    // Scroll infinito (Fase 12) — todos os itens já vêm renderizados no
-    // HTML (catálogo de negócio pequeno não justifica paginação no
-    // backend ainda), só revela em lotes conforme o usuário rola,
-    // pra não jogar a página inteira de uma vez.
+    // Abas por tipo (chips, Fase 12 revisado) + scroll infinito (Fase
+    // 12) — todos os itens já vêm renderizados no HTML (catálogo de
+    // negócio pequeno não justifica paginação no backend ainda), só
+    // revela em lotes conforme o usuário rola. O scroll infinito agora
+    // é escopado à seção do tipo ativo — trocar de aba reseta o lote
+    // revelado pro novo conjunto visível, senão itens de uma aba
+    // ficariam escondidos por causa do lote já consumido em outra.
     (function () {
       const LOTE = 12;
-      const todos = Array.from(document.querySelectorAll('.item[data-item]'));
-      todos.forEach((el, i) => { if (i >= LOTE) el.hidden = true; });
-      let revelados = Math.min(LOTE, todos.length);
-
+      const secoes = Array.from(document.querySelectorAll('.tipo-secao'));
+      const chips = Array.from(document.querySelectorAll('.tipo-chip'));
       const sentinela = document.getElementById('carregar-sentinela');
-      if (!sentinela || revelados >= todos.length) return;
+      let itensAtivos = [];
+      let revelados = 0;
 
+      function ativarTipo(tipo) {
+        secoes.forEach((sec) => { sec.hidden = sec.dataset.tipo !== tipo; });
+        chips.forEach((chip) => chip.classList.toggle('ativo', chip.dataset.tipo === tipo));
+        const secaoAtiva = secoes.find((sec) => sec.dataset.tipo === tipo);
+        itensAtivos = secaoAtiva ? Array.from(secaoAtiva.querySelectorAll('.item[data-item]')) : [];
+        itensAtivos.forEach((el, i) => { el.hidden = i >= LOTE; });
+        revelados = Math.min(LOTE, itensAtivos.length);
+      }
+
+      chips.forEach((chip) => {
+        chip.addEventListener('click', () => ativarTipo(chip.dataset.tipo));
+      });
+
+      if (chips.length) {
+        // Só a 1ª aba visível de início — sem chips (catálogo com um
+        // tipo só de item) todas as seções ficam visíveis, comportamento
+        // de antes.
+        ativarTipo(chips[0].dataset.tipo);
+      } else {
+        itensAtivos = Array.from(document.querySelectorAll('.item[data-item]'));
+        itensAtivos.forEach((el, i) => { el.hidden = i >= LOTE; });
+        revelados = Math.min(LOTE, itensAtivos.length);
+      }
+
+      if (!sentinela) return;
       const observer = new IntersectionObserver((entries) => {
         if (!entries[0].isIntersecting) return;
-        const proximoLote = todos.slice(revelados, revelados + LOTE);
+        const proximoLote = itensAtivos.slice(revelados, revelados + LOTE);
         proximoLote.forEach((el) => { el.hidden = false; });
         revelados += proximoLote.length;
-        if (revelados >= todos.length) observer.disconnect();
       });
       observer.observe(sentinela);
     })();

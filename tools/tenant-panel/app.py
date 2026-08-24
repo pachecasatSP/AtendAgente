@@ -907,7 +907,10 @@ def vitrine(request: Request):
         categoria = item.get("categoria") or "Outros"
         secoes.setdefault(tipo, {}).setdefault(categoria, []).append(item)
     secoes_ordenadas = [
-        {"tipo": tipo, "label": TIPO_LABEL.get(tipo, tipo), "categorias": secoes[tipo]}
+        {
+            "tipo": tipo, "label": TIPO_LABEL.get(tipo, tipo), "categorias": secoes[tipo],
+            "total": sum(len(v) for v in secoes[tipo].values()),
+        }
         for tipo in TIPO_ORDEM if tipo in secoes
     ]
 
