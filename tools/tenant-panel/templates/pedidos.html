@@ -91,6 +91,16 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 .pedido-btn.endereco { border-color: var(--leaf); color: var(--leaf-deep); }
 .pedido-btn.endereco:hover { background: var(--leaf-pale); }
 .carregar-sentinela { height: 1px; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+.atualizar-wrap { display: flex; align-items: center; gap: 0.5rem; }
+.atualizar-info { font-size: 0.76rem; color: var(--ink-faint); }
+.pedido-btn.atualizar { border-color: var(--line); color: var(--ink-soft); }
+.pedido-btn.atualizar:hover { background: var(--paper-soft); }
+.pedido-row.flash { animation: flash-destaque 1.8s ease-out; }
+@keyframes flash-destaque {
+  0% { background: var(--leaf-pale); }
+  100% { background: transparent; }
+}
 [hidden] { display: none !important; }
 </style>
 </head>
@@ -112,8 +122,14 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
   </div>
 
   <div class="card">
-    <h1>Pedidos</h1>
-    <p class="lead">Pedidos fechados pelos clientes pela vitrine — confirme o pagamento depois de conferir o Pix na sua conta.</p>
+    <div class="card-head">
+      <h1>Pedidos</h1>
+      <div class="atualizar-wrap">
+        <span id="atualizar-info" class="atualizar-info"></span>
+        <button type="button" id="btn-atualizar" class="pedido-btn atualizar">🔄 Atualizar</button>
+      </div>
+    </div>
+    <p class="lead">Pedidos fechados pelos clientes pela vitrine — confirme o pagamento depois de conferir o Pix na sua conta. A lista se atualiza sozinha a cada 15s (novo pedido, endereço, comprovante).</p>
 
     <div id="pedidos-erro" class="banner erro" hidden></div>
     <div id="pedidos-lista"></div>
@@ -141,6 +157,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
     let offset = 0;
     let carregando = false;
     let acabou = false;
+    const pedidosPorId = new Map();
 
     function escapeHtml(s) {
       const div = document.createElement('div');
@@ -223,6 +240,37 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       return row;
     }
 
+    // Insere/atualiza uma linha sem redesenhar a lista inteira — usado
+    // tanto pela paginação normal (scroll infinito) quanto pelo poll
+    // automático (verificarAtualizacoes), pra manter só 1 caminho de
+    // inserção e evitar linha duplicada quando o mesmo pedido aparece
+    // nos dois (ex: chegou pelo poll antes do scroll alcançar ele).
+    function upsertPedido(p, { prepend = false } = {}) {
+      const existente = pedidosPorId.get(p.id);
+      const assinatura = JSON.stringify(p);
+      // Só pisca se já existia com dado diferente (mudou) ou é linha
+      // nova chegando via prepend (poll achou pedido que ainda não
+      // tinha na tela) — carga inicial/scroll normal não pisca.
+      const destacar = existente ? existente.dataset.assinatura !== assinatura : prepend;
+      const row = renderPedido(p);
+      row.dataset.assinatura = assinatura;
+      if (existente) {
+        existente.replaceWith(row);
+      } else {
+        const lista = document.getElementById('pedidos-lista');
+        if (prepend && lista.firstChild) {
+          lista.insertBefore(row, lista.firstChild);
+        } else {
+          lista.appendChild(row);
+        }
+      }
+      pedidosPorId.set(p.id, row);
+      if (destacar) {
+        row.classList.add('flash');
+      }
+      return row;
+    }
+
     async function salvarEndereco(id, btn, row) {
       const input = row.querySelector('.pedido-endereco-input');
       const endereco = (input.value || '').trim();
@@ -282,6 +330,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
     function recarregar() {
       offset = 0;
       acabou = false;
+      pedidosPorId.clear();
       document.getElementById('pedidos-lista').innerHTML = '';
       carregarMais();
     }
@@ -297,11 +346,11 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         const resp = await fetch(`/painel/api/pedidos?offset=${offset}`);
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || 'Não consegui buscar os pedidos.');
-        const listaEl = document.getElementById('pedidos-lista');
-        data.pedidos.forEach((p) => listaEl.appendChild(renderPedido(p)));
+        data.pedidos.forEach((p) => upsertPedido(p));
         offset += data.pedidos.length;
         acabou = !data.tem_mais;
-        document.getElementById('pedidos-vazio').hidden = offset > 0;
+        document.getElementById('pedidos-vazio').hidden = pedidosPorId.size > 0;
+        marcarAtualizado();
       } catch (err) {
         erroEl.textContent = err.message;
         erroEl.hidden = false;
@@ -311,12 +360,53 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
       }
     }
 
+    function marcarAtualizado() {
+      const el = document.getElementById('atualizar-info');
+      const agora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      el.textContent = `Atualizado às ${agora}`;
+    }
+
+    // Poll leve (só a 1ª página, mais recente) pra pegar pedido novo ou
+    // mudança de status/endereço enquanto a tela está aberta, sem exigir
+    // que o operador recarregue a página manualmente. Não mexe em
+    // `offset`/`acabou` do scroll infinito — só insere/atualiza linhas
+    // via upsertPedido, então não interfere na paginação em andamento.
+    let verificandoAtualizacoes = false;
+    async function verificarAtualizacoes() {
+      if (verificandoAtualizacoes || carregando) return;
+      verificandoAtualizacoes = true;
+      try {
+        const resp = await fetch('/painel/api/pedidos?offset=0');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        // percorre do mais antigo pro mais novo dentro do lote — cada
+        // prepend empurra pro topo, terminando na ordem certa (mais
+        // novo primeiro), igual ao que o backend já devolve.
+        [...data.pedidos].reverse().forEach((p) => {
+          upsertPedido(p, { prepend: !pedidosPorId.has(p.id) });
+        });
+        if (data.pedidos.length > 0) {
+          document.getElementById('pedidos-vazio').hidden = true;
+        }
+        marcarAtualizado();
+      } catch (err) {
+        // silencioso — poll de fundo não deve incomodar o operador
+      } finally {
+        verificandoAtualizacoes = false;
+      }
+    }
+
+    document.getElementById('btn-atualizar').addEventListener('click', () => {
+      verificarAtualizacoes();
+    });
+
     const observer = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting) carregarMais();
     });
     observer.observe(document.getElementById('carregar-sentinela'));
 
     carregarMais();
+    setInterval(verificarAtualizacoes, 15000);
   </script>
 </body>
 </html>
