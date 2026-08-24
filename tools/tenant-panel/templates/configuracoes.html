@@ -138,6 +138,14 @@ button.secondary {
   border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
 }
 .produto-row.inativo { opacity: 0.55; }
+.produto-paginacao { display: flex; align-items: center; justify-content: center; gap: 0.9rem; margin: -0.6rem 0 1.6rem; }
+.produto-paginacao button {
+  margin-top: 0; font-family: inherit; font-weight: 800; font-size: 0.82rem; cursor: pointer; padding: 0.4rem 0.9rem;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  box-shadow: none;
+}
+.produto-paginacao button:disabled { opacity: 0.45; cursor: default; }
+.produto-paginacao-info { font-size: 0.8rem; color: var(--ink-faint); font-weight: 700; }
 .produto-thumb {
   width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: var(--paper-soft);
   flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
@@ -382,6 +390,11 @@ button.secondary {
       {% else %}
         <p class="hint">Nenhum item cadastrado ainda.</p>
       {% endfor %}
+    </div>
+    <div id="produto-paginacao" class="produto-paginacao" hidden>
+      <button type="button" id="produto-pagina-anterior">&larr; Anterior</button>
+      <span id="produto-pagina-info" class="produto-paginacao-info"></span>
+      <button type="button" id="produto-pagina-proxima">Próxima &rarr;</button>
     </div>
 
     <fieldset>
@@ -780,6 +793,39 @@ button.secondary {
     }
 
     if (document.querySelector('#catalogo-status-dot.pending')) startCatalogoPolling();
+
+    // Paginação do catálogo (10 por página) — client-side, a lista
+    // inteira já vem renderizada pelo Jinja (mesmo padrão de sempre
+    // desse arquivo: qualquer ação recarrega a página inteira via
+    // location.reload(), então não precisa sincronizar estado de
+    // página com o servidor).
+    (function () {
+      const PAGINA_TAMANHO = 10;
+      const linhas = Array.from(document.querySelectorAll('#produto-list .produto-row'));
+      const paginacaoEl = document.getElementById('produto-paginacao');
+      const totalPaginas = Math.ceil(linhas.length / PAGINA_TAMANHO);
+      let paginaAtual = 1;
+
+      if (linhas.length <= PAGINA_TAMANHO) return; // cabe tudo numa página, sem controles
+
+      function renderizarPagina() {
+        const inicio = (paginaAtual - 1) * PAGINA_TAMANHO;
+        linhas.forEach((row, i) => { row.hidden = i < inicio || i >= inicio + PAGINA_TAMANHO; });
+        document.getElementById('produto-pagina-info').textContent = `Página ${paginaAtual} de ${totalPaginas}`;
+        document.getElementById('produto-pagina-anterior').disabled = paginaAtual === 1;
+        document.getElementById('produto-pagina-proxima').disabled = paginaAtual === totalPaginas;
+      }
+
+      document.getElementById('produto-pagina-anterior').addEventListener('click', () => {
+        if (paginaAtual > 1) { paginaAtual -= 1; renderizarPagina(); }
+      });
+      document.getElementById('produto-pagina-proxima').addEventListener('click', () => {
+        if (paginaAtual < totalPaginas) { paginaAtual += 1; renderizarPagina(); }
+      });
+
+      paginacaoEl.hidden = false;
+      renderizarPagina();
+    })();
 
     const produtoForm = document.getElementById('produto-form');
     const produtoTipoField = document.getElementById('produto-tipo-field');
