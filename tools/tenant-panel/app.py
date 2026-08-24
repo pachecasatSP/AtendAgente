@@ -1154,7 +1154,16 @@ def api_pedido_comprovante(request: Request, pedido_id: str) -> Response:
         obj = storage._get_client().get_object(Bucket=storage.OBJECT_STORAGE_BUCKET, Key=pedido["comprovante_key"])
     except Exception:
         raise HTTPException(status_code=502, detail="Não consegui buscar o comprovante agora")
-    return Response(content=obj["Body"].read(), media_type=obj.get("ContentType", "application/octet-stream"))
+    # `inline` (não `attachment`) — mantém abrindo direto no navegador,
+    # o Content-Disposition aqui é só pra dar um nome decente ao arquivo
+    # caso o operador salve, em vez do nome opaco (hash) da object key.
+    ext = pedido["comprovante_key"].rsplit(".", 1)[-1] if "." in pedido["comprovante_key"] else "bin"
+    nome_arquivo = f"comprovante-pedido-{_numero_exibicao(pedido.get('numero'))}.{ext}"
+    return Response(
+        content=obj["Body"].read(),
+        media_type=obj.get("ContentType", "application/octet-stream"),
+        headers={"Content-Disposition": f'inline; filename="{nome_arquivo}"'},
+    )
 
 
 def _texto_rastreamento_manual(lote: list) -> str:

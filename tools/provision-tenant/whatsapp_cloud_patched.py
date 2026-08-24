@@ -200,6 +200,42 @@ def check_whatsapp_cloud_requirements() -> bool:
     return AIOHTTP_AVAILABLE and HTTPX_AVAILABLE
 
 
+# Fallbacks de erro de provider/LLM do gateway (run.py:_gateway_provider_error_reply,
+# vendorizado dentro da imagem nousresearch/hermes-agent) saem em inglês e
+# soam técnicos demais pro cliente final no WhatsApp — o cliente não sabe o
+# que é "model provider" ou "rate-limiting". Troca por texto em português no
+# tom do bot, sem mudar o que causa o envio (mesmas 5 mensagens fixas que o
+# gateway já usa pra não vazar erro bruto de provider pro chat). Match por
+# igualdade exata — são templates literais e fixos do gateway, não regex,
+# então não corre risco de mexer em texto que o próprio bot compôs.
+_GATEWAY_PROVIDER_ERROR_PT = {
+    "⚠️ Provider authentication failed. Check the configured credentials; "
+    "raw provider details are in the gateway logs.": (
+        "Desculpa, tive um probleminha técnico aqui do meu lado 🙏 "
+        "Já vou avisar nossa equipe — pode tentar de novo daqui a pouco?"
+    ),
+    "⚠️ The model provider rejected the request. I kept the raw provider "
+    "error out of chat; check gateway logs for details or try rephrasing.": (
+        "Desculpa, não consegui processar essa mensagem 🙏 "
+        "Pode tentar reformular ou mandar de um jeito diferente?"
+    ),
+    "⏱️ The model provider is rate-limiting requests. Please wait a moment and try again.": (
+        "Desculpa, tive uma instabilidade rapidinha aqui 🙏 "
+        "Pode mandar sua mensagem de novo daqui a pouquinho?"
+    ),
+    "⚠️ The model server is not responding — it looks like the configured "
+    "model endpoint is not running or is unreachable.": (
+        "Desculpa, estou com uma instabilidade técnica no momento 🙏 "
+        "Já vou avisar nossa equipe — tenta de novo em instantes?"
+    ),
+    "⚠️ The model provider failed after retries. I kept raw provider details "
+    "out of chat; check gateway logs for diagnostics.": (
+        "Desculpa, tive uma instabilidade técnica aqui do meu lado 🙏 "
+        "Pode tentar de novo em instantes?"
+    ),
+}
+
+
 class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
     """WhatsApp Business Cloud API adapter.
 
@@ -579,6 +615,8 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
             return SendResult(success=False, error="Not connected")
         if not content or not content.strip():
             return SendResult(success=True, message_id=None)
+
+        content = _GATEWAY_PROVIDER_ERROR_PT.get(content, content)
 
         if await self._is_handoff_active(chat_id):
             logger.info(
