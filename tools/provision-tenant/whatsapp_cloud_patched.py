@@ -534,6 +534,35 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
         except Exception:
             return False
 
+    async def _report_message_status(self, status: Dict[str, Any]) -> None:
+        """Repassa um status "failed" pro sidecar mongo-sync casar com a
+        mensagem original via wamid e alertar o operador no painel.
+
+        Best-effort, mesmo padrão de ``_is_handoff_active``: qualquer
+        erro aqui nunca deve interromper o processamento do webhook.
+        """
+        if self._http_client is None:
+            return
+        wamid = str(status.get("id") or "").strip()
+        if not wamid:
+            return
+        erros = status.get("errors") or []
+        error_title = None
+        if erros and isinstance(erros[0], dict):
+            error_title = erros[0].get("title") or erros[0].get("message")
+        try:
+            await self._http_client.post(
+                "http://127.0.0.1:8091/mensagem-status",
+                json={
+                    "platform_message_id": wamid,
+                    "status": "failed",
+                    "error_title": error_title,
+                },
+                timeout=5.0,
+            )
+        except Exception:
+            logger.debug("[whatsapp_cloud] mensagem-status report failed for wamid %s", wamid)
+
     async def send(
         self,
         chat_id: str,
@@ -1683,13 +1712,23 @@ class WhatsAppCloudAdapter(WhatsAppBehaviorMixin, BasePlatformAdapter):
 
                 # Log status updates at debug level — useful for diagnosing
                 # "did Meta accept my outbound" without flooding INFO logs.
+                # "failed" is the one status worth acting on: Meta can accept
+                # the original POST /messages with HTTP 200 (a valid wamid)
+                # and only report delivery failure later, asynchronously,
+                # here — most commonly error 131047 (24h service-window
+                # closed). Without forwarding this, an operator who sent a
+                # message from the tenant-panel would see it as "sent" and
+                # never learn it didn't actually reach the customer.
                 for status in value.get("statuses") or []:
-                    if isinstance(status, dict):
-                        logger.debug(
-                            "[whatsapp_cloud] status %s for %s",
-                            status.get("status"),
-                            status.get("id"),
-                        )
+                    if not isinstance(status, dict):
+                        continue
+                    logger.debug(
+                        "[whatsapp_cloud] status %s for %s",
+                        status.get("status"),
+                        status.get("id"),
+                    )
+                    if status.get("status") == "failed":
+                        await self._report_message_status(status)
 
     async def _dispatch_interactive_reply(
         self,

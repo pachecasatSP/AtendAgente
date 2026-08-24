@@ -477,6 +477,44 @@ def _registrar_mensagem(chat_id: str, role: str, content: str, msg_key: str) -> 
     )
 
 
+def _handle_mensagem_status(payload: dict) -> dict:
+    """Recebe o status assíncrono de entrega (Fase de rastreio de
+    entrega, ver whatsapp_cloud_patched.py) e casa com a mensagem via
+    `platform_message_id` (o wamid devolvido no POST /messages
+    original). A Meta pode aceitar o envio com HTTP 200 e só reportar
+    falha de entrega depois por aqui — típico de mensagem fora da
+    janela de 24h (error code 131047). Sem isso o operador nunca saberia
+    que uma mensagem "enviada com sucesso" na hora não chegou de
+    verdade."""
+    wamid = str(payload.get("platform_message_id") or "")
+    status = str(payload.get("status") or "")
+    if not wamid or not status or _messages_coll is None:
+        return {"ok": False}
+    update = {"delivery_status": status}
+    error_title = payload.get("error_title")
+    if error_title:
+        update["delivery_error"] = error_title
+    doc = _messages_coll.find_one_and_update(
+        {"tenant_id": TENANT_ID, "platform_message_id": wamid},
+        {"$set": update},
+        return_document=ReturnDocument.AFTER,
+    )
+    if doc is None:
+        return {"ok": False}
+    if status == "failed" and _sessions_coll is not None and doc.get("session_id"):
+        # Alerta o operador mesmo que a falha seja numa mensagem que ele
+        # mesmo mandou — a falha chega minutos depois, de forma
+        # assíncrona, quando ele já pode ter saído da tela.
+        _sessions_coll.update_one(
+            {"tenant_id": TENANT_ID, "session_id": doc["session_id"]},
+            {"$set": {
+                "needs_operator": True, "needs_operator_at": now(),
+                "handoff": True, "handoff_by": "entrega falhou", "handoff_at": now(),
+            }},
+        )
+    return {"ok": True}
+
+
 def _marcar_handoff_pedido(chat_id: str, motivo: str = "pedido (rastreamento manual)") -> None:
     """Marca só a sessão MAIS RECENTE desse chat_id — nunca `update_many`
     por chat_id sozinho. Bug real encontrado 2026-08-20: um chat_id tem
@@ -584,6 +622,8 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
 
         if parsed.path == "/agenda-confirmar":
             result = self._handle_agenda_confirmar(payload)
+        elif parsed.path == "/mensagem-status":
+            result = _handle_mensagem_status(payload)
         elif parsed.path == "/pedido-fechar":
             result = pedido_fechar(str(payload.get("chat_id") or ""), str(payload.get("texto") or ""))
         elif parsed.path == "/pedido-status":
@@ -809,6 +849,7 @@ def ensure_indexes(db) -> None:
     db["sessions"].create_index([("tenant_id", 1), ("last_activity_at", -1)])
     db["messages"].create_index([("tenant_id", 1), ("session_id", 1), ("timestamp", 1)])
     db["messages"].create_index([("tenant_id", 1), ("message_id", -1)])
+    db["messages"].create_index([("tenant_id", 1), ("platform_message_id", 1)])
 
 
 def main() -> None:

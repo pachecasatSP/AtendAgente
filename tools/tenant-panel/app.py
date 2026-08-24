@@ -41,6 +41,7 @@ import urllib.request
 import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
@@ -1755,6 +1756,8 @@ def api_messages(session_id: str, request: Request) -> list[dict]:
             "role": m.get("role"),
             "content": m.get("content"),
             "timestamp_fmt": fmt_ts(m.get("timestamp")),
+            "delivery_status": m.get("delivery_status"),
+            "delivery_error": m.get("delivery_error"),
         }
         for m in messages
     ]
@@ -1775,7 +1778,15 @@ def api_set_handoff(session_id: str, request: Request, payload: dict) -> dict:
     return {"handoff": active}
 
 
-def _send_whatsapp_message(chat_id: str, content: str) -> None:
+def _send_whatsapp_message(chat_id: str, content: str) -> Optional[str]:
+    """Envia texto livre e devolve o wamid (``messages[0].id``) da Meta.
+
+    Meta pode aceitar o POST com 200 (e um wamid válido) e só reportar
+    falha de entrega DEPOIS, de forma assíncrona, via webhook de status
+    (``statuses`` — ver ``whatsapp_cloud_patched.py``). Isso acontece
+    sobretudo quando a janela de 24h de atendimento já fechou. Sem
+    guardar esse wamid aqui, não tem como o webhook de status casar
+    aquele "failed" com esta mensagem específica no painel."""
     if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
         raise HTTPException(status_code=500, detail="Envio manual não configurado para este tenant")
 
@@ -1798,10 +1809,13 @@ def _send_whatsapp_message(chat_id: str, content: str) -> None:
         },
     )
     try:
-        urllib.request.urlopen(req, timeout=15)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise HTTPException(status_code=502, detail=f"WhatsApp API falhou: HTTP {exc.code}: {detail}")
+    ids = data.get("messages") or []
+    return ids[0].get("id") if ids else None
 
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # limite da própria API do WhatsApp pra imagens
@@ -1853,7 +1867,8 @@ def _upload_whatsapp_media(file_bytes: bytes, content_type: str, filename: str) 
     return media_id
 
 
-def _send_whatsapp_image(chat_id: str, media_id: str, caption: str = "") -> None:
+def _send_whatsapp_image(chat_id: str, media_id: str, caption: str = "") -> Optional[str]:
+    """Devolve o wamid — mesmo motivo de `_send_whatsapp_message`."""
     image_payload = {"id": media_id}
     if caption:
         image_payload["caption"] = caption
@@ -1868,10 +1883,13 @@ def _send_whatsapp_image(chat_id: str, media_id: str, caption: str = "") -> None
         headers={"Authorization": f"Bearer {ACCESS_TOKEN}", "Content-Type": "application/json"},
     )
     try:
-        urllib.request.urlopen(req, timeout=15)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise HTTPException(status_code=502, detail=f"WhatsApp API falhou: HTTP {exc.code}: {detail}")
+    ids = data.get("messages") or []
+    return ids[0].get("id") if ids else None
 
 
 @app.post("/painel/api/messages/{session_id}/send-image")
@@ -1902,7 +1920,7 @@ async def api_send_image(
 
     caption = caption.strip()
     media_id = _upload_whatsapp_media(file_bytes, content_type, file.filename or "imagem.jpg")
-    _send_whatsapp_image(chat_id, media_id, caption)
+    wamid = _send_whatsapp_image(chat_id, media_id, caption)
 
     now = time.time()
     messages_col.insert_one(
@@ -1913,6 +1931,8 @@ async def api_send_image(
             "content": f"📷 {caption}" if caption else "📷 Imagem enviada",
             "timestamp": now,
             "sent_by": username,
+            "platform_message_id": wamid,
+            "delivery_status": "pending" if wamid else None,
         }
     )
     sessions_col.update_one(
@@ -1945,7 +1965,7 @@ def api_send_message(session_id: str, request: Request, payload: dict) -> dict:
     if not chat_id:
         raise HTTPException(status_code=500, detail="Conversa sem chat_id — não é possível enviar")
 
-    _send_whatsapp_message(chat_id, content)
+    wamid = _send_whatsapp_message(chat_id, content)
 
     now = time.time()
     messages_col.insert_one(
@@ -1956,6 +1976,8 @@ def api_send_message(session_id: str, request: Request, payload: dict) -> dict:
             "content": content,
             "timestamp": now,
             "sent_by": username,
+            "platform_message_id": wamid,
+            "delivery_status": "pending" if wamid else None,
         }
     )
     sessions_col.update_one(

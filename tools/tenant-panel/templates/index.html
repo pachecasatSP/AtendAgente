@@ -205,6 +205,8 @@
       background: var(--spark); clip-path: polygon(0 0, 0 100%, 100% 0);
     }
     .meta { position: absolute; right: 4px; bottom: 4px; font-size: 0.56rem; color: var(--ink-faint); white-space: nowrap; }
+    .msg.delivery-failed-msg { outline: 2px solid #c0392b; }
+    .delivery-failed { margin-top: 0.35rem; padding-top: 4px; font-size: 0.68rem; font-weight: 700; color: #c0392b; text-align: left; cursor: help; }
     .usage-bar { padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); background: var(--paper-card); }
     .usage-bar-label { font-size: 0.72rem; font-weight: 700; color: var(--ink-faint); margin-bottom: 0.3rem; }
     .usage-bar-track { height: 6px; border-radius: 999px; background: var(--leaf-pale); overflow: hidden; }
@@ -344,6 +346,7 @@
       'bot (auto-escalação)': 'o bot identificou que precisa de uma pessoa',
       'pedido (rastreamento manual)': 'cliente perguntou sobre um pedido sem rastreio cadastrado',
       'agenda (remarcação)': 'cliente pediu pra remarcar um horário',
+      'entrega falhou': 'uma mensagem não foi entregue (provavelmente janela de 24h fechada)',
     };
 
     function handoffMotivoTexto(handoffBy) {
@@ -420,11 +423,16 @@
       threadAreaEl.innerHTML = messages
         .map((m) => {
           const kind = m.role === 'assistant' ? 'assistant' : (m.role === 'operator' ? 'operator' : 'user');
+          const failed = m.delivery_status === 'failed';
+          const failedNote = failed
+            ? `<div class="delivery-failed" title="${escapeHtml(m.delivery_error || '')}">⚠️ Não entregue${m.delivery_error ? ' — ' + escapeHtml(m.delivery_error) : ''}</div>`
+            : '';
           return `
         <div class="msg-row ${kind}">
-          <div class="msg ${kind}">
+          <div class="msg ${kind}${failed ? ' delivery-failed-msg' : ''}">
             ${escapeHtml(m.content)}
             <span class="meta">${escapeHtml(m.timestamp_fmt)}</span>
+            ${failedNote}
           </div>
         </div>`;
         })
