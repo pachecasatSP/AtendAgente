@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-02T19:00:00.000Z",
+  "title": "Design System: AtendPraGente — Landing Page",
+  "extensions": {
+    "colorMeta": {
+      "mata-atlantica": { "role": "primary", "displayName": "Mata Atlântica", "canonical": "#1FAE5C", "tonalRamp": ["#0c4122", "#167940", "#1fad5c", "#2fda78", "#63e39a", "#97ecbc", "#c2f4d8", "#e9fbf1"] },
+      "mata-atlantica-profunda": { "role": "primary", "displayName": "Mata Atlântica Profunda", "canonical": "#0E7A3D" },
+      "mata-atlantica-clara": { "role": "primary", "displayName": "Mata Atlântica Clara", "canonical": "#E3F7EA" },
+      "mata-atlantica-cta": { "role": "primary", "displayName": "Mata Atlântica CTA", "canonical": "#0E7A3D" },
+      "sol-da-tarde": { "role": "secondary", "displayName": "Sol da Tarde", "canonical": "#FFC93C", "tonalRamp": ["#4d3700", "#8f6700", "#cc9400", "#ffbb0a", "#ffcc47", "#ffdd85", "#ffebb8", "#fff8e5"] },
+      "sol-da-tarde-intenso": { "role": "secondary", "displayName": "Sol da Tarde Intenso", "canonical": "#E8A400" },
+      "marfim": { "role": "neutral", "displayName": "Marfim", "canonical": "#FFFCF5", "tonalRamp": ["#2b2822", "#504b3f", "#726b5a", "#938a76", "#aea898", "#c9c5ba", "#e0ddd7", "#f4f3f1"] },
+      "marfim-aquecido": { "role": "neutral", "displayName": "Marfim Aquecido", "canonical": "#FFF6E2" },
+      "branco-cartao": { "role": "neutral", "displayName": "Branco Cartão", "canonical": "#FFFFFF" },
+      "tinta": { "role": "neutral", "displayName": "Tinta", "canonical": "#17231D", "tonalRamp": ["#1e2e26", "#395647", "#517b66", "#6b9e85", "#90b6a3", "#b5cec2", "#d4e3db", "#f0f5f2"] },
+      "tinta-suave": { "role": "neutral", "displayName": "Tinta Suave", "canonical": "#4A5A50" },
+      "tinta-fraca": { "role": "neutral", "displayName": "Tinta Fraca", "canonical": "#54635A" },
+      "linha": { "role": "neutral", "displayName": "Linha", "canonical": "#E4E0D0" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display (Baloo 2)", "purpose": "Todo h1/h2/h3, sempre em peso 800 — nunca usado em texto corrido." },
+      "body": { "displayName": "Body (Nunito)", "purpose": "Parágrafos, labels e texto de botão; peso 500 no corpo, 800 em CTAs/eyebrows." },
+      "label": { "displayName": "Label/Eyebrow", "purpose": "Rótulo curto maiúsculo acima de cada título de seção." }
+    },
+    "colorDarkAlt": {
+      "mata-atlantica": "#35C878",
+      "mata-atlantica-profunda": "#7EE3AC",
+      "mata-atlantica-clara": "#1A3324",
+      "mata-atlantica-cta": "#207949",
+      "sol-da-tarde": "#FFD666",
+      "sol-da-tarde-intenso": "#FFE199",
+      "marfim": "#0F1B15",
+      "marfim-aquecido": "#16261D",
+      "branco-cartao": "#182920",
+      "tinta": "#F3F6F1",
+      "tinta-suave": "#C9D6CC",
+      "tinta-fraca": "#98A49C",
+      "linha": "#24352B"
+    },
+    "shadows": [
+      { "name": "destaque", "value": "0 20px 50px -20px rgba(23,35,29,0.25)", "purpose": "Elevação reservada a elementos de destaque: mockup do celular, plano em destaque, imagens de mockup." },
+      { "name": "cta-glow", "value": "0 14px 30px -12px color-mix(in srgb, var(--spark) 75%, transparent)", "purpose": "Sombra tingida na cor do próprio botão, usada só nos CTAs primário e do menu." }
+    ],
+    "motion": [
+      { "name": "pop-in", "value": "0.5s ease forwards, translateY(8px)->0", "purpose": "Entrada escalonada dos balões de chat (animation-delay crescente por balão)." },
+      { "name": "bounce-typing", "value": "1.1s infinite ease-in-out", "purpose": "Indicador de 'digitando...' antes de cada resposta do bot." },
+      { "name": "hover-lift", "value": "translateY(-1px|-2px) 0.15s ease", "purpose": "Elevação sutil de botões e cartões clicáveis no hover." }
+    ],
+    "breakpoints": [
+      { "name": "hero", "value": "900px" },
+      { "name": "steps-mockups", "value": "800px-900px" },
+      { "name": "pricing", "value": "560px-1100px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "CTA de conversão principal — único uso amplo da cor de acento.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Testar 7 dias grátis</a>",
+      "css": ".ds-btn-primary { background: #FFC93C; color: #211500; font-family: 'Nunito', ui-rounded, 'Segoe UI', sans-serif; font-weight: 800; font-size: 1.05rem; padding: 1rem 1.7rem; border-radius: 999px; text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem; box-shadow: 0 14px 30px -12px rgba(255,201,60,0.45); transition: transform 0.15s ease; } .ds-btn-primary:hover { transform: translateY(-2px) scale(1.01); } .ds-btn-primary:focus-visible { outline: 3px solid #FFC93C; outline-offset: 3px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "CTA secundário/neutro, borda fina que reage no hover.",
+      "html": "<a class=\"ds-btn-secondary\" href=\"#\">Ver como funciona</a>",
+      "css": ".ds-btn-secondary { background: transparent; color: #17231D; border: 2px solid #E4E0D0; font-family: 'Nunito', ui-rounded, 'Segoe UI', sans-serif; font-weight: 800; font-size: 1.05rem; padding: 0.95rem 1.6rem; border-radius: 999px; text-decoration: none; transition: border-color 0.15s ease, transform 0.15s ease; } .ds-btn-secondary:hover { border-color: #1FAE5C; transform: translateY(-2px); } .ds-btn-secondary:focus-visible { outline: 3px solid #FFC93C; outline-offset: 3px; }"
+    },
+    {
+      "name": "Nav CTA",
+      "kind": "button",
+      "refersTo": "nav-cta",
+      "description": "Botão compacto de navegação, em verde (não amarelo) para reservar o acento ao CTA de conversão.",
+      "html": "<a class=\"ds-nav-cta\" href=\"#\">Falar no WhatsApp</a>",
+      "css": ".ds-nav-cta { display: inline-flex; align-items: center; gap: 0.5rem; background: #0E7A3D; color: #fff; font-family: 'Nunito', ui-rounded, 'Segoe UI', sans-serif; font-weight: 800; font-size: 0.95rem; padding: 0.65rem 1.3rem; border-radius: 999px; text-decoration: none; box-shadow: 0 8px 20px -8px rgba(31,174,92,0.5); transition: transform 0.15s ease, box-shadow 0.15s ease; } .ds-nav-cta:hover { transform: translateY(-1px); box-shadow: 0 12px 26px -10px rgba(31,174,92,0.6); }"
+    },
+    {
+      "name": "Step Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Cartão flat padrão — borda fina, sem sombra, número grande em contorno.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-num\">01</div><h3>Conecte seu WhatsApp</h3><p>Escaneie um QR, sem precisar trocar de número.</p></div>",
+      "css": ".ds-card { background: #FFFFFF; border: 1px solid #E4E0D0; border-radius: 20px; padding: 1.8rem; } .ds-card-num { font-family: 'Baloo 2', ui-rounded, 'Segoe UI Rounded', sans-serif; font-weight: 800; font-size: 2.2rem; color: #E3F7EA; -webkit-text-stroke: 2px #1FAE5C; line-height: 1; } .ds-card h3 { font-family: 'Baloo 2', ui-rounded, sans-serif; font-weight: 800; font-size: 1.2rem; margin: 0.9rem 0 0.5rem; color: #17231D; } .ds-card p { color: #4A5A50; font-size: 0.95rem; margin: 0; }"
+    },
+    {
+      "name": "Featured Price Card",
+      "kind": "card",
+      "refersTo": "price-card-featured",
+      "description": "Cartão de plano em destaque — único price-card com borda colorida, sombra e selo.",
+      "html": "<div class=\"ds-price-featured\"><span class=\"ds-price-badge\">mais escolhido</span><div class=\"ds-price-name\">Começando</div><div class=\"ds-price-amount\">R$ 157,90<span class=\"ds-price-period\">/mês</span></div></div>",
+      "css": ".ds-price-featured { background: #FFFFFF; border: 1px solid #1FAE5C; border-radius: 28px; padding: 2rem 1.8rem; box-shadow: 0 20px 50px -20px rgba(23,35,29,0.25); position: relative; } .ds-price-badge { position: absolute; top: -13px; left: 1.6rem; background: #FFC93C; color: #211500; font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; padding: 0.3rem 0.7rem; border-radius: 999px; } .ds-price-name { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 1.3rem; color: #17231D; } .ds-price-amount { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 2.1rem; color: #0E7A3D; margin-top: 0.4rem; } .ds-price-period { font-family: 'Nunito', sans-serif; font-weight: 700; font-size: 0.9rem; color: #8A9690; }"
+    },
+    {
+      "name": "WhatsApp Chat Bubble",
+      "kind": "custom",
+      "refersTo": "chat-bubble",
+      "description": "Componente-assinatura: par de balões (recebido/enviado) do mockup de chat que é o centro visual da página.",
+      "html": "<div class=\"ds-thread\"><div class=\"ds-bubble ds-bubble-in\">Oi! Vocês têm horário amanhã à tarde?</div><div class=\"ds-bubble ds-bubble-out\">Tenho sim! 15h ou 17h, qual prefere?</div></div>",
+      "css": ".ds-thread { display: flex; flex-direction: column; gap: 0.6rem; } .ds-bubble { max-width: 82%; padding: 0.65rem 0.95rem; border-radius: 18px; font-size: 0.92rem; font-family: 'Nunito', sans-serif; } .ds-bubble-in { align-self: flex-start; background: #FFFFFF; border: 1px solid #E4E0D0; border-bottom-left-radius: 4px; color: #17231D; } .ds-bubble-out { align-self: flex-end; background: #DCFCE3; border-bottom-right-radius: 4px; color: #17231D; }"
+    },
+    {
+      "name": "Trust Pill",
+      "kind": "chip",
+      "refersTo": "trust-pill",
+      "description": "Selo de confiança em formato pílula com ponto colorido, usado na faixa de prova social.",
+      "html": "<span class=\"ds-trust-pill\"><span class=\"ds-trust-dot\"></span>API oficial do WhatsApp</span>",
+      "css": ".ds-trust-pill { display: inline-flex; align-items: center; gap: 0.5rem; background: #FFFFFF; border: 1px solid #E4E0D0; border-radius: 999px; padding: 0.6rem 1.1rem; font-family: 'Nunito', sans-serif; font-size: 0.88rem; font-weight: 700; color: #4A5A50; } .ds-trust-dot { width: 8px; height: 8px; border-radius: 50%; background: #1FAE5C; flex-shrink: 0; }"
+    },
+    {
+      "name": "FAQ Accordion",
+      "kind": "custom",
+      "refersTo": "faq-item",
+      "description": "Item de FAQ nativo (details/summary), acessível via teclado sem JS — adicionado em 2026-09-02 para responder dúvidas de cancelamento, limite de plano e privacidade antes do CTA final.",
+      "html": "<details class=\"ds-faq-item\"><summary>Posso cancelar quando quiser?</summary><p>Sim, sem fidelidade. Cancela quando quiser e para de ser cobrado no ciclo seguinte.</p></details>",
+      "css": ".ds-faq-item { background: #FFFFFF; border: 1px solid #E4E0D0; border-radius: 20px; padding: 1.1rem 1.4rem; } .ds-faq-item summary { list-style: none; cursor: pointer; font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 1rem; color: #17231D; display: flex; align-items: center; justify-content: space-between; gap: 1rem; } .ds-faq-item summary::-webkit-details-marker { display: none; } .ds-faq-item summary::after { content: '+'; font-family: 'Baloo 2', sans-serif; font-size: 1.2rem; color: #0E7A3D; flex-shrink: 0; } .ds-faq-item[open] summary::after { content: '\\2013'; } .ds-faq-item p { color: #4A5A50; font-size: 0.95rem; margin: 0.7rem 0 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A Conversa que te Ajuda",
+    "overview": "Tudo na página existe para fazer o mockup de chat do WhatsApp parecer real e confiável — a conversa é o herói, o resto é moldura. O tom é caloroso, direto e brasileiro: títulos em Baloo 2 (arredondada, peso 800) soam como alguém falando animado, não como um deck corporativo; a copy é coloquial ('Cê dorme. Seu WhatsApp atende, agenda e vende.') em vez de jargão de SaaS. A paleta combina verde-mata-atlântica (confiança, 'oficial', vivo) com um amarelo sol-da-tarde (ação, calor) sobre um fundo marfim quente — nunca o branco/cinza frio de dashboard de software. Formas são macias e convidativas: pílulas completas em botões e badges, cantos bem arredondados em cartões (20–28px), nada de esquinas vivas ou linhas duras.",
+    "keyCharacteristics": [
+      "O balão de chat do WhatsApp é a peça central; toda seção existe para sustentar essa demonstração.",
+      "Tipografia display arredondada e informal (Baloo 2), nunca séria/corporativa.",
+      "Formas em pílula (999px) dominam botões, badges e chips — praticamente nenhum canto reto no sistema.",
+      "Elevação é reservada a poucos elementos de destaque, nunca decoração padrão.",
+      "Um único bloco de seção (features-band) inverte para fundo verde sólido, deliberadamente fixo em ambos os temas — não segue o dark mode."
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Sol da Tarde (amarelo) é usado só em CTAs primários e no que precisa de atenção imediata — nunca como cor decorativa de fundo em áreas grandes. Sua raridade é o que faz o botão de ação saltar aos olhos.", "section": "colors" },
+      { "name": "The Fixed Band Rule", "body": "A seção features-band (fundo #0E7A3D sólido) é a única área que ignora o tema claro/escuro do usuário — ela carrega seu próprio par fundo/texto branco para garantir contraste, porque é pensada como um 'cartaz' dentro da página, não como uma superfície que respira com o tema.", "section": "colors" },
+      { "name": "The Bold-or-Nothing Rule", "body": "Baloo 2 só aparece em peso 800 — não existe uma variante leve/regular dela no sistema. Se o texto precisa de menos peso visual, ele vira Nunito, não Baloo 2 mais fina.", "section": "typography" },
+      { "name": "The Earned Shadow Rule", "body": "Sombra é sinal de importância, não decoração padrão — se um elemento tem sombra, é porque ele precisa competir visualmente com o resto da página (mockup do produto, plano recomendado, CTA principal).", "section": "elevation" },
+      { "name": "The Button-Safe Green Rule", "body": "Texto branco em cima de verde usa sempre --leaf-btn (Mata Atlântica CTA), nunca --leaf (Mata Atlântica clara) — o valor claro só passa ~2.9:1 de contraste. --leaf-btn tem um valor próprio por tema (claro #0E7A3D, escuro #207949) porque no escuro a Mata Atlântica Profunda normal vira um verde-menta claro usado como texto, não serviria como fundo de botão. Adicionada em 2026-09-02 após um scan de contraste encontrar 6+ elementos abaixo de WCAG AA.", "section": "colors" }
+    ],
+    "dos": [
+      "Do manter o mockup de chat do WhatsApp como o elemento visual mais elaborado da página — nenhum outro componente deve competir com ele em complexidade ou centralidade.",
+      "Do usar pílula (999px) para todo elemento clicável/badge; reservar 20px/28px só para superfícies de conteúdo (cartões, contêineres).",
+      "Do reservar Sol da Tarde para o único CTA de conversão mais importante de cada seção — nunca espalhar o amarelo em múltiplos elementos da mesma tela.",
+      "Do manter --bubble-out como cor exclusiva do balão de mensagem enviada — não reutilizar esse verde-claro em outro componente."
+    ],
+    "donts": [
+      "Don't usar --leaf (Mata Atlântica clara) como fundo de texto branco — use --leaf-btn (Mata Atlântica CTA), que tem um valor escuro-o-suficiente por tema pra passar 4.5:1. --leaf é só pra bordas, pontos decorativos e traços finos.",
+      "Don't introduzir azul, cinza frio ou qualquer paleta 'SaaS enterprise' — é a anti-referência explícita deste sistema.",
+      "Don't adicionar sombra decorativa em cartões comuns (steps, feature cards, trust pills); sombra é reservada aos elementos de destaque listados em Elevation & Depth.",
+      "Don't usar Baloo 2 em peso diferente de 800, nem em blocos longos de texto corrido — ela é só para títulos curtos.",
+      "Don't deixar a features-band reagir ao tema claro/escuro — seu par fundo/texto é fixo por design.",
+      "Don't usar branco translúcido abaixo de 90% de opacidade (rgba(255,255,255,0.9+)) pra texto de corpo dentro da features-band — abaixo disso o contraste contra o fundo #0E7A3D cai abaixo de 4.5:1.",
+      "Don't deixar um elemento interativo novo fora do seletor a:focus-visible, button:focus-visible, summary:focus-visible — todo controle focável por teclado usa o mesmo anel de foco em Sol da Tarde."
+    ]
+  }
+}

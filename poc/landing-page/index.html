@@ -67,9 +67,10 @@
   --paper-card: #FFFFFF;
   --ink: #17231D;
   --ink-soft: #4A5A50;
-  --ink-faint: #8A9690;
+  --ink-faint: #54635A;
   --leaf: #1FAE5C;
   --leaf-deep: #0E7A3D;
+  --leaf-btn: #0E7A3D;
   --leaf-pale: #E3F7EA;
   --spark: #FFC93C;
   --spark-deep: #E8A400;
@@ -90,9 +91,10 @@
     --paper-card: #182920;
     --ink: #F3F6F1;
     --ink-soft: #C9D6CC;
-    --ink-faint: #7C8B81;
+    --ink-faint: #98A49C;
     --leaf: #35C878;
     --leaf-deep: #7EE3AC;
+    --leaf-btn: #207949;
     --leaf-pale: #1A3324;
     --spark: #FFD666;
     --spark-deep: #FFE199;
@@ -108,9 +110,10 @@
   --paper-card: #182920;
   --ink: #F3F6F1;
   --ink-soft: #C9D6CC;
-  --ink-faint: #7C8B81;
+  --ink-faint: #98A49C;
   --leaf: #35C878;
   --leaf-deep: #7EE3AC;
+  --leaf-btn: #207949;
   --leaf-pale: #1A3324;
   --spark: #FFD666;
   --spark-deep: #FFE199;
@@ -138,7 +141,7 @@ img, svg { max-width: 100%; display: block; }
   padding: 0 1.5rem;
 }
 a { color: inherit; }
-a:focus-visible, button:focus-visible {
+a:focus-visible, button:focus-visible, summary:focus-visible {
   outline: 3px solid var(--spark);
   outline-offset: 3px;
 }
@@ -211,7 +214,7 @@ h1, h2, h3, .display {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  background: var(--leaf);
+  background: var(--leaf-btn);
   color: #fff;
   font-family: var(--font-body);
   font-weight: 800;
@@ -319,7 +322,7 @@ h1, h2, h3, .display {
 .phone-avatar {
   width: 40px; height: 40px;
   border-radius: 50%;
-  background: var(--leaf);
+  background: var(--leaf-btn);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -426,7 +429,7 @@ section { padding: 4.5rem 0; }
   color: #FFFFFF;
 }
 .features-band .eyebrow { color: #FFC93C; }
-.features-band .section-head p { color: rgba(255,255,255,0.78); }
+.features-band .section-head p { color: rgba(255,255,255,0.92); }
 .features-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -440,7 +443,48 @@ section { padding: 4.5rem 0; }
   padding: 1.6rem;
 }
 .feature-card h3 { font-size: 1.1rem; margin-bottom: 0.4rem; color: #FFFFFF; }
-.feature-card p { margin: 0; font-size: 0.95rem; color: rgba(255,255,255,0.85); }
+.feature-card p { margin: 0; font-size: 0.95rem; color: rgba(255,255,255,0.92); }
+
+/* ---------- Mockups ---------- */
+.mockups-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.4rem;
+}
+@media (max-width: 900px) { .mockups-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .mockups-grid { grid-template-columns: 1fr; } }
+.mockup-card {
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.mockup-card img {
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  display: block;
+}
+.mockup-card h3 { font-size: 1rem; margin: 0.6rem 0 0.35rem; }
+.mockup-card p { color: var(--ink-soft); font-size: 0.88rem; margin: 0; }
+.mockup-tag {
+  display: inline-block;
+  margin-top: auto;
+  margin-bottom: 0.9rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: var(--paper-soft);
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+}
 
 /* ---------- Trust ---------- */
 .trust-row {
@@ -503,6 +547,7 @@ section { padding: 4.5rem 0; }
 }
 .price-card .plan-name { font-family: var(--font-display); font-weight: 800; font-size: 1.3rem; }
 .price-card .plan-volume { color: var(--ink-faint); font-size: 0.85rem; font-weight: 700; }
+.price-card .plan-blurb { color: var(--ink-soft); font-size: 0.85rem; margin: 0.1rem 0 0; }
 .price-card .plan-price {
   display: flex;
   align-items: baseline;
@@ -518,6 +563,7 @@ section { padding: 4.5rem 0; }
 .price-card .plan-price .amount.custom { font-size: 1.5rem; }
 .price-card .plan-price .period { color: var(--ink-faint); font-size: 0.9rem; font-weight: 700; }
 .price-card .plan-price-de { color: var(--ink-faint); font-size: 0.9rem; font-weight: 700; text-decoration: line-through; margin-top: 0.3rem; }
+.price-card .plan-per-unit { color: var(--ink-faint); font-size: 0.8rem; margin: -0.4rem 0 0; }
 .plan-features {
   list-style: none;
   margin: 0;
@@ -565,6 +611,36 @@ section { padding: 4.5rem 0; }
   border-color: var(--spark);
 }
 .pricing-note { color: var(--ink-faint); font-size: 0.85rem; margin-top: 1.6rem; }
+
+/* ---------- FAQ ---------- */
+.faq-list { display: flex; flex-direction: column; gap: 0.9rem; max-width: 68ch; }
+.faq-item {
+  background: var(--paper-card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 1.1rem 1.4rem;
+}
+.faq-item summary {
+  list-style: none;
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after {
+  content: "+";
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--leaf-deep);
+  flex-shrink: 0;
+}
+.faq-item[open] summary::after { content: "–"; }
+.faq-item p { color: var(--ink-soft); font-size: 0.95rem; margin: 0.7rem 0 0; }
 .trial-banner {
   display: flex;
   align-items: center;
@@ -654,7 +730,7 @@ footer {
 .cookie-btn:hover { transform: translateY(-1px); }
 .cookie-btn-ghost { background: transparent; border: 2px solid var(--line); color: var(--ink); }
 .cookie-btn-ghost:hover { border-color: var(--leaf); }
-.cookie-btn-accept { background: var(--leaf); border: none; color: #fff; box-shadow: 0 10px 22px -10px color-mix(in srgb, var(--leaf) 70%, transparent); }
+.cookie-btn-accept { background: var(--leaf-btn); border: none; color: #fff; box-shadow: 0 10px 22px -10px color-mix(in srgb, var(--leaf-btn) 70%, transparent); }
 @media (max-width: 640px) {
   .cookie-inner { flex-direction: column; align-items: stretch; }
   .cookie-actions { justify-content: stretch; }
@@ -682,6 +758,7 @@ footer {
       </div>
     </a>
     <div class="nav-links">
+      <a class="nav-link" href="#mockups">Exemplos</a>
       <a class="nav-link" href="#planos">Planos</a>
       <a class="nav-cta" href="https://wa.me/5511920081743?text=Quero%20conhecer%20o%20AtendPraGente" target="_blank" rel="noopener">Falar com a Duda</a>
     </div>
@@ -695,7 +772,7 @@ footer {
       <h1>Cê dorme.<br>Seu WhatsApp <span class="accent">atende, agenda e vende.</span></h1>
       <p class="lead">A gente transforma uma IA na voz do seu negócio, direto no seu WhatsApp — ela responde na hora, mostra seu catálogo, marca horário na sua agenda e ainda fecha o pagamento por PIX, sem sair da conversa. Só te chama quando o papo fica sério de verdade.</p>
       <div class="cta-row">
-        <a class="btn-primary" href="https://wa.me/5511920081743?text=Quero%20conhecer%20o%20AtendPraGente" target="_blank" rel="noopener">Fala com a Duda no zap →</a>
+        <a class="btn-primary" href="https://wa.me/5511920081743?text=Quero%20conhecer%20o%20AtendPraGente" target="_blank" rel="noopener">Testa no seu zap agora →</a>
         <a class="btn-secondary" href="#como-funciona">Ver como funciona</a>
       </div>
       <div class="proof-strip">
@@ -786,6 +863,42 @@ footer {
   </div>
 </section>
 
+<section id="mockups">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">na prática</span>
+      <h2>É assim que fica na tela do seu cliente</h2>
+      <p>Exemplos ilustrativos de uma loja fictícia — o mesmo fluxo que roda no WhatsApp de qualquer negócio no AtendPraGente.</p>
+    </div>
+    <div class="mockups-grid">
+      <div class="mockup-card">
+        <img src="assets/mock-resposta24h.png" alt="Bot respondendo cliente automaticamente às 23h52" loading="lazy">
+        <span class="mockup-tag">exemplo ilustrativo</span>
+        <h3>Responde na hora, 24h</h3>
+        <p>De madrugada, fim de semana, feriado — sempre alguém do outro lado.</p>
+      </div>
+      <div class="mockup-card">
+        <img src="assets/mock-catalogo.png" alt="Bot enviando o catálogo de produtos dentro da conversa" loading="lazy">
+        <span class="mockup-tag">exemplo ilustrativo</span>
+        <h3>Mostra seu catálogo</h3>
+        <p>Produto, preço e link da vitrine, sem sair do WhatsApp.</p>
+      </div>
+      <div class="mockup-card">
+        <img src="assets/mock-agendamento.png" alt="Bot confirmando um agendamento na agenda do negócio" loading="lazy">
+        <span class="mockup-tag">exemplo ilustrativo</span>
+        <h3>Marca hora sozinho</h3>
+        <p>Confere a agenda, marca e confirma — sem ida e volta.</p>
+      </div>
+      <div class="mockup-card">
+        <img src="assets/mock-pix.png" alt="Bot enviando cobrança Pix e confirmando o pagamento" loading="lazy">
+        <span class="mockup-tag">exemplo ilustrativo</span>
+        <h3>Fecha o pagamento</h3>
+        <p>Pix gerado e confirmado direto na conversa.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section>
   <div class="wrap">
     <div class="section-head">
@@ -809,7 +922,7 @@ footer {
     <div class="section-head">
       <span class="eyebrow">planos</span>
       <h2>Preço que acompanha o tamanho da sua operação, sem letra miúda</h2>
-      <p>Mensagem que o cliente manda pra você é sempre gratuita na API oficial do WhatsApp — o que muda de plano pra plano é o volume de conversas que a IA cobre por mês. Cresceu, sobe de plano; não precisou, não paga a mais. <strong>Conversa</strong> aqui é cada contato diferente que fala com você no mês — não cada mensagem, nem cada sessão.</p>
+      <p>Mensagem que o cliente manda pra você é sempre gratuita na API oficial do WhatsApp — o que muda de plano pra plano é o volume de conversas que a IA cobre por mês. Cresceu, sobe de plano; não precisou, não paga a mais — e quanto mais conversa, menor o custo por conversa. <strong>Conversa</strong> aqui é cada contato diferente que fala com você no mês — não cada mensagem, nem cada sessão.</p>
     </div>
     <div class="trial-banner"><span class="tag">grátis</span> 7 dias testando em qualquer plano, sem compromisso</div>
     <div class="pricing-grid">
@@ -818,6 +931,7 @@ footer {
         <span class="plan-volume">até 100 conversas/mês</span>
         <div class="plan-price-de">de R$ 105,90</div>
         <div class="plan-price"><span class="amount">R$ 84,90</span><span class="period">/mês</span></div>
+        <p class="plan-per-unit">≈ R$ 0,85 por conversa</p>
         <ul class="plan-features">
           <li>Seu WhatsApp conectado via API oficial da Meta</li>
           <li>IA treinada no seu negócio (serviços, tom, horários)</li>
@@ -832,6 +946,7 @@ footer {
         <span class="plan-volume">até 1.000 conversas/mês</span>
         <div class="plan-price-de">de R$ 197,00</div>
         <div class="plan-price"><span class="amount">R$ 157,90</span><span class="period">/mês</span></div>
+        <p class="plan-per-unit">≈ R$ 0,16 por conversa</p>
         <ul class="plan-features">
           <li>Seu WhatsApp conectado via API oficial da Meta</li>
           <li>IA treinada no seu negócio (serviços, tom, horários)</li>
@@ -844,8 +959,10 @@ footer {
       <div class="price-card">
         <span class="plan-name">Crescendo</span>
         <span class="plan-volume">até 5.000 conversas/mês</span>
+        <p class="plan-blurb">Pra negócio que já vende todo dia — e o custo por conversa cai em vez de subir.</p>
         <div class="plan-price-de">de R$ 897,00</div>
         <div class="plan-price"><span class="amount">R$ 717,90</span><span class="period">/mês</span></div>
+        <p class="plan-per-unit">≈ R$ 0,14 por conversa</p>
         <ul class="plan-features">
           <li>Tudo do plano Começando</li>
           <li>Volume pra negócio com movimento de verdade</li>
@@ -868,7 +985,38 @@ footer {
         <a class="plan-cta" href="https://wa.me/5511920081743" target="_blank" rel="noopener">Fale com a Duda</a>
       </div>
     </div>
-    <p class="pricing-note">Referência de posicionamento frente ao mercado brasileiro de chatbots agênticos via API oficial Meta (jul/2026) — valores sujeitos a ajuste.</p>
+    <p class="pricing-note">O valor riscado é o preço de tabela; o que você paga é o de baixo. Preço pensado pra ficar justo com o mercado brasileiro de IA no WhatsApp oficial (referência jul/2026) — pode ajustar com o tempo.</p>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">perguntas</span>
+      <h2>O que quem tá decidindo sempre pergunta</h2>
+    </div>
+    <div class="faq-list">
+      <details class="faq-item">
+        <summary>Preciso trocar de número?</summary>
+        <p>Não. Continua o mesmo número que seu cliente já tem salvo — só conecta ele na API oficial da Meta.</p>
+      </details>
+      <details class="faq-item">
+        <summary>E se eu passar do limite de conversas do meu plano?</summary>
+        <p>A gente avisa antes de chegar no limite. Você decide se sobe de plano ou paga um extra pontual — o atendimento nunca é cortado no meio do mês.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Posso cancelar quando quiser?</summary>
+        <p>Sim, sem fidelidade. Cancela quando quiser e para de ser cobrado no ciclo seguinte.</p>
+      </details>
+      <details class="faq-item">
+        <summary>Meus dados e os dos meus clientes ficam seguros?</summary>
+        <p>Tudo passa pela API oficial da Meta, tratado conforme a LGPD — a gente não vende nem compartilha nada com terceiros.</p>
+      </details>
+      <details class="faq-item">
+        <summary>A IA substitui totalmente o atendimento humano?</summary>
+        <p>Não. Ela resolve o repetitivo e chama você (ou quem você indicar) quando o papo pede uma pessoa de verdade.</p>
+      </details>
+    </div>
   </div>
 </section>
 
@@ -879,7 +1027,7 @@ footer {
       <h2>Antes de contratar, fale com o produto de verdade</h2>
       <p>A Duda atende de verdade pela AC Soluções, a empresa por trás do AtendPraGente — catálogo, agenda e cobrança inclusos na conversa. Manda um "oi" pra ela e vê exatamente como fica no seu negócio.</p>
       <div class="cta-row">
-        <a class="btn-primary" href="https://wa.me/5511920081743?text=Quero%20conhecer%20o%20AtendPraGente" target="_blank" rel="noopener">Falar com a Duda no zap →</a>
+        <a class="btn-primary" href="https://wa.me/5511920081743?text=Quero%20conhecer%20o%20AtendPraGente" target="_blank" rel="noopener">Chama a Duda e tira sua dúvida →</a>
       </div>
     </div>
   </div>
