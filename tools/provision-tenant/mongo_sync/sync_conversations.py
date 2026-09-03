@@ -86,6 +86,14 @@ _sessions_coll = None
 # um banner de alerta, sem nenhum contexto do que realmente aconteceu.
 _messages_coll = None
 
+# `contatos_importados` — contatos que o tenant já atendia antes de
+# conectar o número ao AtendPraGente (importados via CSV pelo painel,
+# ver /painel Configurações > Contatos antigos). Consultada pelo
+# endpoint /contato-conhecido, que o plugin contato_antigo_contexto do
+# hermes chama a cada turno pra saber se injeta contexto de "cliente
+# antigo" — ver enable_contato_antigo_plugin em provision_tenant.py.
+_contatos_coll = None
+
 PEDIDO_NUMERO_REGEX = re.compile(r"pedido\D{0,10}#?\s*(\d+)", re.IGNORECASE)
 PEDIDO_STATUS_KEYWORDS = ("status", "andamento", "rastre")
 PEDIDO_STATUS_TERMINAIS = ("pago", "cancelado")
@@ -189,6 +197,18 @@ def _endereco_anterior(chat_id: str) -> str | None:
 
 _ENDERECO_CONFIRMACAO_RE = re.compile(
     r"^(sim|isso mesmo|isso|correto|confirmo|confirmado|ok|certo|esse mesmo|pode ser|é esse mesmo|exato)[.!\s]*$",
+    re.IGNORECASE,
+)
+
+# len(texto) >= 8 sozinho pegava qualquer mensagem mínima (ex: pergunta
+# sobre a maquininha de cartão) como se fosse endereço — exige também
+# uma palavra típica de endereço brasileiro antes de aceitar como texto
+# livre novo (a via da confirmação curta, que aplica `endereco_sugerido`
+# em vez do texto literal, não passa por aqui).
+_PARECE_ENDERECO_RE = re.compile(
+    r"\b(rua|r\.|av|av\.|avenida|alameda|al\.|travessa|rodovia|rod\.|estrada|"
+    r"pra[çc]a|condom[íi]nio|cond\.|quadra|qd\.|lote|bloco|apto|apartamento|"
+    r"bairro|cep|n[úu]mero|residencial|vila|conjunto|setor|km)\b",
     re.IGNORECASE,
 )
 
@@ -396,11 +416,13 @@ def pedido_endereco(chat_id: str, texto: str) -> dict:
     (produto, sem endereço ainda) aguardando resposta pra esse
     chat_id+tenant_id; do contrário devolve ok=False rapidinho e a
     mensagem segue o fluxo normal (LLM). Texto curto demais (< 8
-    caracteres) é ignorado de cara — não é endereço, evita confundir
-    "oi"/"ok" com resposta — EXCETO quando é uma confirmação curta
-    ("sim", "isso mesmo"...) pra uma sugestão de endereço de pedido
-    anterior (`endereco_sugerido`, ver `_endereco_anterior` em
-    `pedido_fechar`); nesse caso aplica a sugestão em vez do texto
+    caracteres) OU sem nenhuma palavra típica de endereço (rua, av,
+    bairro, condomínio...) é ignorado — não é endereço, evita registrar
+    coisa tipo uma pergunta sobre a maquininha de cartão como se fosse o
+    endereço de entrega — EXCETO quando é uma confirmação curta ("sim",
+    "isso mesmo"...) pra uma sugestão de endereço de pedido anterior
+    (`endereco_sugerido`, ver `_endereco_anterior` em `pedido_fechar`);
+    nesse caso aplica a sugestão (já validada antes) em vez do texto
     literal."""
     if _pedidos_coll is None:
         return {"ok": False}
@@ -437,7 +459,7 @@ def pedido_endereco(chat_id: str, texto: str) -> dict:
     sugestao = lote[0].get("endereco_sugerido")
     if eh_confirmacao_curta and sugestao:
         endereco_final = sugestao
-    elif len(texto) >= 8:
+    elif len(texto) >= 8 and _PARECE_ENDERECO_RE.search(texto):
         endereco_final = texto
     else:
         return {"ok": False}
@@ -676,6 +698,20 @@ def _marcar_handoff_pedido(chat_id: str, motivo: str = "pedido (rastreamento man
 AGENDA_ACAO_PARA_STATUS = {"confirmar": "confirmado", "remarcar": "recusado"}
 
 
+def _consultar_contato_conhecido(chat_id: str) -> dict:
+    """Consulta direta em `contatos_importados` (sem cache — volume baixo,
+    uma consulta por conversa nova, não por mensagem, ver spec
+    reaproveitamento-contatos-antigos.md). `chat_id` já chega do WhatsApp
+    só com dígitos, mesmo formato salvo em `telefone_normalizado` pelo
+    import do painel."""
+    if not chat_id or _contatos_coll is None:
+        return {"conhecido": False}
+    doc = _contatos_coll.find_one({"tenant_id": TENANT_ID, "telefone_normalizado": chat_id})
+    if not doc:
+        return {"conhecido": False}
+    return {"conhecido": True, "nome": doc.get("nome"), "nota": doc.get("nota")}
+
+
 def refresh_handoff_cache(sessions_coll) -> None:
     chat_ids = {
         doc["chat_id"]
@@ -726,14 +762,18 @@ class HandoffHTTPHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path != "/handoff":
+        if parsed.path == "/handoff":
+            chat_id = (parse_qs(parsed.query).get("chat_id") or [""])[0]
+            with _handoff_lock:
+                active = chat_id in _handoff_chat_ids
+            body = json.dumps({"handoff": active}).encode("utf-8")
+        elif parsed.path == "/contato-conhecido":
+            chat_id = (parse_qs(parsed.query).get("chat_id") or [""])[0]
+            body = json.dumps(_consultar_contato_conhecido(chat_id)).encode("utf-8")
+        else:
             self.send_response(404)
             self.end_headers()
             return
-        chat_id = (parse_qs(parsed.query).get("chat_id") or [""])[0]
-        with _handoff_lock:
-            active = chat_id in _handoff_chat_ids
-        body = json.dumps({"handoff": active}).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -980,10 +1020,11 @@ def ensure_indexes(db) -> None:
     db["messages"].create_index([("tenant_id", 1), ("session_id", 1), ("timestamp", 1)])
     db["messages"].create_index([("tenant_id", 1), ("message_id", -1)])
     db["messages"].create_index([("tenant_id", 1), ("platform_message_id", 1)])
+    db["contatos_importados"].create_index([("tenant_id", 1), ("telefone_normalizado", 1)], unique=True)
 
 
 def main() -> None:
-    global _agendamentos_coll, _signups_coll, _pedidos_coll, _sessions_coll, _messages_coll
+    global _agendamentos_coll, _signups_coll, _pedidos_coll, _sessions_coll, _messages_coll, _contatos_coll
     client = MongoClient(MONGO_URI)
     db = client.get_default_database()
     ensure_indexes(db)
@@ -994,6 +1035,7 @@ def main() -> None:
     _pedidos_coll = db["pedidos"]
     _sessions_coll = sessions_coll
     _messages_coll = db["messages"]
+    _contatos_coll = db["contatos_importados"]
 
     start_handoff_http_server()
     print(f"[mongo-sync] tenant={TENANT_ID} interval={SYNC_INTERVAL_SECONDS}s iniciado")

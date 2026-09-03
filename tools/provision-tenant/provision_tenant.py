@@ -755,6 +755,83 @@ def register(ctx) -> None:
     ctx.register_hook("pre_llm_call", on_pre_llm_call)
 '''
 
+CONTATO_ANTIGO_PLUGIN_YAML = """\
+name: contato_antigo_contexto
+version: "1.0.0"
+description: "Injeta contexto de 'cliente antigo' quando o chat_id da conversa atual bate com um contato importado pelo tenant (ver /painel Configuracoes > Contatos antigos) — consulta o sidecar mongo-sync via HTTP local (mesmo pod)."
+author: AtendPraGente
+hooks:
+  - pre_llm_call
+"""
+
+CONTATO_ANTIGO_PLUGIN_INIT = '''\
+"""Injeta contexto de 'cliente antigo' no primeiro turno de cada
+conversa (Reaproveitamento de contatos antigos, 2026-09-02) — consulta
+GET /contato-conhecido?chat_id=... no sidecar mongo-sync do próprio pod
+(127.0.0.1:8091, mesmo endpoint HTTP local já usado pelo handoff — ver
+sync_conversations.py). Contato sem nada importado: consulta devolve
+"conhecido": false e o plugin não injeta nada, comportamento idêntico a
+hoje pra quem não usa a feature. Best-effort: qualquer falha na consulta
+(timeout, sidecar fora do ar) só faz o plugin ficar em silêncio, nunca
+derruba o turno."""
+import json
+import urllib.error
+import urllib.request
+
+CONTATO_CONHECIDO_URL = "http://127.0.0.1:8091/contato-conhecido"
+
+
+def on_pre_llm_call(*, sender_id: str = "", **_):
+    if not sender_id:
+        return None
+    try:
+        with urllib.request.urlopen(
+            f"{CONTATO_CONHECIDO_URL}?chat_id={sender_id}", timeout=2
+        ) as resp:
+            info = json.loads(resp.read())
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    if not info.get("conhecido"):
+        return None
+    nota = f" — nota: {info['nota']}" if info.get("nota") else ""
+    return {"context": f"[Sistema] Este contato já era cliente antes de usar o AtendPraGente{nota}."}
+
+
+def register(ctx) -> None:
+    ctx.register_hook("pre_llm_call", on_pre_llm_call)
+'''
+
+
+def _ensure_hermes_plugin_listed(prefix: str, plugin_name: str) -> None:
+    """Garante que `plugin_name` está em `plugins.enabled` no config.yaml
+    do tenant, sem nunca escrever um segundo bloco `plugins:` de topo se
+    um plugin diferente já tiver sido habilitado antes — YAML com a
+    mesma chave de topo repetida faz `yaml.safe_load` ficar só com a
+    última ocorrência, o que apagaria silenciosamente o plugin anterior
+    da lista (bug real: era o que `enable_agendamento_context_plugin`
+    fazia antes de existir um segundo plugin pra expor o problema)."""
+    already_listed = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
+         "grep", "-q", f"- {plugin_name}", "/opt/data/config.yaml"],
+        capture_output=True, text=True,
+    )
+    if already_listed.returncode == 0:
+        return
+    has_plugins_block = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
+         "grep", "-q", "^plugins:", "/opt/data/config.yaml"],
+        capture_output=True, text=True,
+    )
+    if has_plugins_block.returncode == 0:
+        kubectl_exec_stdin(
+            prefix,
+            ["sh", "-c", f"sed -i '/^  enabled:/a\\    - {plugin_name}' /opt/data/config.yaml"],
+            "",
+        )
+    else:
+        plugins_block = f"\nplugins:\n  enabled:\n    - {plugin_name}\n"
+        kubectl_exec_stdin(prefix, ["sh", "-c", "cat >> /opt/data/config.yaml"], plugins_block)
+
 
 def enable_agendamento_context_plugin(tenant_id: str) -> None:
     """Publica o plugin de usuário do Hermes que injeta o chat_id do
@@ -776,14 +853,30 @@ def enable_agendamento_context_plugin(tenant_id: str) -> None:
         ["sh", "-c", "cat > /opt/data/plugins/agendamento_contexto/__init__.py"],
         AGENDAMENTO_CONTEXTO_PLUGIN_INIT,
     )
-    already_enabled = subprocess.run(
-        ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
-         "grep", "-q", "agendamento_contexto", "/opt/data/config.yaml"],
-        capture_output=True, text=True,
+    _ensure_hermes_plugin_listed(prefix, "agendamento_contexto")
+
+
+def enable_contato_antigo_plugin(tenant_id: str) -> None:
+    """Publica o plugin de usuário do Hermes que injeta contexto de
+    'cliente antigo' em todo turno (ver CONTATO_ANTIGO_PLUGIN_* acima) —
+    consulta o endpoint /contato-conhecido do sidecar mongo-sync (mesmo
+    pod, HTTP local) e injeta uma nota se o chat_id bate com algo
+    importado via `/painel` → Configurações → Contatos antigos. Sem
+    nenhum contato importado, o plugin simplesmente nunca injeta nada —
+    seguro habilitar pra todo tenant por padrão, mesma lógica de
+    enable_agendamento_context_plugin."""
+    prefix = f"{tenant_id}-hermes"
+    kubectl_exec_stdin(
+        prefix,
+        ["sh", "-c", "mkdir -p /opt/data/plugins/contato_antigo_contexto && cat > /opt/data/plugins/contato_antigo_contexto/plugin.yaml"],
+        CONTATO_ANTIGO_PLUGIN_YAML,
     )
-    if already_enabled.returncode != 0:
-        plugins_block = "\nplugins:\n  enabled:\n    - agendamento_contexto\n"
-        kubectl_exec_stdin(prefix, ["sh", "-c", "cat >> /opt/data/config.yaml"], plugins_block)
+    kubectl_exec_stdin(
+        prefix,
+        ["sh", "-c", "cat > /opt/data/plugins/contato_antigo_contexto/__init__.py"],
+        CONTATO_ANTIGO_PLUGIN_INIT,
+    )
+    _ensure_hermes_plugin_listed(prefix, "contato_antigo_contexto")
 
 
 def wait_for_health(deployment: str, timeout_s: int = 120) -> bool:
@@ -858,6 +951,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
     apply_display_defaults(prefix)
     enable_calendar_mcp(tenant_id, credentials["calendar_mcp_token"])
     enable_agendamento_context_plugin(tenant_id)
+    enable_contato_antigo_plugin(tenant_id)
     subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
     wait_for_health(prefix)
 

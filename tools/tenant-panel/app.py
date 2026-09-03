@@ -81,6 +81,7 @@ catalogo_col = db["catalogo_itens"]
 agendamentos_col = db["agendamentos"]
 pedidos_col = db["pedidos"]
 contadores_col = db["contadores"]
+contatos_col = db["contatos_importados"]
 
 app = FastAPI(title=f"Painel — {TENANT_ID}")
 app.add_middleware(SessionMiddleware, secret_key=PANEL_SESSION_SECRET, session_cookie="painel_session")
@@ -821,6 +822,66 @@ async def api_importar_catalogo(request: Request, file: UploadFile = File(...)) 
 
     _mark_catalogo_pending()
     return {"ok": True, "criados": criados}
+
+
+@app.get("/painel/api/contatos/template.csv")
+def api_contatos_template(request: Request) -> Response:
+    """Modelo de planilha pro import de contatos antigos (ver
+    api_importar_contatos logo abaixo) — mesmo padrão do
+    api_catalogo_template: uma linha de exemplo pra deixar claro o
+    formato esperado de cada coluna."""
+    require_session(request)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["nome", "telefone", "nota"])
+    writer.writerow(["Maria Silva", "11912345678", "cliente desde 2023, comprava sapato social"])
+    return Response(
+        content="﻿" + buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=modelo-contatos.csv"},
+    )
+
+
+@app.post("/painel/api/contatos/import")
+async def api_importar_contatos(request: Request, file: UploadFile = File(...)) -> dict:
+    """Import em massa de contatos que o tenant já atendia antes de
+    conectar o número ao AtendPraGente (colunas nome,telefone,nota — nota
+    é livre e opcional, decisão do usuário 2026-09-02). Upsert por
+    (tenant_id, telefone_normalizado): reimportar a mesma planilha
+    atualiza em vez de duplicar. Consultado em tempo real pelo hermes via
+    o endpoint /contato-conhecido do sidecar mongo-sync — ver spec
+    reaproveitamento-contatos-antigos.md."""
+    require_session(request)
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Arquivo precisa estar em UTF-8")
+
+    now = datetime.now(timezone.utc)
+    importados = []
+    for row in csv.DictReader(io.StringIO(text)):
+        telefone = normalize_br_phone(row.get("telefone") or "")
+        if len(telefone) < 12:
+            continue
+        nome = (row.get("nome") or "").strip() or None
+        nota = (row.get("nota") or "").strip() or None
+        contatos_col.update_one(
+            {"tenant_id": TENANT_ID, "telefone_normalizado": telefone},
+            {"$set": {
+                "nome": nome,
+                "nota": nota,
+                "origem": "import_csv",
+                "importado_em": now,
+            }},
+            upsert=True,
+        )
+        importados.append({"telefone": telefone, "nome": nome})
+
+    if not importados:
+        raise HTTPException(status_code=400, detail="Nenhum contato válido encontrado (esperado: coluna 'telefone')")
+
+    return {"ok": True, "importados": importados}
 
 
 MAX_BULK_ZIP_BYTES = 25 * 1024 * 1024

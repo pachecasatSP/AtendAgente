@@ -466,6 +466,27 @@ button.secondary {
   </div>
 
   <div class="card">
+    <h1>Contatos antigos</h1>
+    <p class="lead">Se esse número já era usado no WhatsApp antes de conectar ao AtendPraGente, importe os contatos que já eram seus clientes — quando eles escreverem de novo, o bot já vai saber que não é um estranho.</p>
+    <fieldset>
+      <legend>Import em massa</legend>
+      <a class="vitrine-link" href="/painel/api/contatos/template.csv" style="display:inline-block; margin-bottom:0.8rem;">⬇ Baixar modelo de planilha (.csv)</a>
+      <label>Planilha CSV (colunas: nome, telefone, nota — nota é livre e opcional, ex: "cliente desde 2023, comprava sapato social")
+        <div class="file-upload">
+          <span class="file-upload-btn">
+            <svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
+            Escolher CSV
+          </span>
+          <input type="file" id="import-contatos-input" accept=".csv">
+          <span class="file-upload-name" id="import-contatos-filename">Nenhum arquivo escolhido</span>
+        </div>
+        <div class="hint">Reimportar a mesma planilha atualiza os contatos já importados, não duplica.</div>
+      </label>
+      <div id="import-contatos-result" class="bulk-result"></div>
+    </fieldset>
+  </div>
+
+  <div class="card">
     <h1>Agenda</h1>
     <p class="lead">Deixe o bot marcar horário direto na sua Google Agenda — confere se está livre e já manda o link do evento (e um arquivo de convite pra adicionar no calendário) na conversa.</p>
 
@@ -976,6 +997,29 @@ button.secondary {
       } finally {
         e.target.value = '';
         importCsvFilename.textContent = 'Nenhum arquivo escolhido';
+      }
+    });
+
+    const importContatosInput = document.getElementById('import-contatos-input');
+    const importContatosFilename = document.getElementById('import-contatos-filename');
+    importContatosInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      importContatosFilename.textContent = file.name;
+      const resultEl = document.getElementById('import-contatos-result');
+      resultEl.textContent = 'Importando…';
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const resp = await fetch('/painel/api/contatos/import', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.detail || 'Falha no import');
+        resultEl.textContent = `${data.importados.length} contato(s) importado(s).`;
+      } catch (err) {
+        resultEl.textContent = err.message;
+      } finally {
+        e.target.value = '';
+        importContatosFilename.textContent = 'Nenhum arquivo escolhido';
       }
     });
 
