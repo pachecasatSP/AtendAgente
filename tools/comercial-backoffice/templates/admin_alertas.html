@@ -1,0 +1,17 @@
+{% extends "_base.html" %}
+{% block title %}Alertas de uso{% endblock %}
+{% block content %}
+<h2>Alertas de uso</h2>
+<div class="card">
+  <table>
+    <thead><tr><th>Tenant</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for a in alertas %}
+      <tr><td>{{ a.tenant_id }}</td><td><span class="pill warn">{{ a.usage_status }}</span></td></tr>
+      {% else %}
+      <tr><td colspan="2">Nenhum alerta no momento.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

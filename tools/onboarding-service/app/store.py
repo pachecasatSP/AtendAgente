@@ -93,6 +93,19 @@ def list_usage_alerts() -> list[dict]:
     return list(_signups.find({"status": "live", "usage_status": {"$in": ["warning", "over"]}}))
 
 
+def attribute_tenant_to_vendedor(tenant_id: str, vendedor_id: str, origem_venda: str) -> None:
+    """Liga um tenant a um vendedor do backoffice comercial (Frente 2,
+    specs/comissao-vendedores.md) — só grava os dois campos, não
+    interfere no resto do doc. Idempotente: reatribuir sobrescreve o
+    vendedor anterior (o backoffice decide se isso é permitido)."""
+    update_signup_by_tenant_id(tenant_id, vendedor_id=vendedor_id, origem_venda=origem_venda)
+
+
+def update_signup_by_tenant_id(tenant_id: str, **fields) -> None:
+    fields["atualizado_em"] = datetime.now(timezone.utc)
+    _signups.update_one({"tenant_id": tenant_id, "status": "live"}, {"$set": fields})
+
+
 def list_failed_signups() -> list[dict]:
     """Cadastros com pagamento confirmado que travaram no provisionamento
     (status='failed') — candidatos a retry manual via admin-mcp."""

@@ -1,0 +1,65 @@
+{% extends "_base.html" %}
+{% block title %}Meu painel{% endblock %}
+{% block content %}
+<h2>Olá, {{ vendedor.nome }}</h2>
+
+<div class="card">
+  <div class="metric"><div class="v">R$ {{ "%.2f"|format(comissao.total) }}</div><div class="l">comissão do mês</div></div>
+  <div class="metric"><div class="v">{{ comissao.qtd_clientes_ativos }}</div><div class="l">clientes ativos</div></div>
+  <div class="metric"><div class="v">{{ comissao.tier_atual }}</div><div class="l">tier atual ({{ "%.0f"|format(comissao.taxa_atual * 100) }}%)</div></div>
+  {% if bate_bonus_rampa %}
+    <p><span class="pill ok">bônus de rampa: gatilho batido</span></p>
+  {% else %}
+    <p><span class="pill warn">bônus de rampa: faltam {{ (meta_tier["Início"] * 0.75)|round(0, "ceil")|int - comissao.qtd_clientes_ativos }} clientes pra bater 75% da meta do Início</span></p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h3>Novo lead</h3>
+  <form method="post" action="/leads">
+    <p><input name="negocio" placeholder="Nome do negócio" required></p>
+    <p><input name="contato" placeholder="Telefone/WhatsApp" required></p>
+    <p><input name="cidade" placeholder="Cidade" required></p>
+    <p><input name="origem" placeholder="Origem (porta a porta, indicação...)"></p>
+    <p>
+      <select name="plano_alvo">
+        <option value="">Plano alvo (opcional)</option>
+        <option>Entrada</option><option>Começando</option><option>Crescendo</option>
+      </select>
+    </p>
+    <button type="submit">Adicionar lead</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Meus leads</h3>
+  <table>
+    <thead><tr><th>Negócio</th><th>Cidade</th><th>Status</th><th>Ação</th></tr></thead>
+    <tbody>
+      {% for lead in leads %}
+      <tr>
+        <td>{{ lead.negocio }}<br><small>{{ lead.contato }}</small></td>
+        <td>{{ lead.cidade }}</td>
+        <td>
+          <form class="inline" method="post" action="/leads/{{ lead._id }}/status">
+            <select name="status" onchange="this.form.submit()">
+              {% for s in ["novo","em_conversa","proposta","fechado","perdido"] %}
+              <option value="{{ s }}" {% if lead.status == s %}selected{% endif %}>{{ s }}</option>
+              {% endfor %}
+            </select>
+          </form>
+        </td>
+        <td>
+          <form class="inline" method="post" action="/leads/{{ lead._id }}/atribuir-tenant">
+            <input name="tenant_id" placeholder="tenant_id (fechado)" size="14">
+            <button type="submit" class="secondary">Atribuir tenant</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">Nenhum lead ainda.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

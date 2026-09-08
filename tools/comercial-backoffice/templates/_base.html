@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Backoffice comercial{% endblock %} — AtendPraGente</title>
+<style>
+  :root { color-scheme: light; --leaf: #1FAE5C; --leaf-deep: #0E7A3D; --ink: #17231D; --ink-soft: #4A5A50; --paper: #FFFCF5; --line: #E4E0D0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 -apple-system, "Segoe UI", sans-serif; background: var(--paper); color: var(--ink); }
+  header { background: var(--ink); color: #fff; padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
+  header a { color: #fff; text-decoration: none; font-weight: 700; }
+  header nav a { color: #cfe; margin-left: 16px; font-weight: 400; font-size: 13px; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin: 12px 0; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 13px; }
+  th { background: #FFF6E2; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; color: var(--ink-soft); }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin: 12px 0; }
+  .metric { display: inline-block; margin-right: 28px; }
+  .metric .v { font-size: 1.6rem; font-weight: 800; color: var(--leaf-deep); }
+  .metric .l { font-size: 12px; color: var(--ink-soft); }
+  form.inline { display: inline; }
+  input, select, button { font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; }
+  button { background: var(--leaf); color: #fff; border: none; cursor: pointer; font-weight: 700; }
+  button.secondary { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+  .erro { color: #B33F32; background: #FBEAE6; padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+  .pill.ok { background: #E3F7EA; color: var(--leaf-deep); }
+  .pill.warn { background: #FFF3D6; color: #E8A400; }
+  .pill.bad { background: #FBEAE6; color: #B33F32; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">AtendPraGente — Backoffice</a>
+  <nav>
+    {% if vendedor and vendedor.role == "admin" %}
+      <a href="/admin/vendedores">Vendedores</a>
+      <a href="/admin/tenants">Tenants</a>
+      <a href="/admin/alertas">Alertas</a>
+    {% endif %}
+    {% if vendedor %}<a href="/logout">Sair</a>{% endif %}
+  </nav>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

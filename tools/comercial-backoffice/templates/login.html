@@ -1,0 +1,13 @@
+{% extends "_base.html" %}
+{% block title %}Entrar{% endblock %}
+{% block content %}
+<div class="card" style="max-width:360px;margin:60px auto">
+  <h2>Entrar</h2>
+  {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+  <form method="post" action="/login">
+    <p><label>Usuário<br><input name="username" required autofocus style="width:100%"></label></p>
+    <p><label>Senha<br><input name="password" type="password" required style="width:100%"></label></p>
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+{% endblock %}

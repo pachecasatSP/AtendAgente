@@ -1,0 +1,44 @@
+{% extends "_base.html" %}
+{% block title %}Vendedores{% endblock %}
+{% block content %}
+<h2>Vendedores</h2>
+
+<div class="card">
+  <table>
+    <thead><tr><th>Nome</th><th>Cidade</th><th>Status</th><th>Tier</th><th>Comissão do mês</th><th>Meses abaixo da meta</th><th>Ação</th></tr></thead>
+    <tbody>
+      {% for v in vendedores %}
+      <tr>
+        <td>{{ v.nome }}<br><small>{{ v.username }} · {{ v.role }}</small></td>
+        <td>{{ v.cidade_designada or "—" }}</td>
+        <td><span class="pill {{ 'ok' if v.status == 'ativo' else 'bad' }}">{{ v.status }}</span></td>
+        <td>{{ v.comissao.tier_atual }} ({{ v.comissao.qtd_clientes_ativos }} clientes)</td>
+        <td>R$ {{ "%.2f"|format(v.comissao.total) }}</td>
+        <td>{% if v.meses_abaixo_meta >= 2 %}<span class="pill bad">{{ v.meses_abaixo_meta }}</span>{% else %}{{ v.meses_abaixo_meta }}{% endif %}</td>
+        <td>
+          <form class="inline" method="post" action="/admin/vendedores/{{ v._id }}/status">
+            <input type="hidden" name="status" value="{{ 'inativo' if v.status == 'ativo' else 'ativo' }}">
+            <input name="pin" placeholder="PIN" size="4" required>
+            <button type="submit" class="secondary">{{ 'Desativar' if v.status == 'ativo' else 'Reativar' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3>Novo vendedor</h3>
+  <form method="post" action="/admin/vendedores">
+    <p><input name="nome" placeholder="Nome" required></p>
+    <p><input name="email" type="email" placeholder="E-mail" required></p>
+    <p><input name="telefone" placeholder="Telefone"></p>
+    <p><input name="cidade_designada" placeholder="Cidade designada (exclusividade)"></p>
+    <p><input name="username" placeholder="Usuário de login" required></p>
+    <p><input name="password" type="password" placeholder="Senha (mín. 8 caracteres)" required></p>
+    <p><select name="role"><option value="vendedor">vendedor</option><option value="admin">admin</option></select></p>
+    <button type="submit">Criar vendedor</button>
+  </form>
+</div>
+{% endblock %}

@@ -770,6 +770,25 @@ def admin_set_tenant_enabled(tenant_id: str, payload: dict, request: Request):
     return {"tenant_id": tenant_id, "enabled": enabled}
 
 
+@app.post("/api/admin/tenants/{tenant_id}/atribuir-vendedor")
+def admin_atribuir_vendedor(tenant_id: str, payload: dict, request: Request):
+    """Liga um tenant a um vendedor do backoffice comercial (Frente 2,
+    specs/comissao-vendedores.md) — chamado pelo backoffice, que roda
+    num servidor separado sem acesso direto a este Mongo. Só grava
+    vendedor_id/origem_venda; o backoffice é quem trava a comissão do
+    lado dele (não recalculado aqui)."""
+    require_admin(request)
+    signup = store.get_signup_by_tenant_id(tenant_id)
+    if not signup:
+        raise HTTPException(404, "Tenant não encontrado ou não está ao vivo")
+    vendedor_id = payload.get("vendedor_id")
+    origem_venda = payload.get("origem_venda")
+    if not vendedor_id:
+        raise HTTPException(400, "vendedor_id é obrigatório")
+    store.attribute_tenant_to_vendedor(tenant_id, vendedor_id, origem_venda)
+    return {"tenant_id": tenant_id, "vendedor_id": vendedor_id, "origem_venda": origem_venda}
+
+
 @app.get("/api/admin/usage-alerts")
 def admin_usage_alerts(request: Request):
     """Tenants em warning (>=80% do limite) ou over (estourou) — ver
