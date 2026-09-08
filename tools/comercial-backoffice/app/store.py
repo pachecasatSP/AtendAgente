@@ -397,7 +397,7 @@ def upsert_prospeccao(
                 "prioridade": prioridade,
                 "visto_em": now,
             },
-            "$setOnInsert": {"descoberto_em": now, "convertido_lead_id": None},
+            "$setOnInsert": {"descoberto_em": now, "convertido_lead_id": None, "desqualificado": False, "desqualificado_em": None},
         },
         upsert=True,
     )
@@ -420,15 +420,23 @@ def count_prospeccoes(convertido: bool = False) -> int:
 
 def list_prospeccoes(convertido: bool = False, pagina: int = 1) -> list[dict]:
     """Paginado a 25 por página, sempre ordenado por prioridade (quem
-    tem telefone primeiro) e sempre só os NÃO capturados por padrão
-    (convertido_lead_id=None) — um candidato só some da lista quando
-    alguém converte ele em lead de verdade, nunca por paginação."""
+    tem telefone primeiro, desqualificado sempre por último) e sempre
+    só os NÃO capturados por padrão (convertido_lead_id=None) — um
+    candidato só some da lista quando alguém converte ele em lead de
+    verdade, nunca por paginação nem por desqualificação."""
     skip = max(pagina - 1, 0) * PROSPECCAO_PAGE_SIZE
     return list(
         _prospeccoes.find(_prospeccao_query(convertido))
-        .sort([("prioridade", -1), ("descoberto_em", -1)])
+        .sort([("desqualificado", 1), ("prioridade", -1), ("descoberto_em", -1)])
         .skip(skip)
         .limit(PROSPECCAO_PAGE_SIZE)
+    )
+
+
+def marcar_prospeccao_desqualificada(place_id: str, motivo: str = "") -> None:
+    _prospeccoes.update_one(
+        {"_id": place_id},
+        {"$set": {"desqualificado": True, "desqualificado_em": datetime.now(timezone.utc), "desqualificado_motivo": motivo}},
     )
 
 

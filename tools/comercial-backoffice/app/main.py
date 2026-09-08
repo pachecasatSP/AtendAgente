@@ -243,6 +243,18 @@ def converter_prospeccao(request: Request, place_id: str, cidade: str = Form(...
     return RedirectResponse("/prospeccao", status_code=303)
 
 
+@app.post("/prospeccao/{place_id}/desqualificar")
+def desqualificar_prospeccao(request: Request, place_id: str, motivo: str = Form("")):
+    """Continua na lista (não é conversão nem exclusão) — só marca pra
+    quem olhar depois não perder tempo tentando de novo."""
+    require_session(request)
+    prospect = store.get_prospeccao(place_id)
+    if not prospect:
+        raise HTTPException(status_code=404, detail="Candidato não encontrado")
+    store.marcar_prospeccao_desqualificada(place_id, motivo.strip())
+    return RedirectResponse("/prospeccao", status_code=303)
+
+
 @app.post("/admin/prospeccao/buscar-mais")
 def admin_buscar_mais_prospeccoes(request: Request, pin: str = Form(...)):
     """Gasta chamadas de Google Places de verdade — PIN-gated pelo

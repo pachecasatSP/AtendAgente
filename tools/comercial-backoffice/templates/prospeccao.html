@@ -20,7 +20,7 @@
     <thead><tr><th>Negócio</th><th>Categoria</th><th>Cidade</th><th>Contato</th><th>Prioridade</th><th>Ação</th></tr></thead>
     <tbody>
       {% for p in prospeccoes %}
-      <tr>
+      <tr{% if p.desqualificado %} style="opacity:.55"{% endif %}>
         <td>{{ p.negocio }}<br><small>{{ p.endereco }}</small></td>
         <td>{{ p.categoria }}</td>
         <td>{{ p.cidade }}</td>
@@ -30,10 +30,17 @@
         </td>
         <td>{{ p.prioridade }}</td>
         <td>
+          {% if p.desqualificado %}
+          <span class="pill bad">desqualificado</span>
+          {% else %}
           <form class="inline" method="post" action="/prospeccao/{{ p._id }}/converter">
             <input type="hidden" name="cidade" value="{{ p.cidade }}">
             <button type="submit">Virar meu lead</button>
           </form>
+          <form class="inline" method="post" action="/prospeccao/{{ p._id }}/desqualificar">
+            <button type="submit" class="secondary">Desqualificar</button>
+          </form>
+          {% endif %}
         </td>
       </tr>
       {% else %}
