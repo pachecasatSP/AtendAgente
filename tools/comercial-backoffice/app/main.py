@@ -111,6 +111,8 @@ def dashboard(request: Request):
     leads_por_status = {status: [] for status in store.LEAD_STATUS}
     for lead in leads:
         leads_por_status[lead["status"]].append(lead)
+    funil = store.funil_por_vendedor(vendedor["_id"])
+    forecast = store.forecast_mes(vendedor["_id"])
     link_convite = f"{SIGNUP_BASE_URL}/signup?vendedor={vendedor['slug']}"
     return templates.TemplateResponse(
         request,
@@ -121,6 +123,9 @@ def dashboard(request: Request):
             "bate_bonus_rampa": bate_bonus,
             "leads_por_status": leads_por_status,
             "lead_status": store.LEAD_STATUS,
+            "funil": funil,
+            "funil_max": max(funil.values()) if funil.values() else 0,
+            "forecast": forecast,
             "meta_tier": store.META_CLIENTES_POR_TIER,
             "link_convite": link_convite,
         },
@@ -152,6 +157,16 @@ def atualizar_status_lead(request: Request, lead_id: str, status: str = Form(...
     if status not in store.LEAD_STATUS:
         raise HTTPException(status_code=400, detail="Status inválido")
     store.update_lead_status(lead_id, status)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/leads/{lead_id}/reuniao")
+def marcar_reuniao(request: Request, lead_id: str, data: str = Form(...)):
+    vendedor = require_session(request)
+    lead = store.get_lead(lead_id)
+    if not lead or lead["vendedor_id"] != vendedor["_id"]:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    store.marcar_reuniao(lead_id, data.strip())
     return RedirectResponse("/", status_code=303)
 
 

@@ -194,6 +194,7 @@ def create_lead(negocio: str, contato: str, cidade: str, origem: str, vendedor_i
             "vendedor_id": vendedor_id,
             "status": "novo",
             "plano_alvo": plano_alvo,
+            "reunioes": [],
             "criado_em": now,
             "atualizado_em": now,
         }
@@ -207,6 +208,16 @@ def list_leads_by_vendedor(vendedor_id: str) -> list[dict]:
 
 def get_lead(lead_id: str) -> dict | None:
     return _leads.find_one({"_id": lead_id})
+
+
+def marcar_reuniao(lead_id: str, data: str) -> None:
+    """Reunião é um evento (lead pode ter mais de uma) — guardada como
+    lista, não um booleano, pra permitir o cruzamento reunião×fechamento
+    do forecast (quantas reuniões viraram fechamento de verdade)."""
+    _leads.update_one(
+        {"_id": lead_id},
+        {"$push": {"reunioes": data}, "$set": {"atualizado_em": datetime.now(timezone.utc)}},
+    )
 
 
 def pipeline_por_vendedor() -> list[dict]:
@@ -225,6 +236,52 @@ def pipeline_por_vendedor() -> list[dict]:
         resultado.append({"vendedor": vendedor, "por_status": por_status, "total": sum(por_status.values())})
     resultado.sort(key=lambda r: r["vendedor"]["nome"])
     return resultado
+
+
+def funil_por_vendedor(vendedor_id: str) -> dict:
+    """Contagem por etapa só desse vendedor — pro gráfico de funil no
+    próprio painel dele (versão de 1 linha do que pipeline_por_vendedor
+    faz pra todo mundo)."""
+    contagem = {s: 0 for s in LEAD_STATUS}
+    for lead in _leads.find({"vendedor_id": vendedor_id}, {"status": 1}):
+        contagem[lead["status"]] += 1
+    return contagem
+
+
+def forecast_mes(vendedor_id: str) -> dict:
+    """Cruza reunião×fechamento (taxa de conversão histórica do próprio
+    vendedor) com o pipeline aberto pra projetar clientes e comissão até
+    o fim do mês. Comissão nova projetada usa a taxa do TIER ATUAL (não
+    recalcula banda — é uma estimativa de painel, não a apuração oficial
+    de comissao_do_mes, que continua sendo a travada por atribuição)."""
+    leads = list(_leads.find({"vendedor_id": vendedor_id}))
+    fechados = sum(1 for l in leads if l["status"] == "fechado")
+    com_reuniao = [l for l in leads if l.get("reunioes")]
+    reunioes_feitas = len(com_reuniao)
+    taxa_conversao = (fechados / reunioes_feitas) if reunioes_feitas else 0.0
+
+    em_aberto_com_reuniao = [l for l in com_reuniao if l["status"] not in ("fechado", "perdido")]
+    fechamentos_esperados = round(len(em_aberto_com_reuniao) * taxa_conversao, 1)
+
+    ativas = list_atribuicoes_ativas(vendedor_id)
+    ticket_medio = (
+        sum(a["mrr_na_atribuicao"] for a in ativas) / len(ativas)
+        if ativas
+        else sum(PRECO_POR_PLANO.values()) / len(PRECO_POR_PLANO)
+    )
+    comissao_atual = comissao_do_mes(vendedor_id)
+    comissao_extra_estimada = round(fechamentos_esperados * ticket_medio * comissao_atual["taxa_atual"], 2)
+
+    return {
+        "reunioes_feitas": reunioes_feitas,
+        "fechados": fechados,
+        "taxa_conversao_reuniao": taxa_conversao,
+        "leads_em_pipeline_com_reuniao": len(em_aberto_com_reuniao),
+        "fechamentos_esperados": fechamentos_esperados,
+        "comissao_atual": comissao_atual["total"],
+        "comissao_extra_estimada": comissao_extra_estimada,
+        "comissao_projetada": round(comissao_atual["total"] + comissao_extra_estimada, 2),
+    }
 
 
 def update_lead_status(lead_id: str, status: str) -> None:

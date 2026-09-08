@@ -265,7 +265,7 @@ def build_prospeccao_cronjob_manifest() -> str:
     app/prospeccao.py::buscar_lote (ver docstring lá)."""
     cmd = (
         "pip install --quiet --no-cache-dir -r /app/requirements.txt && "
-        f"python -c \"from app.prospeccao import buscar_lote; print(buscar_lote({PROSPECCAO_CHAMADAS_POR_DIA}))\""
+        f"python -c 'from app.prospeccao import buscar_lote; print(buscar_lote({PROSPECCAO_CHAMADAS_POR_DIA}))'"
     )
     return f"""\
 apiVersion: batch/v1

@@ -21,6 +21,36 @@
 </div>
 
 <div class="card">
+  <h3>Funil de leads</h3>
+  <div class="funil">
+    {% set max_v = funil_max if funil_max > 0 else 1 %}
+    {% for status in lead_status %}
+    <div class="funil-row">
+      <span class="funil-label">{{ status.replace("_", " ") }}</span>
+      <div class="funil-track"><div class="funil-fill status-{{ status }}" style="width: {{ (funil[status] / max_v * 100)|round(0, 'floor')|int }}%"></div></div>
+      <span class="funil-valor">{{ funil[status] }}</span>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <h3>Previsão do mês</h3>
+  <p>Cruzamento reunião × fechamento: de {{ forecast.reunioes_feitas }} lead(s) com reunião marcada, {{ forecast.fechados }} viraram cliente
+    {% if forecast.reunioes_feitas %}— taxa de conversão de <b>{{ "%.0f"|format(forecast.taxa_conversao_reuniao * 100) }}%</b>{% else %}(marque reuniões pra ver a taxa aqui){% endif %}.
+  </p>
+  {% if forecast.reunioes_feitas %}
+  <div class="funil-track" style="max-width:320px">
+    <div class="funil-fill status-fechado" style="width: {{ (forecast.taxa_conversao_reuniao * 100)|round(0, 'floor')|int }}%"></div>
+  </div>
+  {% endif %}
+  <div class="metric" style="margin-top:14px"><div class="v">{{ forecast.leads_em_pipeline_com_reuniao }}</div><div class="l">em pipeline com reunião feita</div></div>
+  <div class="metric"><div class="v">~{{ forecast.fechamentos_esperados }}</div><div class="l">fechamentos esperados</div></div>
+  <div class="metric"><div class="v">R$ {{ "%.2f"|format(forecast.comissao_projetada) }}</div><div class="l">comissão projetada (R$ {{ "%.2f"|format(forecast.comissao_atual) }} já travada + ~R$ {{ "%.2f"|format(forecast.comissao_extra_estimada) }} estimada)</div></div>
+  <p style="margin-top:10px"><small>Estimativa de painel pela taxa de conversão histórica reunião→fechamento — não substitui a apuração oficial de comissão travada por atribuição (acima).</small></p>
+</div>
+
+<div class="card">
   <h3>Novo lead</h3>
   <form method="post" action="/leads">
     <p><input name="negocio" placeholder="Nome do negócio" required></p>
@@ -47,12 +77,17 @@
       <div class="kanban-card">
         <strong>{{ lead.negocio }}</strong>
         <small>{{ lead.contato or "sem contato" }} · {{ lead.cidade }}</small>
+        {% if lead.reunioes %}<span class="pill ok">{{ lead.reunioes|length }} reunião(ões)</span>{% endif %}
         <form class="inline" method="post" action="/leads/{{ lead._id }}/status">
           <select name="status" onchange="this.form.submit()">
             {% for s in lead_status %}
             <option value="{{ s }}" {% if lead.status == s %}selected{% endif %}>{{ s.replace("_", " ") }}</option>
             {% endfor %}
           </select>
+        </form>
+        <form class="inline" method="post" action="/leads/{{ lead._id }}/reuniao">
+          <input type="date" name="data" required>
+          <button type="submit" class="secondary">Marcar reunião</button>
         </form>
         <form class="inline" method="post" action="/leads/{{ lead._id }}/atribuir-tenant">
           <input name="tenant_id" placeholder="tenant_id" size="10">
