@@ -15,6 +15,7 @@ import secrets
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -28,6 +29,17 @@ SIGNUP_BASE_URL = os.environ.get("SIGNUP_BASE_URL", "https://atendpragente.com.b
 app = FastAPI(title="AtendPraGente — Backoffice Comercial")
 app.add_middleware(SessionMiddleware, secret_key=BACKOFFICE_SESSION_SECRET, session_cookie="backoffice_session")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+
+@app.exception_handler(HTTPException)
+async def _sem_sessao_manda_pro_login(request: Request, exc: HTTPException):
+    """Sem isso, quem abre uma página protegida sem sessão (GET normal
+    de navegador, não fetch/API) recebe um 401 cru em JSON em vez de
+    cair na tela de login — ruim pra uma ferramenta que só tem
+    formulário HTML, nenhum consumidor de API de verdade."""
+    if exc.status_code == 401 and request.method == "GET":
+        return RedirectResponse("/login", status_code=303)
+    return await http_exception_handler(request, exc)
 
 
 def require_session(request: Request) -> dict:
