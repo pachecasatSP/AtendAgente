@@ -25,6 +25,10 @@ _db = _client.get_default_database()
 _vendedores = _db["vendedores"]
 _leads = _db["leads"]
 _atribuicoes = _db["atribuicoes_comissao"]
+_prospeccoes = _db["prospeccoes"]
+_prospeccao_estado = _db["prospeccao_estado"]
+
+LEAD_STATUS = ["novo", "em_conversa", "proposta", "fechado", "perdido"]
 
 # Régua crescente oficial (specs/comissao-vendedores.md) — faixas de
 # CONTAGEM de clientes ativos, taxa cheia sobre o MRR da carteira toda.
@@ -205,6 +209,24 @@ def get_lead(lead_id: str) -> dict | None:
     return _leads.find_one({"_id": lead_id})
 
 
+def pipeline_por_vendedor() -> list[dict]:
+    """Contagem de leads por etapa, por vendedor — base da visão
+    agregada de pipeline do admin (progresso de prospecção por
+    vendedor/cidade, specs/comissao-vendedores.md seção 11)."""
+    contagens = {}
+    for lead in _leads.find({}, {"vendedor_id": 1, "status": 1}):
+        contagens.setdefault(lead["vendedor_id"], {s: 0 for s in LEAD_STATUS})
+        contagens[lead["vendedor_id"]][lead["status"]] += 1
+    resultado = []
+    for vendedor_id, por_status in contagens.items():
+        vendedor = get_vendedor(vendedor_id)
+        if not vendedor:
+            continue
+        resultado.append({"vendedor": vendedor, "por_status": por_status, "total": sum(por_status.values())})
+    resultado.sort(key=lambda r: r["vendedor"]["nome"])
+    return resultado
+
+
 def update_lead_status(lead_id: str, status: str) -> None:
     _leads.update_one({"_id": lead_id}, {"$set": {"status": status, "atualizado_em": datetime.now(timezone.utc)}})
 
@@ -270,3 +292,68 @@ def comissao_do_mes(vendedor_id: str) -> dict:
 def bate_gatilho_bonus_rampa(qtd_clientes_ativos: int) -> bool:
     meta_minima = META_CLIENTES_POR_TIER["Início"] * BONUS_RAMPA_GATILHO_PCT
     return qtd_clientes_ativos >= math.ceil(meta_minima)
+
+
+# ---------------------------------------------------------- prospecção (base de consulta)
+#
+# Candidatos a lead vindos da busca automática no Google Places (ver
+# app/prospeccao.py) — ficam aqui até um vendedor/admin "converter" um
+# em lead de verdade. Não confundir com `leads`: isso é a lista fria
+# ainda não trabalhada por ninguém.
+
+def get_prospeccao_cursor() -> int:
+    """Posição na matriz cidade×categoria (app/prospeccao.py) onde a
+    última rodada parou — cada rodada continua dali, não repete a
+    matriz inteira do zero (orçamento é limitado, 50 chamadas/dia)."""
+    doc = _prospeccao_estado.find_one({"_id": "cursor"})
+    return doc["valor"] if doc else 0
+
+
+def set_prospeccao_cursor(valor: int) -> None:
+    _prospeccao_estado.update_one({"_id": "cursor"}, {"$set": {"valor": valor}}, upsert=True)
+
+
+def upsert_prospeccao(
+    place_id: str,
+    negocio: str,
+    endereco: str,
+    cidade: str,
+    categoria: str,
+    telefone: str | None,
+    tem_site: bool,
+) -> None:
+    """Prioridade = tem telefone (WhatsApp costuma ser o mesmo número em
+    negócio pequeno no Brasil) — é o critério pedido pra ordenar quem
+    vale a pena abordar primeiro."""
+    now = datetime.now(timezone.utc)
+    prioridade = 2 if telefone else (1 if tem_site else 0)
+    _prospeccoes.update_one(
+        {"_id": place_id},
+        {
+            "$set": {
+                "negocio": negocio,
+                "endereco": endereco,
+                "cidade": cidade,
+                "categoria": categoria,
+                "telefone": telefone,
+                "tem_site": tem_site,
+                "prioridade": prioridade,
+                "visto_em": now,
+            },
+            "$setOnInsert": {"descoberto_em": now, "convertido_lead_id": None},
+        },
+        upsert=True,
+    )
+
+
+def get_prospeccao(place_id: str) -> dict | None:
+    return _prospeccoes.find_one({"_id": place_id})
+
+
+def list_prospeccoes(convertido: bool = False) -> list[dict]:
+    query = {"convertido_lead_id": None} if not convertido else {"convertido_lead_id": {"$ne": None}}
+    return list(_prospeccoes.find(query).sort([("prioridade", -1), ("descoberto_em", -1)]).limit(300))
+
+
+def marcar_prospeccao_convertida(place_id: str, lead_id: str) -> None:
+    _prospeccoes.update_one({"_id": place_id}, {"$set": {"convertido_lead_id": lead_id}})

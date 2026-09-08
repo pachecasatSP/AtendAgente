@@ -1,0 +1,28 @@
+{% extends "_base.html" %}
+{% block title %}Pipeline{% endblock %}
+{% block content %}
+<h2>Pipeline por vendedor</h2>
+<p>Progresso de prospecção de cada vendedor — contagem de leads por etapa (specs/comissao-vendedores.md, seção 11).</p>
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th>Vendedor</th>
+        {% for status in lead_status %}<th>{{ status.replace("_", " ") }}</th>{% endfor %}
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for linha in pipeline %}
+      <tr>
+        <td>{{ linha.vendedor.nome }}<br><small>{{ linha.vendedor.cidade_designada or "" }}</small></td>
+        {% for status in lead_status %}<td>{{ linha.por_status[status] }}</td>{% endfor %}
+        <td><b>{{ linha.total }}</b></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="{{ lead_status|length + 2 }}">Nenhum lead ainda.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -20,7 +20,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import onboarding_client, store
+from . import onboarding_client, prospeccao, store
+
+PROSPECCAO_CHAMADAS_POR_LOTE = 50
 
 BACKOFFICE_SESSION_SECRET = os.environ["BACKOFFICE_SESSION_SECRET"]
 ADMIN_PIN = os.environ.get("ADMIN_PIN", "")
@@ -106,6 +108,9 @@ def dashboard(request: Request):
     comissao = store.comissao_do_mes(vendedor["_id"])
     bate_bonus = store.bate_gatilho_bonus_rampa(comissao["qtd_clientes_ativos"])
     leads = store.list_leads_by_vendedor(vendedor["_id"])
+    leads_por_status = {status: [] for status in store.LEAD_STATUS}
+    for lead in leads:
+        leads_por_status[lead["status"]].append(lead)
     link_convite = f"{SIGNUP_BASE_URL}/signup?vendedor={vendedor['slug']}"
     return templates.TemplateResponse(
         request,
@@ -114,7 +119,8 @@ def dashboard(request: Request):
             "vendedor": vendedor,
             "comissao": comissao,
             "bate_bonus_rampa": bate_bonus,
-            "leads": leads,
+            "leads_por_status": leads_por_status,
+            "lead_status": store.LEAD_STATUS,
             "meta_tier": store.META_CLIENTES_POR_TIER,
             "link_convite": link_convite,
         },
@@ -143,7 +149,7 @@ def atualizar_status_lead(request: Request, lead_id: str, status: str = Form(...
     lead = store.get_lead(lead_id)
     if not lead or lead["vendedor_id"] != vendedor["_id"]:
         raise HTTPException(status_code=404, detail="Lead não encontrado")
-    if status not in ("novo", "em_conversa", "proposta", "fechado", "perdido"):
+    if status not in store.LEAD_STATUS:
         raise HTTPException(status_code=400, detail="Status inválido")
     store.update_lead_status(lead_id, status)
     return RedirectResponse("/", status_code=303)
@@ -173,6 +179,50 @@ def atribuir_tenant(request: Request, lead_id: str, tenant_id: str = Form(...)):
     store.atribuir_tenant(vendedor["_id"], tenant_id.strip(), plano, mrr)
     store.update_lead_status(lead_id, "fechado")
     return RedirectResponse("/", status_code=303)
+
+
+# ---------------------------------------------------------- prospecção (base de consulta)
+
+@app.get("/prospeccao", response_class=HTMLResponse)
+def listar_prospeccoes(request: Request):
+    """Lista compartilhada entre todos os vendedores — quem converter
+    primeiro fica com o lead (mesma lógica de "primeiro toque" que já
+    vale pra atribuição de tenant, regra 03 do spec)."""
+    vendedor = require_session(request)
+    prospeccoes = store.list_prospeccoes()
+    return templates.TemplateResponse(
+        request,
+        "prospeccao.html",
+        {"vendedor": vendedor, "prospeccoes": prospeccoes, "chamadas_por_lote": PROSPECCAO_CHAMADAS_POR_LOTE},
+    )
+
+
+@app.post("/prospeccao/{place_id}/converter")
+def converter_prospeccao(request: Request, place_id: str, cidade: str = Form(...)):
+    vendedor = require_session(request)
+    prospect = store.get_prospeccao(place_id)
+    if not prospect or prospect.get("convertido_lead_id"):
+        raise HTTPException(status_code=404, detail="Candidato não encontrado (já convertido por outro vendedor?)")
+    lead_id = store.create_lead(
+        negocio=prospect["negocio"],
+        contato=prospect.get("telefone") or "",
+        cidade=cidade,
+        origem="prospecção automática",
+        vendedor_id=vendedor["_id"],
+    )
+    store.marcar_prospeccao_convertida(place_id, lead_id)
+    return RedirectResponse("/prospeccao", status_code=303)
+
+
+@app.post("/admin/prospeccao/buscar-mais")
+def admin_buscar_mais_prospeccoes(request: Request, pin: str = Form(...)):
+    """Gasta chamadas de Google Places de verdade — PIN-gated pelo
+    mesmo motivo das outras ações sensíveis: custo real, decisão
+    humana, nunca automática além do lote diário do CronJob."""
+    require_admin_role(request)
+    _check_pin(pin)
+    prospeccao.buscar_lote(PROSPECCAO_CHAMADAS_POR_LOTE)
+    return RedirectResponse("/prospeccao", status_code=303)
 
 
 # --------------------------------------------------------------- admin: vendedores
@@ -255,6 +305,15 @@ def admin_listar_tenants(request: Request):
     reconciliados = _reconciliar_convites_vendedor(tenants)
     return templates.TemplateResponse(
         request, "admin_tenants.html", {"tenants": tenants, "vendedor": admin, "reconciliados": reconciliados}
+    )
+
+
+@app.get("/admin/pipeline", response_class=HTMLResponse)
+def admin_pipeline(request: Request):
+    admin = require_admin_role(request)
+    pipeline = store.pipeline_por_vendedor()
+    return templates.TemplateResponse(
+        request, "admin_pipeline.html", {"vendedor": admin, "pipeline": pipeline, "lead_status": store.LEAD_STATUS}
     )
 
 

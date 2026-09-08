@@ -28,13 +28,21 @@
   .pill.ok { background: #E3F7EA; color: var(--leaf-deep); }
   .pill.warn { background: #FFF3D6; color: #E8A400; }
   .pill.bad { background: #FBEAE6; color: #B33F32; }
+  .kanban { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-top: 10px; overflow-x: auto; }
+  .kanban-col h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); margin: 0 0 8px; }
+  .kanban-col .vazio { color: var(--ink-soft); font-size: 12px; }
+  .kanban-card { background: #FFF6E2; border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .kanban-card small { color: var(--ink-soft); font-size: 12px; }
+  .kanban-card select { width: 100%; }
 </style>
 </head>
 <body>
 <header>
   <a href="/">AtendPraGente — Backoffice</a>
   <nav>
+    {% if vendedor %}<a href="/prospeccao">Prospecção</a>{% endif %}
     {% if vendedor and vendedor.role == "admin" %}
+      <a href="/admin/pipeline">Pipeline</a>
       <a href="/admin/vendedores">Vendedores</a>
       <a href="/admin/tenants">Tenants</a>
       <a href="/admin/alertas">Alertas</a>

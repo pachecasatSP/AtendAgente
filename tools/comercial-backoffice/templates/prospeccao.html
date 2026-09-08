@@ -1,0 +1,45 @@
+{% extends "_base.html" %}
+{% block title %}Prospecção{% endblock %}
+{% block content %}
+<h2>Prospecção (base de consulta)</h2>
+<p>Negócios encontrados automaticamente por cidade/ramo (Google Places) — lista compartilhada entre todos os vendedores. Quem converter primeiro fica com o lead. Ordenado por prioridade: quem tem telefone primeiro.</p>
+
+{% if vendedor.role == "admin" %}
+<div class="card">
+  <h3>Buscar mais agora</h3>
+  <p>Gasta chamadas de verdade contra a cota do Google (o lote diário automático já roda sozinho, esse botão é só pra quando falta candidato antes da próxima rodada). {{ chamadas_por_lote }} chamadas por acionamento.</p>
+  <form method="post" action="/admin/prospeccao/buscar-mais">
+    <input name="pin" placeholder="PIN" size="4" required>
+    <button type="submit" class="secondary">Buscar mais {{ chamadas_por_lote }}</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <table>
+    <thead><tr><th>Negócio</th><th>Categoria</th><th>Cidade</th><th>Contato</th><th>Prioridade</th><th>Ação</th></tr></thead>
+    <tbody>
+      {% for p in prospeccoes %}
+      <tr>
+        <td>{{ p.negocio }}<br><small>{{ p.endereco }}</small></td>
+        <td>{{ p.categoria }}</td>
+        <td>{{ p.cidade }}</td>
+        <td>
+          {% if p.telefone %}{{ p.telefone }}{% else %}<span class="pill warn">sem telefone</span>{% endif %}
+          {% if p.tem_site %}<span class="pill ok">tem site</span>{% endif %}
+        </td>
+        <td>{{ p.prioridade }}</td>
+        <td>
+          <form class="inline" method="post" action="/prospeccao/{{ p._id }}/converter">
+            <input type="hidden" name="cidade" value="{{ p.cidade }}">
+            <button type="submit">Virar meu lead</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">Nenhum candidato ainda — aguarde o lote diário ou peça pro admin buscar mais.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

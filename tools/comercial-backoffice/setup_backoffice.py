@@ -46,7 +46,15 @@ REQUIRED_ENV_SECRET_KEYS = [
     "BACKOFFICE_SESSION_SECRET",
     "ONBOARDING_ADMIN_KEY",
     "ADMIN_PIN",
+    "GOOGLE_PLACES_API_KEY",
 ]
+
+# Orçamento diário da prospecção automática (app/prospeccao.py) — 50
+# chamadas/dia fica bem dentro da cota grátis do Google Places
+# (5.000/mês no tier Text Search Pro), custo zero de infra comercial.
+# O botão "buscar mais" no /prospeccao soma chamadas extras ao mesmo
+# dia sob decisão humana (PIN), fora desse orçamento fixo.
+PROSPECCAO_CHAMADAS_POR_DIA = 50
 
 
 class SetupError(RuntimeError):
@@ -251,6 +259,53 @@ spec:
 """
 
 
+def build_prospeccao_cronjob_manifest() -> str:
+    """Roda 1x/dia, mesmo hostPath/imagem/env do Deployment principal —
+    não é um serviço separado, só um lote em batch de
+    app/prospeccao.py::buscar_lote (ver docstring lá)."""
+    cmd = (
+        "pip install --quiet --no-cache-dir -r /app/requirements.txt && "
+        f"python -c \"from app.prospeccao import buscar_lote; print(buscar_lote({PROSPECCAO_CHAMADAS_POR_DIA}))\""
+    )
+    return f"""\
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backoffice-prospeccao
+  namespace: {NAMESPACE}
+spec:
+  schedule: "0 9 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: prospeccao
+              image: python:3.12-slim
+              command: ["sh", "-c", "{cmd}"]
+              envFrom:
+                - secretRef:
+                    name: {ENV_SECRET_NAME}
+                - secretRef:
+                    name: {MONGO_SECRET_NAME}
+              volumeMounts:
+                - name: code
+                  mountPath: /app
+                  readOnly: true
+              resources:
+                requests: {{cpu: "100m", memory: "256Mi"}}
+                limits: {{cpu: "500m", memory: "512Mi"}}
+          volumes:
+            - name: code
+              hostPath:
+                path: {CODE_HOSTPATH}
+                type: Directory
+"""
+
+
 def main() -> None:
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -270,6 +325,7 @@ def main() -> None:
             ("Mongo próprio (Deployment + PVC + Service)", build_mongo_manifest()),
             ("Secret MONGO_URI (aponta pro Mongo acima)", build_mongo_uri_secret_manifest()),
             ("Backoffice (Deployment + Service + Ingress)", build_service_manifest()),
+            ("Prospecção automática (CronJob diário)", build_prospeccao_cronjob_manifest()),
         ]
         for label, manifest in manifests:
             print(f"--- {label} ---")

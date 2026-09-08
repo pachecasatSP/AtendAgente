@@ -38,34 +38,32 @@
 </div>
 
 <div class="card">
-  <h3>Meus leads</h3>
-  <table>
-    <thead><tr><th>Negócio</th><th>Cidade</th><th>Status</th><th>Ação</th></tr></thead>
-    <tbody>
-      {% for lead in leads %}
-      <tr>
-        <td>{{ lead.negocio }}<br><small>{{ lead.contato }}</small></td>
-        <td>{{ lead.cidade }}</td>
-        <td>
-          <form class="inline" method="post" action="/leads/{{ lead._id }}/status">
-            <select name="status" onchange="this.form.submit()">
-              {% for s in ["novo","em_conversa","proposta","fechado","perdido"] %}
-              <option value="{{ s }}" {% if lead.status == s %}selected{% endif %}>{{ s }}</option>
-              {% endfor %}
-            </select>
-          </form>
-        </td>
-        <td>
-          <form class="inline" method="post" action="/leads/{{ lead._id }}/atribuir-tenant">
-            <input name="tenant_id" placeholder="tenant_id (fechado)" size="14">
-            <button type="submit" class="secondary">Atribuir tenant</button>
-          </form>
-        </td>
-      </tr>
+  <h3>Pipeline de prospecção</h3>
+  <div class="kanban">
+    {% for status in lead_status %}
+    <div class="kanban-col">
+      <h4>{{ status.replace("_", " ") }} <span class="pill">{{ leads_por_status[status]|length }}</span></h4>
+      {% for lead in leads_por_status[status] %}
+      <div class="kanban-card">
+        <strong>{{ lead.negocio }}</strong>
+        <small>{{ lead.contato or "sem contato" }} · {{ lead.cidade }}</small>
+        <form class="inline" method="post" action="/leads/{{ lead._id }}/status">
+          <select name="status" onchange="this.form.submit()">
+            {% for s in lead_status %}
+            <option value="{{ s }}" {% if lead.status == s %}selected{% endif %}>{{ s.replace("_", " ") }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        <form class="inline" method="post" action="/leads/{{ lead._id }}/atribuir-tenant">
+          <input name="tenant_id" placeholder="tenant_id" size="10">
+          <button type="submit" class="secondary">Atribuir tenant</button>
+        </form>
+      </div>
       {% else %}
-      <tr><td colspan="4">Nenhum lead ainda.</td></tr>
+      <p class="vazio">—</p>
       {% endfor %}
-    </tbody>
-  </table>
+    </div>
+    {% endfor %}
+  </div>
 </div>
 {% endblock %}
