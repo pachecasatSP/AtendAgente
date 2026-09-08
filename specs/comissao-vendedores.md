@@ -50,6 +50,40 @@ mensalmente pela carteira ativa do vendedor — subir (ou descer) de tier
 vale só pros clientes novos daquele mês em diante, não retroage sobre
 comissões já em curso.
 
+### Faixas de clientes (taxa cheia sobre a carteira, não marginal)
+
+O mix-alvo dá o desenho ideal, mas um vendedor real raramente bate o
+mix exato — precisava de uma regra objetiva de qual taxa aplicar sobre
+a carteira dele. Testamos e descartamos um modelo de **faixas
+marginais** (tipo IR progressivo, cada cliente paga a taxa da posição
+em que "cai"): ele quebra o piso de salário mínimo do Consolidado
+(R$1.294,47 com 20 clientes em vez de R$1.702,40, porque os primeiros
+clientes continuam pagando taxa baixa pra sempre) — exigiria ~25
+clientes pra compensar. **Decisão: taxa cheia sobre o MRR da carteira
+toda**, com faixas de contagem de clientes ativos:
+
+| Tier | Faixa de clientes ativos | Taxa (crescente) |
+|---|---|---|
+| Início | 1–10 | 12% |
+| Crescimento | 11–15 | 17% |
+| Consolidado | 16–49 | 28% |
+| Parceiro-chave | 50+ | 27% |
+
+A faixa Consolidado foi esticada até 49 (não termina em 20) de
+propósito: se Parceiro-chave começasse em 21, um vendedor cruzando de
+20 pra 21 clientes veria a taxa da carteira toda **cair** de 28% pra
+27% — o oposto do incentivo que a régua deveria dar. Só estica até 49
+que o vendedor cruza pra Parceiro-chave quando realmente bate o volume
+que essa faixa foi desenhada pra remunerar.
+
+O efeito de "toda a carteira muda de taxa de uma vez" quando o vendedor
+sobe de faixa é resolvido pela regra 03 (abaixo): cada cliente carrega
+a taxa vigente no mês em que foi atribuído, por até 12 meses — subir de
+faixa vale só pros clientes novos daquele mês em diante. **O motor de
+cálculo de comissão precisa implementar essa trava literalmente**: a
+comissão de um cliente não é recalculada todo mês pela faixa atual do
+vendedor, é fixada no momento da atribuição.
+
 ## Mix-alvo por tier
 
 Tier não é definido por contagem solta de clientes — é uma **meta de
@@ -98,6 +132,38 @@ Com o mix-alvo oficial:
 Início e Crescimento nunca vão garantir — mesmo 100% de comissão não
 cobriria o MRR do tier Início. Isso não deve ser prometido em material
 de recrutamento como "salário mínimo desde o primeiro cliente".
+
+## Bônus de rampa (mês 1) e regra de saída
+
+**Gatilho de R$500 no mês 1.** Se o vendedor fechar pelo menos 75% da
+meta do tier Início (10 clientes → mínimo 8, arredondando pra cima) no
+primeiro mês, a empresa complementa a comissão natural até R$500 total
+naquele mês. Testado financeiramente: o ponto de equilíbrio geral
+(onde a margem bruta já cobre o subsídio sozinha) fica em ~5 clientes;
+o gatilho de 8 fica acima disso, então a garantia **nunca dispara no
+prejuízo puro** — só redistribui margem que já existe (com 8 clientes,
+a receita líquida da empresa depois de pagar o R$500 cheio ainda fica
+positiva, +R$331,84). Rotular como **"bônus de contratação/rampa"**,
+não como piso de comissão — importa pra sustentar a classificação de
+representante comercial autônomo (a comissão precisa continuar
+genuinamente variável; um valor garantido incondicional enfraqueceria
+essa classificação).
+
+**Regra de saída por baixa performance.** Vendedor abaixo de 75% da
+meta do tier esperado por **3 meses consecutivos** precisa sair.
+Processo gradual (sustenta caracterização de desídia, Art. 35, III da
+Lei 4.886/65 — ver "Vínculo do vendedor" abaixo): mês 1 abaixo = alerta
+informal registrado; mês 2 consecutivo = advertência formal por
+escrito; mês 3 consecutivo = desligamento citando a advertência
+anterior. Testado: mesmo se tratado como "sem justa causa" (o cenário
+mais caro), o custo de saída de um vendedor recém-contratado e de baixa
+performance é baixo — ~R$116 num cenário de 3 meses com carteira de
+5→6→7 clientes (indenização de 1/12 é proporcional às comissões reais
+recebidas, que são pequenas nesse caso). A classificação final (justa
+causa ou não) ainda depende do advogado trabalhista. **Precisa virar
+cláusula explícita no contrato de representação** — a meta mínima e o
+processo de advertência só têm efeito jurídico se estiverem escritos no
+contrato, não só como controle interno do backoffice.
 
 ## Condições gerais
 
@@ -292,3 +358,9 @@ turismo pras vagas de Crescendo que o mix exige a partir do Crescimento.
    consulta, sem preço de tabela).
 8. Revisar prazo de exclusividade territorial (6 meses) depois do
    primeiro ciclo real da Região dos Lagos.
+9. A meta mínima de 75% (bônus de rampa + regra de saída) precisa virar
+   cláusula explícita no contrato de representação — só existir no
+   backoffice não tem efeito jurídico.
+10. Confirmar com o advogado trabalhista se a regra de saída por 3
+    meses consecutivos abaixo de 75% se sustenta como justa causa
+    (desídia, Art. 35 III) ou sempre precisa de indenização de rescisão.
