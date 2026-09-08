@@ -199,16 +199,30 @@ def atribuir_tenant(request: Request, lead_id: str, tenant_id: str = Form(...)):
 # ---------------------------------------------------------- prospecção (base de consulta)
 
 @app.get("/prospeccao", response_class=HTMLResponse)
-def listar_prospeccoes(request: Request):
+def listar_prospeccoes(request: Request, pagina: int = 1):
     """Lista compartilhada entre todos os vendedores — quem converter
     primeiro fica com o lead (mesma lógica de "primeiro toque" que já
-    vale pra atribuição de tenant, regra 03 do spec)."""
+    vale pra atribuição de tenant, regra 03 do spec). Paginada a 25 por
+    página; só mostra quem ainda não foi capturado (convertido_lead_id
+    vazio) — um candidato nunca fica "preso" numa página velha, some da
+    lista só quando alguém converte ele de verdade."""
     vendedor = require_session(request)
-    prospeccoes = store.list_prospeccoes()
+    pagina = max(pagina, 1)
+    total = store.count_prospeccoes()
+    total_paginas = max((total + store.PROSPECCAO_PAGE_SIZE - 1) // store.PROSPECCAO_PAGE_SIZE, 1)
+    pagina = min(pagina, total_paginas)
+    prospeccoes = store.list_prospeccoes(pagina=pagina)
     return templates.TemplateResponse(
         request,
         "prospeccao.html",
-        {"vendedor": vendedor, "prospeccoes": prospeccoes, "chamadas_por_lote": PROSPECCAO_CHAMADAS_POR_LOTE},
+        {
+            "vendedor": vendedor,
+            "prospeccoes": prospeccoes,
+            "chamadas_por_lote": PROSPECCAO_CHAMADAS_POR_LOTE,
+            "pagina": pagina,
+            "total_paginas": total_paginas,
+            "total": total,
+        },
     )
 
 

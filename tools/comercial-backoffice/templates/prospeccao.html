@@ -2,7 +2,7 @@
 {% block title %}Prospecção{% endblock %}
 {% block content %}
 <h2>Prospecção (base de consulta)</h2>
-<p>Negócios encontrados automaticamente por cidade/ramo (Google Places) — lista compartilhada entre todos os vendedores. Quem converter primeiro fica com o lead. Ordenado por prioridade: quem tem telefone primeiro.</p>
+<p>Negócios encontrados automaticamente por cidade/ramo (Google Places) — lista compartilhada entre todos os vendedores. Quem converter primeiro fica com o lead. Ordenado por prioridade: quem tem telefone primeiro. {{ total }} candidato(s) ainda não capturado(s).</p>
 
 {% if vendedor.role == "admin" %}
 <div class="card">
@@ -41,5 +41,12 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if total_paginas > 1 %}
+  <div class="paginacao">
+    {% if pagina > 1 %}<a href="/prospeccao?pagina={{ pagina - 1 }}" class="secondary-link">&laquo; Anterior</a>{% endif %}
+    <span>Página {{ pagina }} de {{ total_paginas }}</span>
+    {% if pagina < total_paginas %}<a href="/prospeccao?pagina={{ pagina + 1 }}" class="secondary-link">Próxima &raquo;</a>{% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
