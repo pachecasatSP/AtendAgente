@@ -39,6 +39,7 @@ def create_signup(
     access_token: str,
     display_phone_number: str | None = None,
     verified_name: str | None = None,
+    vendedor_slug_hint: str | None = None,
 ) -> str:
     signup_id = uuid.uuid4().hex
     now = datetime.now(timezone.utc)
@@ -54,6 +55,15 @@ def create_signup(
             "status": "code_exchanged",
             "plano": "trial",
             "erro": None,
+            # Hint cru vindo de ?vendedor=<slug> na URL de /signup — não é
+            # validado aqui (o backoffice comercial, que sabe quais slugs
+            # existem, vive num Mongo separado sem rede privada até este
+            # aqui; ver specs/comissao-vendedores.md e o plano do backoffice).
+            # Diferente de invite_token: não muda plano nem pula checkout,
+            # só marca de antemão quem vendeu pro backoffice atribuir depois.
+            "vendedor_slug_hint": vendedor_slug_hint,
+            "vendedor_id": None,
+            "origem_venda": None,
             "criado_em": now,
             "atualizado_em": now,
         }

@@ -245,6 +245,7 @@ def signup_callback(payload: dict):
     waba_id = payload.get("waba_id")
     phone_number_id = payload.get("phone_number_id")
     invite = (payload.get("invite") or "").strip()
+    vendedor_slug = (payload.get("vendedor") or "").strip()[:64] or None
     if not (code and waba_id and phone_number_id):
         raise HTTPException(400, "code, waba_id e phone_number_id são obrigatórios")
 
@@ -271,7 +272,10 @@ def signup_callback(payload: dict):
     except meta_client.MetaApiError as e:
         print(f"[signup_callback] não consegui buscar dados do número {phone_number_id}: {e}", file=sys.stderr)
 
-    signup_id = store.create_signup(waba_id, phone_number_id, access_token, display_phone_number, verified_name)
+    signup_id = store.create_signup(
+        waba_id, phone_number_id, access_token, display_phone_number, verified_name,
+        vendedor_slug_hint=vendedor_slug,
+    )
     if invite_token:
         store.update_signup(signup_id, invite_token=invite_token)
     return {"signup_id": signup_id, "next": f"/signup/{signup_id}/form"}
@@ -743,6 +747,8 @@ def admin_list_tenants(request: Request):
             "plano": s.get("plano"),
             "criado_em": s.get("criado_em"),
             "gratuito": bool(s.get("invite_token")),
+            "vendedor_slug_hint": s.get("vendedor_slug_hint"),
+            "vendedor_id": s.get("vendedor_id"),
         }
         for s in signups
     ]

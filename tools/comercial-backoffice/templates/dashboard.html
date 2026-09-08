@@ -4,6 +4,12 @@
 <h2>Olá, {{ vendedor.nome }}</h2>
 
 <div class="card">
+  <h3>Seu link de convite</h3>
+  <p>Cliente que entra por esse link já vem marcado como seu — sem pular o checkout, ele paga o plano normal e você não precisa atribuir o tenant depois.</p>
+  <p><input type="text" value="{{ link_convite }}" readonly onclick="this.select()" style="width:100%"></p>
+</div>
+
+<div class="card">
   <div class="metric"><div class="v">R$ {{ "%.2f"|format(comissao.total) }}</div><div class="l">comissão do mês</div></div>
   <div class="metric"><div class="v">{{ comissao.qtd_clientes_ativos }}</div><div class="l">clientes ativos</div></div>
   <div class="metric"><div class="v">{{ comissao.tier_atual }}</div><div class="l">tier atual ({{ "%.0f"|format(comissao.taxa_atual * 100) }}%)</div></div>

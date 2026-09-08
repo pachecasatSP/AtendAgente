@@ -23,6 +23,7 @@ from . import onboarding_client, store
 
 BACKOFFICE_SESSION_SECRET = os.environ["BACKOFFICE_SESSION_SECRET"]
 ADMIN_PIN = os.environ.get("ADMIN_PIN", "")
+SIGNUP_BASE_URL = os.environ.get("SIGNUP_BASE_URL", "https://atendpragente.com.br")
 
 app = FastAPI(title="AtendPraGente — Backoffice Comercial")
 app.add_middleware(SessionMiddleware, secret_key=BACKOFFICE_SESSION_SECRET, session_cookie="backoffice_session")
@@ -93,6 +94,7 @@ def dashboard(request: Request):
     comissao = store.comissao_do_mes(vendedor["_id"])
     bate_bonus = store.bate_gatilho_bonus_rampa(comissao["qtd_clientes_ativos"])
     leads = store.list_leads_by_vendedor(vendedor["_id"])
+    link_convite = f"{SIGNUP_BASE_URL}/signup?vendedor={vendedor['slug']}"
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -102,6 +104,7 @@ def dashboard(request: Request):
             "bate_bonus_rampa": bate_bonus,
             "leads": leads,
             "meta_tier": store.META_CLIENTES_POR_TIER,
+            "link_convite": link_convite,
         },
     )
 
@@ -205,11 +208,42 @@ def admin_atualizar_status_vendedor(request: Request, vendedor_id: str, status: 
 
 # ------------------------------------------------------- admin: ferramentas (proxy onboarding-service)
 
+def _reconciliar_convites_vendedor(tenants: list[dict]) -> int:
+    """Auto-atribui tenants que chegaram por um link pessoal de vendedor
+    (?vendedor=<slug> em /signup) e ainda não foram atribuídos —
+    dispensa o passo manual de "atribuir tenant" pra esses casos. Usa
+    exatamente o mesmo caminho da atribuição manual (onboarding_client
+    + store.atribuir_tenant), só que disparado pelo slug em vez de por
+    um clique. Slug sem vendedor conhecido fica pra trás sem travar
+    nada — mesma postura que o onboarding-service já tem com um invite
+    inválido."""
+    reconciliados = 0
+    for tenant in tenants:
+        slug = tenant.get("vendedor_slug_hint")
+        if not slug or tenant.get("vendedor_id") or store.existe_atribuicao(tenant["tenant_id"]):
+            continue
+        vendedor = store.get_vendedor_by_slug(slug)
+        if not vendedor:
+            continue
+        plano = tenant.get("plano", "")
+        mrr = store.PRECO_POR_PLANO.get(plano)
+        if mrr is None:
+            continue
+        onboarding_client.atribuir_vendedor(tenant["tenant_id"], vendedor["_id"], origem_venda="link-vendedor")
+        store.atribuir_tenant(vendedor["_id"], tenant["tenant_id"], plano, mrr)
+        tenant["vendedor_id"] = vendedor["_id"]
+        reconciliados += 1
+    return reconciliados
+
+
 @app.get("/admin/tenants", response_class=HTMLResponse)
 def admin_listar_tenants(request: Request):
     admin = require_admin_role(request)
     tenants = onboarding_client.listar_tenants()
-    return templates.TemplateResponse(request, "admin_tenants.html", {"tenants": tenants, "vendedor": admin})
+    reconciliados = _reconciliar_convites_vendedor(tenants)
+    return templates.TemplateResponse(
+        request, "admin_tenants.html", {"tenants": tenants, "vendedor": admin, "reconciliados": reconciliados}
+    )
 
 
 @app.get("/admin/alertas", response_class=HTMLResponse)

@@ -80,6 +80,24 @@ def verify_password(password: str, doc: dict) -> bool:
 
 # ---------------------------------------------------------------- vendedores
 
+def _slugify(nome: str) -> str:
+    base = "".join(c if c.isalnum() else "-" for c in nome.lower().strip())
+    while "--" in base:
+        base = base.replace("--", "-")
+    return base.strip("-") or "vendedor"
+
+
+def _slug_unico(nome: str) -> str:
+    """Slug curto e estável pro link pessoal de convite do vendedor
+    (?vendedor=<slug> em /signup, ver specs/comissao-vendedores.md) —
+    gerado uma vez na criação, nunca muda depois."""
+    base = _slugify(nome)
+    slug = base
+    while _vendedores.find_one({"slug": slug}):
+        slug = f"{base}-{secrets.token_hex(2)}"
+    return slug
+
+
 def create_vendedor(
     nome: str,
     email: str,
@@ -103,6 +121,7 @@ def create_vendedor(
             "password_salt": salt_hex,
             "role": role,
             "cidade_designada": cidade_designada,
+            "slug": _slug_unico(nome),
             "status": "ativo",
             "meses_abaixo_meta": 0,
             "ultima_advertencia_em": None,
@@ -118,6 +137,10 @@ def get_vendedor(vendedor_id: str) -> dict | None:
 
 def get_vendedor_by_username(username: str) -> dict | None:
     return _vendedores.find_one({"username": username})
+
+
+def get_vendedor_by_slug(slug: str) -> dict | None:
+    return _vendedores.find_one({"slug": slug})
 
 
 def list_vendedores(status: str | None = "ativo") -> list[dict]:
@@ -190,6 +213,10 @@ def update_lead_status(lead_id: str, status: str) -> None:
 
 def contar_clientes_ativos(vendedor_id: str) -> int:
     return _atribuicoes.count_documents({"vendedor_id": vendedor_id, "ativo": True})
+
+
+def existe_atribuicao(tenant_id: str) -> bool:
+    return _atribuicoes.find_one({"tenant_id": tenant_id}) is not None
 
 
 def atribuir_tenant(vendedor_id: str, tenant_id: str, plano: str, mrr: float) -> dict:

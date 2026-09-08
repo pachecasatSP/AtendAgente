@@ -2,15 +2,23 @@
 {% block title %}Tenants{% endblock %}
 {% block content %}
 <h2>Tenants (via onboarding-service)</h2>
+{% if reconciliados %}
+<p><span class="pill ok">{{ reconciliados }} tenant(s) atribuído(s) automaticamente por link de vendedor</span></p>
+{% endif %}
 <div class="card">
   <table>
-    <thead><tr><th>Tenant</th><th>Domínio</th><th>Plano</th><th>Criado em</th><th>Ação</th></tr></thead>
+    <thead><tr><th>Tenant</th><th>Domínio</th><th>Plano</th><th>Vendedor</th><th>Criado em</th><th>Ação</th></tr></thead>
     <tbody>
       {% for t in tenants %}
       <tr>
         <td>{{ t.tenant_id }}</td>
         <td><a href="https://{{ t.dominio }}" target="_blank">{{ t.dominio }}</a></td>
         <td>{{ t.plano }}{% if t.gratuito %} <span class="pill ok">grátis</span>{% endif %}</td>
+        <td>
+          {% if t.vendedor_id %}<span class="pill ok">atribuído</span>
+          {% elif t.vendedor_slug_hint %}<span class="pill warn">link "{{ t.vendedor_slug_hint }}" sem match</span>
+          {% else %}—{% endif %}
+        </td>
         <td>{{ t.criado_em }}</td>
         <td>
           <form class="inline" method="post" action="/admin/tenants/{{ t.tenant_id }}/ativar">
@@ -21,7 +29,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="5">Nenhum tenant.</td></tr>
+      <tr><td colspan="6">Nenhum tenant.</td></tr>
       {% endfor %}
     </tbody>
   </table>
