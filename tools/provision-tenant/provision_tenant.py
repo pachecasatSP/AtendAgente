@@ -289,6 +289,26 @@ def apply_display_defaults(prefix: str) -> None:
         if result.returncode != 0:
             raise ProvisionError(f"hermes config set ({key}) falhou:\n{result.stderr}")
 
+    # Sem isso, o tenant herda approvals.mode="smart" — o "guardião" de
+    # aprovação de comandos perigosos do Hermes, pensado pra um humano
+    # numa sessão de CLI/TUI. No WhatsApp isso vira uma mensagem pedindo
+    # "/approve" no meio da conversa com o CLIENTE, que não tem ideia do
+    # que é isso nem tem como responder — o prompt fica pendurado até o
+    # timeout (300s) e falha fechado. Descoberto 2026-09-09: a ferramenta
+    # de verificar disponibilidade (calendar-mcp) foi classificada como
+    # "perigosa" pelo guardião numa conversa de teste. Tenant de
+    # atendimento nunca deveria ter esse gate — ele não roda comando de
+    # terminal nenhum por conta própria, só MCP tools já confiáveis
+    # (calendar-mcp, etc.). "off" = mesmo efeito de --yolo, só pra esse
+    # bloco de aprovação.
+    result = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
+         "hermes", "config", "set", "approvals.mode", "off"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise ProvisionError(f"hermes config set (approvals.mode) falhou:\n{result.stderr}")
+
 
 def publish_soul(tenant_id: str, config: dict) -> None:
     """Regenera o SOUL.md a partir de `config` e publica no pod do
