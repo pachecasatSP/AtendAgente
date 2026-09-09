@@ -53,16 +53,44 @@
 <div class="card">
   <h3>Novo lead</h3>
   <form method="post" action="/leads">
-    <p><input name="negocio" placeholder="Nome do negócio" required></p>
-    <p><input name="contato" placeholder="Telefone/WhatsApp" required></p>
-    <p><input name="cidade" placeholder="Cidade" required></p>
-    <p><input name="origem" placeholder="Origem (porta a porta, indicação...)"></p>
-    <p>
-      <select name="plano_alvo">
-        <option value="">Plano alvo (opcional)</option>
-        {% for p in planos_disponiveis %}<option>{{ p }}</option>{% endfor %}
-      </select>
-    </p>
+    <fieldset>
+      <legend>Quem é o negócio</legend>
+      <div class="row">
+        <label>Nome do negócio
+          <input name="negocio" required>
+        </label>
+        <label>Telefone/WhatsApp
+          <input name="contato" required>
+        </label>
+      </div>
+      <div class="row">
+        <label>Cidade
+          <input name="cidade" required>
+        </label>
+        <label>Origem
+          <input name="origem" placeholder="Porta a porta, indicação...">
+          <div class="hint">Como esse lead chegou até você.</div>
+        </label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Classificação (opcional, dá pra ajustar depois)</legend>
+      <div class="row">
+        <label>Segmento
+          <select name="segmento">
+            <option value="">Sem segmento definido</option>
+            {% for s in segmentos_disponiveis %}<option>{{ s }}</option>{% endfor %}
+          </select>
+          <div class="hint">Decide qual roteiro de abordagem aparece no card.</div>
+        </label>
+        <label>Plano alvo
+          <select name="plano_alvo">
+            <option value="">Sem plano definido</option>
+            {% for p in planos_disponiveis %}<option>{{ p }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+    </fieldset>
     <button type="submit">Adicionar lead</button>
   </form>
 </div>
@@ -78,6 +106,29 @@
         <strong>{{ lead.negocio }}</strong>
         <small>{{ lead.contato or "sem contato" }} · {{ lead.cidade }}</small>
         {% if lead.reunioes %}<span class="pill ok">{{ lead.reunioes|length }} reunião(ões)</span>{% endif %}
+        <details class="roteiro">
+          <summary>Ver roteiro de abordagem</summary>
+          <div class="roteiro-corpo">
+            {% if not lead.segmento %}
+            <p>Defina o segmento abaixo pra ver o roteiro certo.</p>
+            {% elif lead.status == "novo" %}
+            <p><b>Etapa 1 — agendamento:</b></p>
+            <p>{{ roteiro_agendamento[lead.segmento] }}</p>
+            <p><b>Objeção comum:</b> {{ roteiro_agendamento_objecao }}</p>
+            {% else %}
+            <p><b>Etapa 2 — demonstração:</b></p>
+            <ul>{% for passo in roteiro_demonstracao_passos %}<li>{{ passo }}</li>{% endfor %}</ul>
+            <p><b>Objeção do segmento:</b> {{ roteiro_demonstracao_objecoes[lead.segmento] }}</p>
+            <p><b>Objeção de preço:</b> {{ roteiro_demonstracao_objecao_preco }}</p>
+            {% endif %}
+          </div>
+        </details>
+        <form class="inline" method="post" action="/leads/{{ lead._id }}/segmento">
+          <select name="segmento" onchange="this.form.submit()">
+            <option value="">sem segmento definido</option>
+            {% for s in segmentos_disponiveis %}<option {% if lead.segmento == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+          </select>
+        </form>
         <form class="inline" method="post" action="/leads/{{ lead._id }}/plano">
           <select name="plano_alvo" onchange="this.form.submit()">
             <option value="">sem plano definido</option>

@@ -127,6 +127,12 @@ def dashboard(request: Request):
             "funil_max": max(funil.values()) if funil.values() else 0,
             "forecast": forecast,
             "planos_disponiveis": store.PLANOS_DISPONIVEIS,
+            "segmentos_disponiveis": store.SEGMENTOS_DISPONIVEIS,
+            "roteiro_agendamento": store.ROTEIRO_AGENDAMENTO,
+            "roteiro_agendamento_objecao": store.ROTEIRO_AGENDAMENTO_OBJECAO,
+            "roteiro_demonstracao_passos": store.ROTEIRO_DEMONSTRACAO_PASSOS,
+            "roteiro_demonstracao_objecoes": store.ROTEIRO_DEMONSTRACAO_OBJECOES,
+            "roteiro_demonstracao_objecao_preco": store.ROTEIRO_DEMONSTRACAO_OBJECAO_PRECO,
             "meta_tier": store.META_CLIENTES_POR_TIER,
             "link_convite": link_convite,
         },
@@ -143,9 +149,13 @@ def criar_lead(
     cidade: str = Form(...),
     origem: str = Form(""),
     plano_alvo: str = Form(""),
+    segmento: str = Form(""),
 ):
     vendedor = require_session(request)
-    store.create_lead(negocio.strip(), contato.strip(), cidade.strip(), origem.strip(), vendedor["_id"], plano_alvo or None)
+    store.create_lead(
+        negocio.strip(), contato.strip(), cidade.strip(), origem.strip(), vendedor["_id"],
+        plano_alvo or None, segmento or None,
+    )
     return RedirectResponse("/", status_code=303)
 
 
@@ -171,6 +181,21 @@ def atualizar_plano_lead(request: Request, lead_id: str, plano_alvo: str = Form(
     if plano_alvo and plano_alvo not in store.PLANOS_DISPONIVEIS:
         raise HTTPException(status_code=400, detail="Plano inválido")
     store.update_lead_plano(lead_id, plano_alvo or None)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/leads/{lead_id}/segmento")
+def atualizar_segmento_lead(request: Request, lead_id: str, segmento: str = Form("")):
+    """Segmento decide qual roteiro (agendamento/demonstração) aparece
+    no card — specs/comissao-vendedores.md, "Script de abordagem"."""
+    vendedor = require_session(request)
+    lead = store.get_lead(lead_id)
+    if not lead or lead["vendedor_id"] != vendedor["_id"]:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    segmento = segmento.strip()
+    if segmento and segmento not in store.SEGMENTOS_DISPONIVEIS:
+        raise HTTPException(status_code=400, detail="Segmento inválido")
+    store.update_lead_segmento(lead_id, segmento or None)
     return RedirectResponse("/", status_code=303)
 
 
@@ -264,6 +289,7 @@ def converter_prospeccao(request: Request, place_id: str, cidade: str = Form(...
         cidade=cidade,
         origem="prospecção automática",
         vendedor_id=vendedor["_id"],
+        segmento=store.segmento_para_categoria(prospect.get("categoria", "")),
     )
     store.marcar_prospeccao_convertida(place_id, lead_id)
     return RedirectResponse("/prospeccao", status_code=303)

@@ -31,13 +31,45 @@
 <div class="card">
   <h3>Novo vendedor</h3>
   <form method="post" action="/admin/vendedores">
-    <p><input name="nome" placeholder="Nome" required></p>
-    <p><input name="email" type="email" placeholder="E-mail" required></p>
-    <p><input name="telefone" placeholder="Telefone"></p>
-    <p><input name="cidade_designada" placeholder="Cidade designada (exclusividade)"></p>
-    <p><input name="username" placeholder="Usuário de login" required></p>
-    <p><input name="password" type="password" placeholder="Senha (mín. 8 caracteres)" required></p>
-    <p><select name="role"><option value="vendedor">vendedor</option><option value="admin">admin</option></select></p>
+    <fieldset>
+      <legend>Dados pessoais</legend>
+      <div class="row">
+        <label>Nome
+          <input name="nome" required>
+        </label>
+        <label>Telefone
+          <input name="telefone" type="tel">
+        </label>
+      </div>
+      <div class="row">
+        <label>E-mail
+          <input name="email" type="email" required>
+        </label>
+        <label>Cidade designada
+          <input name="cidade_designada" placeholder="Ex: Cabo Frio">
+          <div class="hint">Define a exclusividade territorial (regra 05 do estudo de comissão).</div>
+        </label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Acesso ao backoffice</legend>
+      <div class="row">
+        <label>Usuário de login
+          <input name="username" required>
+        </label>
+        <label>Senha
+          <input name="password" type="password" required>
+          <div class="hint">Mínimo 8 caracteres.</div>
+        </label>
+      </div>
+      <label>Papel
+        <select name="role">
+          <option value="vendedor">Vendedor</option>
+          <option value="admin">Admin</option>
+        </select>
+        <div class="hint">Admin também vê Pipeline, Vendedores, Tenants e Alertas no menu.</div>
+      </label>
+    </fieldset>
     <button type="submit">Criar vendedor</button>
   </form>
 </div>

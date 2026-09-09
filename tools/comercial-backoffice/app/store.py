@@ -57,6 +57,89 @@ PRECO_POR_PLANO = {
 # atribuir-tenant, que rejeita plano sem PRECO_POR_PLANO).
 PLANOS_DISPONIVEIS = [*PRECO_POR_PLANO.keys(), "Sem limite"]
 
+# ── Script de abordagem (specs/comissao-vendedores.md, "Script de
+# abordagem: agendamento e demonstração") ─────────────────────────────
+#
+# Regionalidade aqui não é sotaque, é mix de negócio — por isso a
+# segmentação é por tipo de negócio, não por cidade. Mesma categoria
+# usada na busca automática (app/prospeccao.py::CATEGORIAS), mapeada
+# pro segmento do script.
+
+SEGMENTOS_DISPONIVEIS = ["Comércio e serviço do dia a dia", "Turismo e hospitalidade"]
+
+SEGMENTO_POR_CATEGORIA = {
+    "loja de roupas": "Comércio e serviço do dia a dia",
+    "salão de beleza": "Comércio e serviço do dia a dia",
+    "barbearia": "Comércio e serviço do dia a dia",
+    "pet shop": "Comércio e serviço do dia a dia",
+    "farmácia": "Comércio e serviço do dia a dia",
+    "ótica": "Comércio e serviço do dia a dia",
+    "papelaria": "Comércio e serviço do dia a dia",
+    "loja de conveniência": "Comércio e serviço do dia a dia",
+    "oficina mecânica": "Comércio e serviço do dia a dia",
+    "pousada": "Turismo e hospitalidade",
+    "restaurante": "Turismo e hospitalidade",
+    "buffet de festas": "Turismo e hospitalidade",
+    "passeio de barco": "Turismo e hospitalidade",
+}
+
+# Etapa 1 — só marcar 10-15 min, sem falar de preço/produto ainda.
+ROTEIRO_AGENDAMENTO = {
+    "Comércio e serviço do dia a dia": (
+        "\"Oi, tudo bem? Sou [seu nome], da AtendPraGente — a gente atende "
+        "[negócio parecido aqui perto]. Seu WhatsApp deve tocar o dia inteiro "
+        "com gente perguntando horário e preço, né? Isso aqui responde "
+        "sozinho na hora e só te chama quando é venda de verdade. Passo "
+        "amanhã de manhã ou você prefere à tarde, uns 10 minutinhos?\""
+    ),
+    "Turismo e hospitalidade": (
+        "\"Oi, tudo bem? Sou [seu nome], da AtendPraGente. Na alta temporada "
+        "o WhatsApp de vocês deve travar de gente perguntando disponibilidade "
+        "ao mesmo tempo — a gente responde na hora, 24h, e só chama vocês "
+        "quando é reserva fechando de verdade. Mostro funcionando em 10 "
+        "minutos — hoje à tarde ou amanhã de manhã?\""
+    ),
+}
+
+ROTEIRO_AGENDAMENTO_OBJECAO = (
+    "\"Não tenho tempo agora\" → nunca insiste no motivo, reforça o tamanho "
+    "pequeno do pedido e volta pra alternativa dupla: \"Sem problema, nem é "
+    "pra fechar nada hoje, só 10 minutos pra mostrar funcionando. Amanhã de "
+    "manhã ou à tarde?\""
+)
+
+# Etapa 2 — já com a reunião marcada: provar (não descrever) e fechar
+# assumindo que a pessoa vai contratar, só decidindo o plano.
+ROTEIRO_DEMONSTRACAO_PASSOS = [
+    "Diagnóstico rápido: \"Quem responde o WhatsApp hoje?\" · \"Já perdeu venda por demora?\" · \"Quantas mensagens por dia, mais ou menos?\"",
+    "Demo ao vivo no celular da pessoa — manda uma mensagem de teste na hora, não descreve a funcionalidade.",
+    "Ancoragem em valor: compara a mensalidade com o custo de perder 1 venda, nunca o preço isolado.",
+    "Fechamento assumido: \"Posso já deixar configurado hoje — em qual desses planos você se vê?\" (nunca \"quer contratar?\").",
+]
+
+ROTEIRO_DEMONSTRACAO_OBJECOES = {
+    "Comércio e serviço do dia a dia": (
+        "\"Meu cliente gosta de falar comigo, não quero parecer frio\" → "
+        "Ele continua falando com você — isso só responde o repetitivo e te "
+        "chama quando precisa de verdade. Você não some, aparece só na hora "
+        "que importa."
+    ),
+    "Turismo e hospitalidade": (
+        "\"Minha temporada é curta, não compensa pagar o ano inteiro\" → "
+        "É mensalidade, não fidelidade — paga só enquanto usa (clawback de "
+        "60 dias) e cancela quando quiser."
+    ),
+}
+
+ROTEIRO_DEMONSTRACAO_OBJECAO_PRECO = (
+    "\"Achei caro\" → compara com o custo de 1 funcionário respondendo "
+    "WhatsApp em tempo integral, não com \"nada\"."
+)
+
+
+def segmento_para_categoria(categoria: str) -> str | None:
+    return SEGMENTO_POR_CATEGORIA.get(categoria)
+
 # Meta de clientes por tier (specs/comissao-vendedores.md, "Mix-alvo
 # por tier") — usada pro gatilho de 75% do bônus de rampa e pra regra
 # de saída por baixa performance.
@@ -187,7 +270,15 @@ def registrar_mes_performance(vendedor_id: str, bateu_75_pct: bool) -> dict:
 
 # --------------------------------------------------------------------- leads
 
-def create_lead(negocio: str, contato: str, cidade: str, origem: str, vendedor_id: str, plano_alvo: str | None = None) -> str:
+def create_lead(
+    negocio: str,
+    contato: str,
+    cidade: str,
+    origem: str,
+    vendedor_id: str,
+    plano_alvo: str | None = None,
+    segmento: str | None = None,
+) -> str:
     lead_id = uuid.uuid4().hex
     now = datetime.now(timezone.utc)
     _leads.insert_one(
@@ -200,6 +291,7 @@ def create_lead(negocio: str, contato: str, cidade: str, origem: str, vendedor_i
             "vendedor_id": vendedor_id,
             "status": "novo",
             "plano_alvo": plano_alvo,
+            "segmento": segmento,
             "reunioes": [],
             "comentarios": [],
             "criado_em": now,
@@ -231,6 +323,13 @@ def update_lead_plano(lead_id: str, plano_alvo: str | None) -> None:
     _leads.update_one(
         {"_id": lead_id},
         {"$set": {"plano_alvo": plano_alvo, "atualizado_em": datetime.now(timezone.utc)}},
+    )
+
+
+def update_lead_segmento(lead_id: str, segmento: str | None) -> None:
+    _leads.update_one(
+        {"_id": lead_id},
+        {"$set": {"segmento": segmento, "atualizado_em": datetime.now(timezone.utc)}},
     )
 
 
