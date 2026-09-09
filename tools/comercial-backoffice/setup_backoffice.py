@@ -264,7 +264,7 @@ def build_prospeccao_cronjob_manifest() -> str:
     não é um serviço separado, só um lote em batch de
     app/prospeccao.py::buscar_lote (ver docstring lá)."""
     cmd = (
-        "pip install --quiet --no-cache-dir -r /app/requirements.txt && "
+        "cd /app && pip install --quiet --no-cache-dir -r requirements.txt && "
         f"python -c 'from app.prospeccao import buscar_lote; print(buscar_lote({PROSPECCAO_CHAMADAS_POR_DIA}))'"
     )
     return f"""\
