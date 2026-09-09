@@ -60,7 +60,7 @@
     <p>
       <select name="plano_alvo">
         <option value="">Plano alvo (opcional)</option>
-        <option>Entrada</option><option>Começando</option><option>Crescendo</option>
+        {% for p in planos_disponiveis %}<option>{{ p }}</option>{% endfor %}
       </select>
     </p>
     <button type="submit">Adicionar lead</button>
@@ -78,6 +78,12 @@
         <strong>{{ lead.negocio }}</strong>
         <small>{{ lead.contato or "sem contato" }} · {{ lead.cidade }}</small>
         {% if lead.reunioes %}<span class="pill ok">{{ lead.reunioes|length }} reunião(ões)</span>{% endif %}
+        <form class="inline" method="post" action="/leads/{{ lead._id }}/plano">
+          <select name="plano_alvo" onchange="this.form.submit()">
+            <option value="">sem plano definido</option>
+            {% for p in planos_disponiveis %}<option {% if lead.plano_alvo == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+          </select>
+        </form>
         <form class="inline" method="post" action="/leads/{{ lead._id }}/status">
           <select name="status" onchange="this.form.submit()">
             {% for s in lead_status %}

@@ -126,6 +126,7 @@ def dashboard(request: Request):
             "funil": funil,
             "funil_max": max(funil.values()) if funil.values() else 0,
             "forecast": forecast,
+            "planos_disponiveis": store.PLANOS_DISPONIVEIS,
             "meta_tier": store.META_CLIENTES_POR_TIER,
             "link_convite": link_convite,
         },
@@ -157,6 +158,19 @@ def atualizar_status_lead(request: Request, lead_id: str, status: str = Form(...
     if status not in store.LEAD_STATUS:
         raise HTTPException(status_code=400, detail="Status inválido")
     store.update_lead_status(lead_id, status)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/leads/{lead_id}/plano")
+def atualizar_plano_lead(request: Request, lead_id: str, plano_alvo: str = Form("")):
+    vendedor = require_session(request)
+    lead = store.get_lead(lead_id)
+    if not lead or lead["vendedor_id"] != vendedor["_id"]:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    plano_alvo = plano_alvo.strip()
+    if plano_alvo and plano_alvo not in store.PLANOS_DISPONIVEIS:
+        raise HTTPException(status_code=400, detail="Plano inválido")
+    store.update_lead_plano(lead_id, plano_alvo or None)
     return RedirectResponse("/", status_code=303)
 
 

@@ -51,6 +51,12 @@ PRECO_POR_PLANO = {
     "Crescendo": 717.90,
 }
 
+# Pra classificar o lead (plano_alvo), não só pra travar comissão —
+# "Sem limite" entra aqui mesmo sem preço de tabela (é sob consulta),
+# a atribuição de comissão desse plano continua manual (ver rota
+# atribuir-tenant, que rejeita plano sem PRECO_POR_PLANO).
+PLANOS_DISPONIVEIS = [*PRECO_POR_PLANO.keys(), "Sem limite"]
+
 # Meta de clientes por tier (specs/comissao-vendedores.md, "Mix-alvo
 # por tier") — usada pro gatilho de 75% do bônus de rampa e pra regra
 # de saída por baixa performance.
@@ -218,6 +224,13 @@ def marcar_reuniao(lead_id: str, data: str) -> None:
     _leads.update_one(
         {"_id": lead_id},
         {"$push": {"reunioes": data}, "$set": {"atualizado_em": datetime.now(timezone.utc)}},
+    )
+
+
+def update_lead_plano(lead_id: str, plano_alvo: str | None) -> None:
+    _leads.update_one(
+        {"_id": lead_id},
+        {"$set": {"plano_alvo": plano_alvo, "atualizado_em": datetime.now(timezone.utc)}},
     )
 
 
