@@ -11,6 +11,7 @@ Estilo de código deliberadamente igual ao onboarding-service/tenant-panel:
 FastAPI single-file, sem Pydantic/ODM, documentos Mongo como dicts crus.
 """
 import os
+import re
 import secrets
 from pathlib import Path
 
@@ -31,6 +32,24 @@ SIGNUP_BASE_URL = os.environ.get("SIGNUP_BASE_URL", "https://atendpragente.com.b
 app = FastAPI(title="AtendPraGente — Backoffice Comercial")
 app.add_middleware(SessionMiddleware, secret_key=BACKOFFICE_SESSION_SECRET, session_cookie="backoffice_session")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+
+def _wa_link(telefone: str | None) -> str | None:
+    """Telefone que o Google Places devolve vem em formato nacional
+    ((22) 99876-5432) — wa.me precisa só dígitos com DDI. Não confirma
+    que o número tem WhatsApp de verdade (não existe checagem silenciosa
+    via API, ver specs/comissao-vendedores.md), só facilita a tentativa."""
+    if not telefone:
+        return None
+    digitos = re.sub(r"\D", "", telefone)
+    if not digitos:
+        return None
+    if not digitos.startswith("55"):
+        digitos = "55" + digitos
+    return f"https://wa.me/{digitos}"
+
+
+templates.env.filters["wa_link"] = _wa_link
 
 
 @app.exception_handler(HTTPException)

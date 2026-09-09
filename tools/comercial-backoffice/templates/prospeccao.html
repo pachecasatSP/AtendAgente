@@ -28,7 +28,7 @@
         <td>{{ p.categoria }}</td>
         <td>{{ p.cidade }}</td>
         <td>
-          {% if p.telefone %}{{ p.telefone }}{% else %}<span class="pill warn">sem telefone</span>{% endif %}
+          {% if p.telefone %}<a href="{{ p.telefone|wa_link }}" target="_blank" rel="noopener">{{ p.telefone }} &#8599;</a>{% else %}<span class="pill warn">sem telefone</span>{% endif %}
           {% if p.site %}<br><a href="{{ p.site }}" target="_blank" rel="noopener">site &#8599;</a>{% endif %}
         </td>
         <td>{{ p.prioridade }}</td>
