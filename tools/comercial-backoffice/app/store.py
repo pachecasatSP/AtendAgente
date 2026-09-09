@@ -195,6 +195,7 @@ def create_lead(negocio: str, contato: str, cidade: str, origem: str, vendedor_i
             "status": "novo",
             "plano_alvo": plano_alvo,
             "reunioes": [],
+            "comentarios": [],
             "criado_em": now,
             "atualizado_em": now,
         }
@@ -217,6 +218,16 @@ def marcar_reuniao(lead_id: str, data: str) -> None:
     _leads.update_one(
         {"_id": lead_id},
         {"$push": {"reunioes": data}, "$set": {"atualizado_em": datetime.now(timezone.utc)}},
+    )
+
+
+def adicionar_comentario(lead_id: str, texto: str) -> None:
+    """Anotação livre do vendedor sobre o andamento do lead (objeção
+    ouvida, combinado feito, etc.) — histórico, não sobrescreve."""
+    comentario = {"texto": texto, "criado_em": datetime.now(timezone.utc)}
+    _leads.update_one(
+        {"_id": lead_id},
+        {"$push": {"comentarios": comentario}, "$set": {"atualizado_em": datetime.now(timezone.utc)}},
     )
 
 

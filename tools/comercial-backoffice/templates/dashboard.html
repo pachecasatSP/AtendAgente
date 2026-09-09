@@ -93,6 +93,17 @@
           <input name="tenant_id" placeholder="tenant_id" size="10">
           <button type="submit" class="secondary">Atribuir tenant</button>
         </form>
+        {% if lead.comentarios %}
+        <div class="comentarios">
+          {% for c in lead.comentarios[-3:]|reverse %}
+          <p class="comentario">{{ c.texto }}</p>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <form class="inline" method="post" action="/leads/{{ lead._id }}/comentario">
+          <input name="texto" placeholder="Novo comentário..." required>
+          <button type="submit" class="secondary">Comentar</button>
+        </form>
       </div>
       {% else %}
       <p class="vazio">—</p>

@@ -170,6 +170,18 @@ def marcar_reuniao(request: Request, lead_id: str, data: str = Form(...)):
     return RedirectResponse("/", status_code=303)
 
 
+@app.post("/leads/{lead_id}/comentario")
+def adicionar_comentario_lead(request: Request, lead_id: str, texto: str = Form(...)):
+    vendedor = require_session(request)
+    lead = store.get_lead(lead_id)
+    if not lead or lead["vendedor_id"] != vendedor["_id"]:
+        raise HTTPException(status_code=404, detail="Lead não encontrado")
+    texto = texto.strip()
+    if texto:
+        store.adicionar_comentario(lead_id, texto)
+    return RedirectResponse("/", status_code=303)
+
+
 @app.post("/leads/{lead_id}/atribuir-tenant")
 def atribuir_tenant(request: Request, lead_id: str, tenant_id: str = Form(...)):
     """Lead virou cliente de verdade: busca o signup no
