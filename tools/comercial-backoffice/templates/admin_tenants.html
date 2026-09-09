@@ -21,11 +21,14 @@
         </td>
         <td>{{ t.criado_em }}</td>
         <td>
-          <form class="inline" method="post" action="/admin/tenants/{{ t.tenant_id }}/ativar">
-            <input type="hidden" name="enabled" value="false">
-            <input name="pin" placeholder="PIN" size="4" required>
-            <button type="submit" class="secondary">Pausar</button>
-          </form>
+          <span class="pin-gate">
+            <button type="button" class="secondary pin-toggle">Pausar</button>
+            <form class="pin-popover" method="post" action="/admin/tenants/{{ t.tenant_id }}/ativar" hidden>
+              <input type="hidden" name="enabled" value="false">
+              <input name="pin" placeholder="PIN" size="4" required>
+              <button type="submit">Confirmar</button>
+            </form>
+          </span>
         </td>
       </tr>
       {% else %}

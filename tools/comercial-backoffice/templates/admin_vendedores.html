@@ -16,11 +16,14 @@
         <td>R$ {{ "%.2f"|format(v.comissao.total) }}</td>
         <td>{% if v.meses_abaixo_meta >= 2 %}<span class="pill bad">{{ v.meses_abaixo_meta }}</span>{% else %}{{ v.meses_abaixo_meta }}{% endif %}</td>
         <td>
-          <form class="inline" method="post" action="/admin/vendedores/{{ v._id }}/status">
-            <input type="hidden" name="status" value="{{ 'inativo' if v.status == 'ativo' else 'ativo' }}">
-            <input name="pin" placeholder="PIN" size="4" required>
-            <button type="submit" class="secondary">{{ 'Desativar' if v.status == 'ativo' else 'Reativar' }}</button>
-          </form>
+          <span class="pin-gate">
+            <button type="button" class="secondary pin-toggle">{{ 'Desativar' if v.status == 'ativo' else 'Reativar' }}</button>
+            <form class="pin-popover" method="post" action="/admin/vendedores/{{ v._id }}/status" hidden>
+              <input type="hidden" name="status" value="{{ 'inativo' if v.status == 'ativo' else 'ativo' }}">
+              <input name="pin" placeholder="PIN" size="4" required>
+              <button type="submit">Confirmar</button>
+            </form>
+          </span>
         </td>
       </tr>
       {% endfor %}

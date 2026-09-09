@@ -29,6 +29,7 @@
   --error: #FF8A75; --error-bg: #3A1712; --warn: #FFD666; --warn-bg: #3A2E12;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-body); font-weight: 500; line-height: 1.55; }
 header { background: var(--ink); color: var(--paper); padding: 14px 24px; display: flex; justify-content: space-between; align-items: center; }
 header a.brand { color: var(--paper); text-decoration: none; font-family: var(--font-display); font-weight: 800; }
@@ -106,6 +107,21 @@ button.secondary { background: var(--paper-soft); color: var(--ink); border: 1px
 .comentarios { background: var(--paper); border-radius: 8px; padding: 6px 8px; }
 .comentario { margin: 0; padding: 3px 0; font-size: 12px; border-bottom: 1px dashed var(--line); }
 .comentario:last-child { border-bottom: none; }
+
+a { color: var(--leaf-deep); font-weight: 700; text-decoration: none; }
+a:hover { text-decoration: underline; }
+header nav a { color: var(--leaf-pale); font-weight: 700; }
+
+.pin-gate { position: relative; display: inline-block; }
+.pin-popover {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 20;
+  display: flex; gap: 6px; align-items: center; white-space: nowrap;
+  background: var(--paper-card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px; box-shadow: 0 16px 36px -18px rgba(23,35,29,0.4);
+}
+.pin-popover input[name=pin] { width: 70px; margin-top: 0; }
+.acoes-prospeccao { display: flex; gap: 6px; flex-wrap: wrap; }
+button.compacto { padding: 0.4rem 0.7rem; font-size: 0.78rem; }
 </style>
 </head>
 <body>
@@ -125,5 +141,24 @@ button.secondary { background: var(--paper-soft); color: var(--ink); border: 1px
 <main>
 {% block content %}{% endblock %}
 </main>
+<script>
+// Popover de PIN: fica escondido até clicar no botão da ação sensível
+// (pausar tenant, desativar vendedor, buscar mais prospecção) — nunca
+// aparece o campo de PIN destacado na tela sem intenção.
+document.addEventListener('click', (e) => {
+  const toggle = e.target.closest('.pin-toggle');
+  if (toggle) {
+    const pop = toggle.nextElementSibling;
+    const abrir = pop.hidden;
+    document.querySelectorAll('.pin-popover').forEach((p) => { p.hidden = true; });
+    pop.hidden = !abrir;
+    if (abrir) pop.querySelector('input[name=pin]')?.focus();
+    return;
+  }
+  if (!e.target.closest('.pin-popover')) {
+    document.querySelectorAll('.pin-popover').forEach((p) => { p.hidden = true; });
+  }
+});
+</script>
 </body>
 </html>

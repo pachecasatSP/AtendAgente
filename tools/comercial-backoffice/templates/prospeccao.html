@@ -8,10 +8,13 @@
 <div class="card">
   <h3>Buscar mais agora</h3>
   <p>Gasta chamadas de verdade contra a cota do Google (o lote diário automático já roda sozinho, esse botão é só pra quando falta candidato antes da próxima rodada). {{ chamadas_por_lote }} chamadas por acionamento.</p>
-  <form method="post" action="/admin/prospeccao/buscar-mais">
-    <input name="pin" placeholder="PIN" size="4" required>
-    <button type="submit" class="secondary">Buscar mais {{ chamadas_por_lote }}</button>
-  </form>
+  <span class="pin-gate">
+    <button type="button" class="secondary pin-toggle">Buscar mais {{ chamadas_por_lote }}</button>
+    <form class="pin-popover" method="post" action="/admin/prospeccao/buscar-mais" hidden>
+      <input name="pin" placeholder="PIN" size="4" required>
+      <button type="submit">Confirmar</button>
+    </form>
+  </span>
 </div>
 {% endif %}
 
@@ -33,13 +36,15 @@
           {% if p.desqualificado %}
           <span class="pill bad">desqualificado</span>
           {% else %}
-          <form class="inline" method="post" action="/prospeccao/{{ p._id }}/converter">
-            <input type="hidden" name="cidade" value="{{ p.cidade }}">
-            <button type="submit">Virar meu lead</button>
-          </form>
-          <form class="inline" method="post" action="/prospeccao/{{ p._id }}/desqualificar">
-            <button type="submit" class="secondary">Desqualificar</button>
-          </form>
+          <div class="acoes-prospeccao">
+            <form class="inline" method="post" action="/prospeccao/{{ p._id }}/converter">
+              <input type="hidden" name="cidade" value="{{ p.cidade }}">
+              <button type="submit" class="compacto">Capturar</button>
+            </form>
+            <form class="inline" method="post" action="/prospeccao/{{ p._id }}/desqualificar">
+              <button type="submit" class="secondary compacto">Desqualificar</button>
+            </form>
+          </div>
           {% endif %}
         </td>
       </tr>
