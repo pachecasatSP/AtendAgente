@@ -377,13 +377,13 @@ def upsert_prospeccao(
     cidade: str,
     categoria: str,
     telefone: str | None,
-    tem_site: bool,
+    site: str | None,
 ) -> None:
     """Prioridade = tem telefone (WhatsApp costuma ser o mesmo número em
     negócio pequeno no Brasil) — é o critério pedido pra ordenar quem
     vale a pena abordar primeiro."""
     now = datetime.now(timezone.utc)
-    prioridade = 2 if telefone else (1 if tem_site else 0)
+    prioridade = 2 if telefone else (1 if site else 0)
     _prospeccoes.update_one(
         {"_id": place_id},
         {
@@ -393,7 +393,7 @@ def upsert_prospeccao(
                 "cidade": cidade,
                 "categoria": categoria,
                 "telefone": telefone,
-                "tem_site": tem_site,
+                "site": site,
                 "prioridade": prioridade,
                 "visto_em": now,
             },

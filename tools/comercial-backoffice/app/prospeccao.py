@@ -60,7 +60,7 @@ def buscar_lote(max_chamadas: int) -> dict:
                     cidade=cidade,
                     categoria=categoria,
                     telefone=telefone,
-                    tem_site=bool(lugar.get("websiteUri")),
+                    site=lugar.get("websiteUri"),
                 )
                 novos += 1
         except Exception as exc:  # noqa: BLE001 — segue pro próximo termo, não trava o lote

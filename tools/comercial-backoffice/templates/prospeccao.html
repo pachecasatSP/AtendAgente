@@ -26,7 +26,7 @@
         <td>{{ p.cidade }}</td>
         <td>
           {% if p.telefone %}{{ p.telefone }}{% else %}<span class="pill warn">sem telefone</span>{% endif %}
-          {% if p.tem_site %}<span class="pill ok">tem site</span>{% endif %}
+          {% if p.site %}<br><a href="{{ p.site }}" target="_blank" rel="noopener">site &#8599;</a>{% endif %}
         </td>
         <td>{{ p.prioridade }}</td>
         <td>
