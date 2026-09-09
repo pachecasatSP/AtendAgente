@@ -341,6 +341,55 @@ Lista fria pode nascer segmentada pelo mix-alvo: CNAEs de comércio/
 serviços simples pras vagas de Entrada/Começando, pousadas/restaurantes/
 turismo pras vagas de Crescendo que o mix exige a partir do Crescimento.
 
+## Script de abordagem: agendamento e demonstração
+
+Duas conversas com objetivos opostos — tratá-las como uma só é o erro
+mais comum (vendedor tenta vender no primeiro contato e perde a
+reunião antes de conseguir marcar). Regionalidade aqui não é sotaque, é
+mix de negócio: a diferença real entre as 4 cidades do piloto é o tipo
+de comércio predominante (Búzios mais turismo/hospedagem, Cabo
+Frio/São Pedro da Aldeia/Araruama mais comércio e serviço do dia a
+dia) — o script muda pelo tipo de negócio, não pela cidade.
+
+**Segmentação**: "Comércio e serviço do dia a dia" (loja de roupas,
+salão, barbearia, pet shop, farmácia, ótica, papelaria, conveniência,
+oficina mecânica — dor principal: WhatsApp lotado de pergunta
+repetitiva) vs. "Turismo e hospitalidade" (pousada, restaurante, buffet
+de festas, passeio de barco — dor principal: pico de demanda
+concentrado, quem demora perde reserva pra concorrente).
+
+**Etapa 1 — Agendamento.** Objetivo único: marcar 10-15 minutos, sem
+falar de preço/produto. Estrutura: (1) abertura com âncora local, (2)
+gancho de dor específico do segmento, (3) pedido de baixa fricção
+("10 minutos", nunca "posso te vender uma coisa"), (4) fechamento por
+alternativa dupla ("amanhã de manhã ou à tarde?", nunca pergunta
+aberta). Objeção mais comum ("não tenho tempo agora") se resolve
+reforçando o tamanho pequeno do pedido, nunca insistindo no motivo.
+
+**Etapa 2 — Demonstração.** Objetivo muda pra provar (não descrever) e
+fechar assumindo contratação. Estrutura: (1) diagnóstico rápido de 3
+perguntas (quem responde hoje, já perdeu venda por demora, quantas
+mensagens/dia — vira argumento de valor com as palavras do próprio
+cliente), (2) demo ao vivo no celular da pessoa (mensagem de teste
+real, não slide), (3) ancoragem em valor comparando mensalidade com
+custo de perder 1 venda, nunca preço isolado, (4) fechamento assumido
+("em qual desses planos você se vê?", usando a régua de mensalidades
+como resposta pronta pra "quanto custa"). Objeções por segmento:
+desconfiança de automação (comércio), sazonalidade/fidelidade
+(turismo — resolvida com "é mensalidade, não fidelidade", clawback de
+60 dias), cardápio que muda toda semana (restaurante — catálogo editado
+no painel), preço (comparar com custo de 1 funcionário em tempo
+integral).
+
+O backoffice já dá suporte a esse cruzamento: marcar reunião no lead
+(etapa 1) e comentário logo após a demonstração (etapa 2) alimenta a
+previsão de comissão do mês no painel do vendedor (taxa de conversão
+reunião→fechamento).
+
+**Pendência**: as duas etapas ainda não têm taxa de conversão medida
+separadamente — só dá pra calibrar depois que os vendedores reais
+começarem a registrar reunião/comentário no backoffice.
+
 ## Pendências (dependem de terceiros, não de decisão de negócio)
 
 1. Advogado trabalhista precisa revisar/aprovar o contrato de
