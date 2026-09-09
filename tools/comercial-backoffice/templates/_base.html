@@ -58,7 +58,7 @@ label:first-of-type { margin-top: 0; }
 .row > label:first-child, .row > *:first-child { margin-top: 0.9rem; }
 
 input, select, textarea, button { font: inherit; }
-input[type=text], input[type=date], input[type=email], input[type=password], input[type=tel], select, textarea {
+input:not([type]), input[type=text], input[type=date], input[type=email], input[type=password], input[type=tel], select, textarea {
   width: 100%; padding: 0.55rem 0.7rem; margin-top: 0.35rem;
   border: 1px solid var(--line); background: var(--paper); color: var(--ink);
   border-radius: 10px; box-sizing: border-box; font-size: 0.9rem;
