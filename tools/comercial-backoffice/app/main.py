@@ -339,13 +339,15 @@ def admin_criar_vendedor(
     telefone: str = Form(""),
     username: str = Form(...),
     password: str = Form(...),
-    role: str = Form("vendedor"),
     cidade_designada: str = Form(""),
 ):
+    """Todo cadastro novo nasce vendedor — não existe seletor de papel
+    aqui de propósito. Admin é reservado, promovido manualmente só via
+    banco (fora da UI) quando for mesmo o caso."""
     require_admin_role(request)
     if len(password) < 8:
         raise HTTPException(status_code=400, detail="Senha precisa ter pelo menos 8 caracteres")
-    store.create_vendedor(nome.strip(), email.strip(), telefone.strip(), username.strip(), password, role, cidade_designada or None)
+    store.create_vendedor(nome.strip(), email.strip(), telefone.strip(), username.strip(), password, "vendedor", cidade_designada or None)
     return RedirectResponse("/admin/vendedores", status_code=303)
 
 
