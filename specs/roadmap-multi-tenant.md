@@ -1317,6 +1317,108 @@ depois que a confirmação de pagamento virou botão nativo no WhatsApp
 
 ---
 
+### Fase 13 — Código em imagem Docker (eliminar `hostPath`) — PLANEJADA (2026-10-28), não iniciada
+
+**Objetivo:** hoje quase todo o código Python do AtendPraGente **não está em
+imagem**: os Deployments e CronJobs usam `python:3.12-slim` e montam pastas
+do disco do servidor em `/app` via `hostPath`. Esta fase empacota esse
+código em imagens versionadas, publicadas num registry, e remove os
+`hostPath`.
+
+**Por que (fatos do inventário de 2026-10-28):**
+- O código é **estado do servidor**, fora de qualquer backup e de qualquer
+  `kubectl apply`: `/root/atendagente-tools` (servidor A: `admin-mcp`,
+  `calendar-mcp`, `onboarding-service`, os CronJobs de `provision-tenant`,
+  `lixeira-watch`), `/root/atendagente-tools/tenant-panel` (painéis dos
+  tenants), `/root/hermes-tools/tenant-panel` (servidor B: painel da Duda) e
+  `/root/comercial-backoffice` (servidor B: backoffice e CronJob de
+  prospecção).
+- Atualizar é copiar arquivos para o servidor e reiniciar o pod: **sem
+  versão, sem rollback, sem trilha de auditoria**, e o pod só pode rodar no
+  nó que tem a pasta.
+- Já há **divergência**: existem duas cópias do `tenant-panel` (uma por
+  servidor), e o ConfigMap `mongo-sync-script` tem 47,7 KB no servidor A
+  (igual ao repo) e 9,8 KB no B (Duda), uma versão muito mais antiga.
+- `nousresearch/hermes-agent:latest` (tenants e Duda) recebe por cima o
+  ConfigMap `whatsapp-cloud-patch` (107 KB, montado sobre
+  `/opt/hermes/gateway/platforms/whatsapp_cloud.py`): o patch só vale para
+  a versão da imagem para a qual foi escrito, e `latest` pode mudar sem aviso.
+- Atrapalha a migração para a AWS (a pasta precisa ser levada à mão para
+  cada nó, sem SSH; ver `infra-aws/docs/runbooks/migrar-hetzner-para-aws.md`,
+  seção 1.2, item 12).
+
+**Escopo (o que vira imagem):**
+
+| Hoje (`hostPath` / ConfigMap) | Imagem |
+|---|---|
+| `admin-mcp`, `calendar-mcp` | MCPs (uma imagem ou uma por serviço) |
+| `onboarding-service` + CronJobs `provision-tenant` (`agenda-lembrete`, `pedido-retencao`, `usage-watch`, `lixeira-watch`) | onboarding e jobs (mesmo código) |
+| `tenant-panel` (tenants e Duda) | painel, **uma só cópia** |
+| `comercial-backoffice` (+ `prospeccao`) | backoffice |
+| ConfigMap `mongo-sync-script` | sidecar `mongo-sync` |
+| ConfigMap `whatsapp-cloud-patch` sobre `hermes-agent` | `hermes-agent` derivada **de um digest fixo**, com o patch embutido |
+
+Decisão de granularidade (uma imagem com vários *entrypoints* versus uma
+por componente) fica para a implementação, depois de comparar os
+`requirements.txt`: uma imagem só é mais simples de versionar (uma versão
+vale para todos os nós), várias isolam dependências pesadas (ex.: Google
+API do `calendar-mcp`).
+
+**Passos (WBS):**
+
+1. **Zerar a divergência primeiro.** Comparar por hash cada pasta
+   `hostPath` e cada ConfigMap de código com o repo; onde o servidor tiver
+   algo que o repo não tem, **commitar antes** (o servidor é a fonte de
+   verdade do que roda hoje). Decidir se a Duda sobe com o `mongo-sync`
+   antigo ou o atual, e testar.
+2. **Dockerfiles** (um por imagem), base `python:3.12-slim` fixada por
+   digest, dependências instaladas no *build* (não no boot do pod),
+   usuário não-root, sem segredos na imagem. Conferir nos manifestos
+   (`command`/`args`) como o código sobe hoje, para manter o mesmo comando.
+3. **Registry e CI.** Escolher entre GHCR (já usado pelo re.colocarme,
+   com `ghcr-pull-secret`) e ECR (depois da migração para a AWS). Workflow
+   do GitHub Actions que constrói e publica com **tag imutável por commit**
+   (nunca `:latest`: `kubectl set image` com tag repetida não reinicia o
+   pod). O CI só publica; **quem faz o deploy é um passo separado e
+   confirmado**, por tenant.
+4. **Provisionamento.** `provision_tenant.py` e o `onboarding-service`
+   geram Deployments de tenants novos com `hostPath`; passar a gerar com a
+   imagem e a tag vigente (a versão da imagem vira configuração do
+   onboarding, não texto do template).
+5. **Migrar os existentes, um de cada vez**, começando pelo
+   `loja-de-teste2` (tenant de teste): painel → `mongo-sync` →
+   `calendar-mcp`/`admin-mcp` → CronJobs → onboarding → Duda e backoffice →
+   por último `linda-ana-calcados`. Por tenant: aplicar, conferir logs e
+   uma mensagem real, e só então o seguinte. Rollback = reaplicar o
+   manifesto com `hostPath` (manter as pastas até o fim).
+6. **Hermes com patch embutido.** Construir `hermes-agent` a partir do
+   digest que está rodando, com `whatsapp_cloud_patched.py` copiado para o
+   lugar; remover o ConfigMap. Atualizar a versão do Hermes passa a ser
+   **um PR** (novo digest + revalidar o patch), não um `latest` silencioso.
+7. **Limpeza.** Depois de uma semana sem incidente, remover os `hostPath`
+   dos manifestos versionados e as pastas dos servidores (ou deixar de
+   criá-las nos nós novos).
+
+**Relação com a migração Hetzner → AWS:** são mudanças independentes e
+**não devem ir na mesma janela** (uma mudança grande por vez). Sequência
+recomendada: migrar primeiro **como está** (levando as pastas por tarball no
+S3, plano em `infra-aws`), estabilizar, e então executar esta fase já nos
+nós da AWS, onde o ECR e a role de pull da instância ficam disponíveis.
+Fazer antes simplificaria a migração, mas soma risco ao que já é um corte
+delicado.
+
+**Decisões em aberto:** granularidade das imagens; GHCR ou ECR; quem
+dispara o deploy (manual por tenant, como hoje, ou pipeline); se a Duda
+adota o `mongo-sync` atual.
+
+**Verificação:** `kubectl get pods -A -o jsonpath` não encontra mais
+`hostPath` fora do `hostfs` do agente de telemetria; um tenant novo criado
+pelo onboarding sobe pela imagem; atualizar uma versão e voltar atrás
+(rollback pela tag) em `loja-de-teste2` funciona sem tocar no disco do
+nó; o `hermes-agent` com patch passa na mensagem real de ida e volta.
+
+---
+
 ## Teste de carga real + estrutura de custo por tenant (2026-08-20/21)
 
 Substituída a projeção teórica de capacidade (que existia só como
@@ -1494,6 +1596,11 @@ hoje: `linda-ana-calcados`.
   Cloudflare antes do Ingress — se isso ficar manual demais, vira gargalo
   do self-service (Fase 4). A Fase 3 já assume automação via API da
   Cloudflare; validar credenciais/token de API cedo.
+- **Código em `hostPath` (2026-10-28)**: o código dos MCPs, painéis,
+  onboarding, CronJobs e backoffice vive em pastas do servidor, sem versão
+  nem backup, com cópias que já divergiram. Tratado na **Fase 13**; até lá,
+  qualquer mudança de código exige copiar para o servidor e conferir por
+  hash contra o repo.
 - **Migração `consultor` → `re-colocar-me`**: adiada, não bloqueia este
   roadmap, mas fica pendente como dívida separada (não documentar aqui os
   detalhes — é um projeto à parte, envolve dados reais em produção).
@@ -1571,3 +1678,4 @@ técnico — hoje todo tenant novo nasce `plano: trial` sem cobrança.
   chega/é respondida. Testar negativo do RBAC (`kubectl --kubeconfig
   <gerado> -n consultor get pods` deve dar `Forbidden`).
 - Fase 6: ainda não implementada.
+- Fase 13: ainda não iniciada (ver os critérios na própria fase).
