@@ -79,7 +79,7 @@ Todas recriadas e gravadas por `infra-aws/scripts/atendpragente/preencher-creden
 
 ## 11. Fora de escopo e pendências
 
-- **Backups do Mongo (tenants e backoffice) e telemetria OTel do nó**: ainda não existem. Hoje os dados dos tenants vivem num único disco (só há snapshot diário do volume).
+- **Backups do Mongo e telemetria OTel do nó — feitos (2026-10-30, depois da primeira versão desta spec).** CronJobs `mongo-backup` (ns `atendagente`, minuto `:10`, todos os bancos do Mongo dos tenants) e `mongo-backoffice-backup` (ns `atendagente-admin`, `:15`), a cada 6 h: `mongodump` cifrado com `age` para o bucket de backup (prefixos `mongo-atendpragente/` e `mongo-backoffice/`); jobs manuais verificados no bucket. A verificação usa `mongorestore --dryRun --uri=…` (sem `--uri` ele tenta `localhost` e falha sempre). Agente OTel (`k8s.cluster.name=atendpragente`) reportando ao gateway do re.colocarme. Ficam de fora: os PVCs do Hermes (só snapshot diário do disco) e o backup cifrado dos Secrets. **Capacidade**: o nó está com 81% da CPU requisitada; cada tenant novo custa ~350m.
 - **Reconstruir/atualizar** o `linda-ana-calcados` para as imagens mais novas (`3799ae0`).
 - **Textos do Hermes que vazam para o cliente** na primeira resposta ("o `/help` mostra os comandos…", oferta de "montar um perfil curtinho seu"): desligar com `hermes config set` na Duda e avaliar nos tenants.
 - **Agenda da Duda**: o `calendar-mcp` acha o tenant por um documento de signup no Mongo; a Duda não passa pelo onboarding, então precisa de um documento criado à mão para ligar a agenda dela (`CALENDAR_MCP_TOKEN` segue pendente).
