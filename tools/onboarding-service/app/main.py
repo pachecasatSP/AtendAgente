@@ -187,6 +187,7 @@ def provisioning_env() -> dict:
     return {
         "WHATSAPP_APP_SECRET": os.environ["WHATSAPP_CLOUD_APP_SECRET"],
         "OPENROUTER_API_KEY": os.environ["OPENROUTER_API_KEY"],
+        "GROQ_API_KEY": os.environ["GROQ_API_KEY"],  # transcrição de áudio; build_secret_manifest lê env["GROQ_API_KEY"]
         "CLOUDFLARE_API_TOKEN": os.environ["CLOUDFLARE_API_TOKEN"],
         "CLOUDFLARE_ZONE_ID": os.environ["CLOUDFLARE_ZONE_ID"],
         "SERVER_IP": os.environ["SERVER_IP"],

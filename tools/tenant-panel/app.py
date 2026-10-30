@@ -70,6 +70,19 @@ GRAPH_API_VERSION = "v21.0"  # troca de número (Fase 10) usa endpoints mais nov
 TENANT_ENABLED = os.environ.get("WHATSAPP_CLOUD_ENABLED", "true").strip().lower() != "false"
 CALENDAR_MCP_TOKEN = os.environ.get("CALENDAR_MCP_TOKEN", "")
 CALENDAR_MCP_BASE_URL = os.environ.get("CALENDAR_MCP_BASE_URL", "http://calendar-mcp.atendagente.svc.cluster.local:8000")
+# "tenant" (padrão): painel do cliente, completo. "admin": painel da Duda (agente administrativo) — só conversas e agenda; catálogo,
+# vitrine, pedidos, configurações do assistente, troca de número e cancelamento de assinatura não existem (404), porque a Duda não é
+# um tenant com loja nem plano. Mesma imagem, o modo vem do ambiente.
+PANEL_MODE = os.environ.get("PANEL_MODE", "tenant").strip().lower()
+ADMIN_MODE = PANEL_MODE == "admin"
+if PANEL_MODE not in ("tenant", "admin"):
+    raise RuntimeError(f"PANEL_MODE inválido: {PANEL_MODE!r} (use 'tenant' ou 'admin')")
+ADMIN_BLOCKED_PREFIXES = (
+    "/vitrine", "/configuracoes", "/pedidos",
+    "/painel/api/catalogo", "/painel/api/pedidos", "/painel/api/contatos", "/painel/api/configuracoes",
+    "/painel/api/ai-assist", "/painel/api/soul-status", "/painel/api/whatsapp", "/painel/api/cancelar-assinatura",
+)
+ADMIN_BLOCKED_EXACT = ("/painel/api/agenda",)  # POST de configuração da agenda do tenant (a leitura /agenda/eventos continua)
 
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client.get_default_database()
@@ -85,6 +98,17 @@ contatos_col = db["contatos_importados"]
 
 app = FastAPI(title=f"Painel — {TENANT_ID}")
 app.add_middleware(SessionMiddleware, secret_key=PANEL_SESSION_SECRET, session_cookie="painel_session")
+
+
+def rota_bloqueada_no_modo_admin(path: str) -> bool:
+    return path in ADMIN_BLOCKED_EXACT or path.startswith(ADMIN_BLOCKED_PREFIXES)
+
+
+@app.middleware("http")
+async def bloquear_rotas_de_tenant_no_modo_admin(request: Request, call_next):
+    if ADMIN_MODE and rota_bloqueada_no_modo_admin(request.url.path):
+        return Response("Not Found", status_code=404)
+    return await call_next(request)
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 
@@ -230,11 +254,15 @@ def panel_shell(request: Request):
     if not request.session.get("username"):
         return RedirectResponse("/painel/login")
     signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
-    agenda_disponivel = bool(CALENDAR_MCP_TOKEN) and bool(((signup or {}).get("config") or {}).get("agendamento_ativo"))
-    pedidos_disponivel = bool(((signup or {}).get("config") or {}).get("pagamento_pix_ativo"))
+    if ADMIN_MODE:
+        agenda_disponivel, pedidos_disponivel = bool(CALENDAR_MCP_TOKEN), False
+    else:
+        agenda_disponivel = bool(CALENDAR_MCP_TOKEN) and bool(((signup or {}).get("config") or {}).get("agendamento_ativo"))
+        pedidos_disponivel = bool(((signup or {}).get("config") or {}).get("pagamento_pix_ativo"))
     return templates.TemplateResponse(
         request, "index.html",
-        {"tenant_id": TENANT_ID, "agenda_disponivel": agenda_disponivel, "pedidos_disponivel": pedidos_disponivel},
+        {"tenant_id": TENANT_ID, "agenda_disponivel": agenda_disponivel, "pedidos_disponivel": pedidos_disponivel,
+         "modo_admin": ADMIN_MODE},
     )
 
 

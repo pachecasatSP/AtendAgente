@@ -1,5 +1,7 @@
 # Subida de Catálogos para o bot
 
+> **Atualização (2026-10-30)**: o bucket do catálogo deixou de ser o `recolocare-me-blob` da Hetzner (`fsn1.your-objectstorage.com`): as fotos vivem em `recolocarme-staging-atend-492715478912` (S3, `sa-east-1`, prefixo `atendpragente-pics/`, ACL `public-read` por objeto) e o `cdn.atendpragente.com.br` é um nginx no cluster novo (`18.228.100.213`, sem proxy do Cloudflare por ora) que reescreve o `Host` para esse bucket. As variáveis `OBJECT_STORAGE_*` têm os mesmos nomes; só mudam os valores. Fotos antigas foram perdidas. Ver `specs/infraestrutura-aws-atendpragente.md`.
+
 ## Contexto
 
 Hoje o bot só sabe sobre produtos/serviços do que está escrito à mão no

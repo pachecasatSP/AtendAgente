@@ -29,11 +29,13 @@ provedor de LLM são sempre incluídas no Secret do tenant.
 import argparse
 import base64
 import json
+import os
 import secrets
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -43,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "soul-generator"))
 from generate_soul import render as render_soul  # noqa: E402  (Fase 2)
 
 NAMESPACE = "atendagente"
+CLOUDFLARE_API = os.environ.get("CLOUDFLARE_API_BASE", "https://api.cloudflare.com/client/v4")  # sobrescrito só nos testes
 REQUIRED_ENV = [
     "WHATSAPP_ACCESS_TOKEN",
     "WHATSAPP_APP_SECRET",
@@ -147,7 +150,7 @@ def delete_dns_record(subdomain_host: str, token: str, zone_id: str) -> None:
     registro pelo nome (a API não aceita delete por nome direto, só por
     id) e apaga; se não existir mais (já removido manualmente, ex:
     `use-bisteco` em 2026-08-19), não é erro — só segue."""
-    zone_url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
+    zone_url = f"{CLOUDFLARE_API}/zones/{zone_id}/dns_records"
     req = urllib.request.Request(
         f"{zone_url}?name={subdomain_host}",
         headers={"Authorization": f"Bearer {token}"},
@@ -355,39 +358,57 @@ def kubectl_exec_stdin(deployment: str, remote_cmd: list[str], stdin_text: str) 
         raise ProvisionError(f"kubectl exec falhou:\n{result.stderr}")
 
 
-def create_dns_record(subdomain_host: str, ip: str, token: str, zone_id: str) -> None:
-    url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
-    payload = json.dumps(
-        {"type": "A", "name": subdomain_host, "content": ip, "ttl": 300, "proxied": False}
-    ).encode()
+def _cloudflare(method: str, url: str, token: str, payload: dict | None = None) -> dict:
+    """Uma chamada à API do Cloudflare; devolve o JSON. Erro HTTP vira ProvisionError com o corpo,
+    exceto os códigos de 'registro já existe' (81057/81058), tratados por quem chama."""
     req = urllib.request.Request(
-        url,
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        url, method=method,
+        data=None if payload is None else json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req) as resp:
-            body = json.loads(resp.read())
+            return json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        body = json.loads(e.read().decode())
-        # Já existe o registro? Cloudflare retorna 81057 ("record already exists")
-        # ou 81058 ("identical record already exists") nesse caso — não é fatal,
-        # mesmo vindo como HTTP 400/HTTPError em vez de um success:false em 200.
-        if any(err.get("code") in (81057, 81058) for err in body.get("errors", [])):
-            print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
-            return
-        raise ProvisionError(f"Cloudflare API HTTP {e.code}: {body}") from e
+        raise ProvisionError(f"Cloudflare API HTTP {e.code} ({method} {url.split('?')[0].rsplit('/', 1)[-1]}): {e.read().decode()}") from e
 
-    if not body.get("success"):
-        if any(err.get("code") in (81057, 81058) for err in body.get("errors", [])):
-            print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
-            return
-        raise ProvisionError(f"Cloudflare API rejeitou o registro: {body['errors']}")
-    print(f"  DNS criado: {subdomain_host} -> {ip}")
+
+def create_dns_record(subdomain_host: str, ip: str, token: str, zone_id: str) -> None:
+    """Deixa o host com UM registro A apontando para `ip` (sem proxy, TTL 300) — idempotente.
+    Antes só fazia POST: se já existia um A do mesmo nome com OUTRO IP (tenant recriado, IP trocado,
+    registro herdado de um servidor antigo), o Cloudflare aceitava os dois e metade das conexões
+    caía no IP morto. Agora: acha os A do nome; se já há um com o IP certo, mantém e apaga os
+    outros; se só há de outro IP, atualiza o primeiro e apaga o resto; se não há, cria."""
+    zone_url = f"{CLOUDFLARE_API}/zones/{zone_id}/dns_records"
+    desejado = {"type": "A", "name": subdomain_host, "content": ip, "ttl": 300, "proxied": False}
+    existentes = (_cloudflare("GET", f"{zone_url}?type=A&name={urllib.parse.quote(subdomain_host)}", token).get("result")) or []
+    certos = [r for r in existentes if r.get("content") == ip]
+    if certos:
+        manter, sobras = certos[0], [r for r in existentes if r["id"] != certos[0]["id"]]
+        print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
+    elif existentes:
+        manter, sobras = existentes[0], existentes[1:]
+        _cloudflare("PUT", f"{zone_url}/{manter['id']}", token, desejado)
+        print(f"  DNS atualizado: {subdomain_host} {manter.get('content')} -> {ip}")
+    else:
+        manter, sobras = None, []
+        try:
+            body = _cloudflare("POST", zone_url, token, desejado)
+        except ProvisionError as e:
+            # Corrida com outro processo criando o mesmo registro (81057/81058): não é fatal.
+            if "81057" in str(e) or "81058" in str(e):
+                print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
+                return
+            raise
+        if not body.get("success"):
+            if any(err.get("code") in (81057, 81058) for err in body.get("errors", [])):
+                print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
+                return
+            raise ProvisionError(f"Cloudflare API rejeitou o registro: {body['errors']}")
+        print(f"  DNS criado: {subdomain_host} -> {ip}")
+    for r in sobras:
+        _cloudflare("DELETE", f"{zone_url}/{r['id']}", token)
+        print(f"  DNS: removido registro A sobrando de {subdomain_host} ({r.get('content')})")
 
 
 def subscribe_app_to_waba(waba_id: str, access_token: str, verify_token: str, callback_uri: str) -> None:
@@ -426,9 +447,47 @@ def subscribe_app_to_waba(waba_id: str, access_token: str, verify_token: str, ca
     print(f"  Webhook override registrado pra WABA {waba_id} -> {callback_uri}")
 
 
-def build_infra_manifest(tenant_id: str, host: str) -> str:
-    """PVC + Deployment + Service + Ingress — mesmo padrão validado na Fase 1."""
+IMAGE_ENV_VARS = {
+    "hermes": "TENANT_HERMES_IMAGE",
+    "panel": "TENANT_PANEL_IMAGE",
+    "sync": "TENANT_SYNC_IMAGE",
+}
+PULL_SECRET_ENV_VAR = "TENANT_IMAGE_PULL_SECRET"
+
+
+def tenant_images(environ: dict | None = None, placeholders: bool = False) -> dict:
+    """Imagens do pod de tenant, vindas da configuração do onboarding
+    (Fase 13: código em imagem imutável, nada de hostPath). Sem default de
+    propósito — um tag `:latest` embutido aqui voltaria a ser o que roda
+    em produção sem ninguém ter decidido. `pull_secret` vazio = registry
+    público, sem imagePullSecrets."""
+    if environ is None:
+        import os
+        environ = os.environ
+    images, missing = {}, []
+    for key, var in IMAGE_ENV_VARS.items():
+        value = environ.get(var, "")
+        if not value:
+            if placeholders:
+                value = f"<{var}-nao-setado>"
+            else:
+                missing.append(var)
+        images[key] = value
+    if missing:
+        raise ProvisionError("Faltam variáveis de ambiente com as imagens do tenant: " + ", ".join(missing))
+    images["pull_secret"] = environ.get(PULL_SECRET_ENV_VAR, "")
+    return images
+
+
+def build_infra_manifest(tenant_id: str, host: str, images: dict | None = None) -> str:
+    """PVC + Deployment + Service + Ingress — mesmo padrão validado na Fase 1.
+    O código (adaptador de WhatsApp com patch, sync, painel) vem dentro das
+    imagens; não há hostPath nem ConfigMap de código."""
+    images = images or tenant_images()
     prefix = f"{tenant_id}-hermes"
+    pull_secrets = (
+        f"      imagePullSecrets:\n        - name: {images['pull_secret']}\n" if images["pull_secret"] else ""
+    )
     return f"""\
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -457,9 +516,9 @@ spec:
     metadata:
       labels: {{app: {prefix}, tenant: {tenant_id}}}
     spec:
-      containers:
+{pull_secrets}      containers:
         - name: hermes
-          image: nousresearch/hermes-agent:latest
+          image: {images['hermes']}
           args: ["gateway", "run"]
           ports:
             - name: webhook
@@ -470,9 +529,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
-            - name: whatsapp-cloud-patch
-              mountPath: /opt/hermes/gateway/platforms/whatsapp_cloud.py
-              subPath: whatsapp_cloud.py
           resources:
             requests: {{cpu: "250m", memory: "512Mi"}}
             limits: {{cpu: "1000m", memory: "1Gi"}}
@@ -485,8 +541,10 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 20
         - name: mongo-sync
-          image: python:3.12-slim
-          command: ["sh", "-c", "pip install --quiet --no-cache-dir pymongo boto3 && python /scripts/sync_conversations.py"]
+          image: {images['sync']}
+          # uid do Hermes: os arquivos de /opt/data pertencem a ele (a imagem
+          # do sync roda como 10001 por padrão e não leria o volume)
+          securityContext: {{runAsUser: 10000, runAsGroup: 10000}}
           env:
             - name: TENANT_ID
               value: "{tenant_id}"
@@ -504,8 +562,6 @@ spec:
             - name: data
               mountPath: /opt/data
               readOnly: true
-            - name: sync-script
-              mountPath: /scripts
           resources:
             requests: {{cpu: "50m", memory: "128Mi"}}
             limits: {{cpu: "200m", memory: "256Mi"}}
@@ -513,12 +569,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {prefix}-data
-        - name: sync-script
-          configMap:
-            name: mongo-sync-script
-        - name: whatsapp-cloud-patch
-          configMap:
-            name: whatsapp-cloud-patch
 ---
 apiVersion: v1
 kind: Service
@@ -546,10 +596,9 @@ spec:
     metadata:
       labels: {{app: {prefix}-panel, tenant: {tenant_id}}}
     spec:
-      containers:
+{pull_secrets}      containers:
         - name: panel
-          image: python:3.12-slim
-          command: ["sh", "-c", "pip install --quiet --no-cache-dir -r /app/requirements.txt && python -m uvicorn app:app --host 0.0.0.0 --port 8000 --app-dir /app"]
+          image: {images['panel']}
           env:
             - name: TENANT_ID
               value: "{tenant_id}"
@@ -563,10 +612,6 @@ spec:
             - secretRef:
                 name: object-storage-credentials
                 optional: true
-          volumeMounts:
-            - name: panel-code
-              mountPath: /app
-              readOnly: true
           resources:
             requests: {{cpu: "50m", memory: "128Mi"}}
             limits: {{cpu: "200m", memory: "256Mi"}}
@@ -575,11 +620,6 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 3
             failureThreshold: 30
-      volumes:
-        - name: panel-code
-          hostPath:
-            path: /root/atendagente-tools/tenant-panel
-            type: Directory
 ---
 apiVersion: v1
 kind: Service
@@ -913,7 +953,22 @@ def wait_for_health(deployment: str, timeout_s: int = 120) -> bool:
     return True
 
 
-def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dict | None:
+def imprimir_resumo(tenant_id: str, host: str, credentials: dict, mostrar_segredos: bool) -> None:
+    """Resumo final. Os segredos (verify token do webhook, link de configuração do painel) só saem no
+    terminal de quem rodou a CLI (`mostrar_segredos=True`). Chamado pelo onboarding, o stdout vai para o
+    log do pod — e logs são lidos, copiados e colados —, então lá eles NÃO são impressos: o onboarding
+    guarda o link na página de conclusão do cliente e o verify token já foi usado no registro do webhook."""
+    print(f"\n✓ Tenant '{tenant_id}' no ar em https://{host}/whatsapp/webhook")
+    if mostrar_segredos:
+        print(f"  Verify token pro cadastro do webhook na Meta: {credentials['verify_token']}")
+        print(f"  Link de configuração do painel (uso único): https://{host}/painel/setup?token={credentials['panel_setup_token']}")
+        print("  (o token não fica salvo em lugar nenhum além do Secret do cluster — anote agora.)")
+    else:
+        print("  (verify token e link de configuração do painel não são impressos aqui; ficam no Secret "
+              f"{tenant_id}-hermes-env e, o link, na página de conclusão do cadastro.)")
+
+
+def provision(tenant_config_path: Path, env: dict, dry_run: bool = False, mostrar_segredos: bool = False) -> dict | None:
     config = yaml.safe_load(tenant_config_path.read_text(encoding="utf-8"))
 
     tenant_id = config["tenant_id"]
@@ -928,7 +983,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
         tenant_id, phone_number_id, waba_id, env, config["escalacao"],
         calendar_mcp_token=config.get("calendar_mcp_token", ""),
     )
-    infra_yaml = build_infra_manifest(tenant_id, host)
+    infra_yaml = build_infra_manifest(tenant_id, host, tenant_images(placeholders=dry_run))
     soul_text = render_soul(config)
 
     if dry_run:
@@ -975,13 +1030,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
     subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
     wait_for_health(prefix)
 
-    print(f"\n✓ Tenant '{tenant_id}' no ar em https://{host}/whatsapp/webhook")
-    print(f"  Verify token pro cadastro do webhook na Meta: {credentials['verify_token']}")
-    print(f"  Link de configuração do painel (uso único): https://{host}/painel/setup?token={credentials['panel_setup_token']}")
-    print(
-        "  (o token não fica salvo em lugar nenhum além do Secret do "
-        "cluster — anote agora.)"
-    )
+    imprimir_resumo(tenant_id, host, credentials, mostrar_segredos)
     return credentials
 
 
@@ -1014,7 +1063,7 @@ def main() -> None:
                     env[k] = f"<{k}-nao-setado>"
         else:
             require_env(env)
-        provision(args.tenant_yaml, env, dry_run=args.dry_run)
+        provision(args.tenant_yaml, env, dry_run=args.dry_run, mostrar_segredos=True)
     except ProvisionError as e:
         print(f"ERRO: {e}", file=sys.stderr)
         sys.exit(1)

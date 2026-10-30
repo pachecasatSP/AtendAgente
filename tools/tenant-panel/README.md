@@ -1,5 +1,7 @@
 # Painel por tenant (Fase 5 UI)
 
+> **Atualização (2026-10-30)**: o painel não é mais montado por `hostPath` de `/root/atendagente-tools/tenant-panel/`: roda da imagem `ghcr.io/pachecasatsp/atendpragente-panel:<commit>`. Nova variável `PANEL_MODE` (`tenant`, padrão; `admin` = painel da Duda, só conversas e agenda, rotas de catálogo/vitrine/pedidos/configurações devolvem 404). Ver `specs/infraestrutura-aws-atendpragente.md`.
+
 App FastAPI pequena, provisionada **por tenant** (não um painel central)
 como parte de `tools/provision-tenant/provision_tenant.py` desde a
 Fase 4. Lê `TENANT_ID` do ambiente e consulta o MongoDB compartilhado
