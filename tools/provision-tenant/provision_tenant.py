@@ -426,9 +426,47 @@ def subscribe_app_to_waba(waba_id: str, access_token: str, verify_token: str, ca
     print(f"  Webhook override registrado pra WABA {waba_id} -> {callback_uri}")
 
 
-def build_infra_manifest(tenant_id: str, host: str) -> str:
-    """PVC + Deployment + Service + Ingress — mesmo padrão validado na Fase 1."""
+IMAGE_ENV_VARS = {
+    "hermes": "TENANT_HERMES_IMAGE",
+    "panel": "TENANT_PANEL_IMAGE",
+    "sync": "TENANT_SYNC_IMAGE",
+}
+PULL_SECRET_ENV_VAR = "TENANT_IMAGE_PULL_SECRET"
+
+
+def tenant_images(environ: dict | None = None, placeholders: bool = False) -> dict:
+    """Imagens do pod de tenant, vindas da configuração do onboarding
+    (Fase 13: código em imagem imutável, nada de hostPath). Sem default de
+    propósito — um tag `:latest` embutido aqui voltaria a ser o que roda
+    em produção sem ninguém ter decidido. `pull_secret` vazio = registry
+    público, sem imagePullSecrets."""
+    if environ is None:
+        import os
+        environ = os.environ
+    images, missing = {}, []
+    for key, var in IMAGE_ENV_VARS.items():
+        value = environ.get(var, "")
+        if not value:
+            if placeholders:
+                value = f"<{var}-nao-setado>"
+            else:
+                missing.append(var)
+        images[key] = value
+    if missing:
+        raise ProvisionError("Faltam variáveis de ambiente com as imagens do tenant: " + ", ".join(missing))
+    images["pull_secret"] = environ.get(PULL_SECRET_ENV_VAR, "")
+    return images
+
+
+def build_infra_manifest(tenant_id: str, host: str, images: dict | None = None) -> str:
+    """PVC + Deployment + Service + Ingress — mesmo padrão validado na Fase 1.
+    O código (adaptador de WhatsApp com patch, sync, painel) vem dentro das
+    imagens; não há hostPath nem ConfigMap de código."""
+    images = images or tenant_images()
     prefix = f"{tenant_id}-hermes"
+    pull_secrets = (
+        f"      imagePullSecrets:\n        - name: {images['pull_secret']}\n" if images["pull_secret"] else ""
+    )
     return f"""\
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -457,9 +495,9 @@ spec:
     metadata:
       labels: {{app: {prefix}, tenant: {tenant_id}}}
     spec:
-      containers:
+{pull_secrets}      containers:
         - name: hermes
-          image: nousresearch/hermes-agent:latest
+          image: {images['hermes']}
           args: ["gateway", "run"]
           ports:
             - name: webhook
@@ -470,9 +508,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
-            - name: whatsapp-cloud-patch
-              mountPath: /opt/hermes/gateway/platforms/whatsapp_cloud.py
-              subPath: whatsapp_cloud.py
           resources:
             requests: {{cpu: "250m", memory: "512Mi"}}
             limits: {{cpu: "1000m", memory: "1Gi"}}
@@ -485,8 +520,10 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 20
         - name: mongo-sync
-          image: python:3.12-slim
-          command: ["sh", "-c", "pip install --quiet --no-cache-dir pymongo boto3 && python /scripts/sync_conversations.py"]
+          image: {images['sync']}
+          # uid do Hermes: os arquivos de /opt/data pertencem a ele (a imagem
+          # do sync roda como 10001 por padrão e não leria o volume)
+          securityContext: {{runAsUser: 10000, runAsGroup: 10000}}
           env:
             - name: TENANT_ID
               value: "{tenant_id}"
@@ -504,8 +541,6 @@ spec:
             - name: data
               mountPath: /opt/data
               readOnly: true
-            - name: sync-script
-              mountPath: /scripts
           resources:
             requests: {{cpu: "50m", memory: "128Mi"}}
             limits: {{cpu: "200m", memory: "256Mi"}}
@@ -513,12 +548,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {prefix}-data
-        - name: sync-script
-          configMap:
-            name: mongo-sync-script
-        - name: whatsapp-cloud-patch
-          configMap:
-            name: whatsapp-cloud-patch
 ---
 apiVersion: v1
 kind: Service
@@ -546,10 +575,9 @@ spec:
     metadata:
       labels: {{app: {prefix}-panel, tenant: {tenant_id}}}
     spec:
-      containers:
+{pull_secrets}      containers:
         - name: panel
-          image: python:3.12-slim
-          command: ["sh", "-c", "pip install --quiet --no-cache-dir -r /app/requirements.txt && python -m uvicorn app:app --host 0.0.0.0 --port 8000 --app-dir /app"]
+          image: {images['panel']}
           env:
             - name: TENANT_ID
               value: "{tenant_id}"
@@ -563,10 +591,6 @@ spec:
             - secretRef:
                 name: object-storage-credentials
                 optional: true
-          volumeMounts:
-            - name: panel-code
-              mountPath: /app
-              readOnly: true
           resources:
             requests: {{cpu: "50m", memory: "128Mi"}}
             limits: {{cpu: "200m", memory: "256Mi"}}
@@ -575,11 +599,6 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 3
             failureThreshold: 30
-      volumes:
-        - name: panel-code
-          hostPath:
-            path: /root/atendagente-tools/tenant-panel
-            type: Directory
 ---
 apiVersion: v1
 kind: Service
@@ -928,7 +947,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
         tenant_id, phone_number_id, waba_id, env, config["escalacao"],
         calendar_mcp_token=config.get("calendar_mcp_token", ""),
     )
-    infra_yaml = build_infra_manifest(tenant_id, host)
+    infra_yaml = build_infra_manifest(tenant_id, host, tenant_images(placeholders=dry_run))
     soul_text = render_soul(config)
 
     if dry_run:
