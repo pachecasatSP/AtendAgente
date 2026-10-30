@@ -29,11 +29,13 @@ provedor de LLM são sempre incluídas no Secret do tenant.
 import argparse
 import base64
 import json
+import os
 import secrets
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -43,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "soul-generator"))
 from generate_soul import render as render_soul  # noqa: E402  (Fase 2)
 
 NAMESPACE = "atendagente"
+CLOUDFLARE_API = os.environ.get("CLOUDFLARE_API_BASE", "https://api.cloudflare.com/client/v4")  # sobrescrito só nos testes
 REQUIRED_ENV = [
     "WHATSAPP_ACCESS_TOKEN",
     "WHATSAPP_APP_SECRET",
@@ -147,7 +150,7 @@ def delete_dns_record(subdomain_host: str, token: str, zone_id: str) -> None:
     registro pelo nome (a API não aceita delete por nome direto, só por
     id) e apaga; se não existir mais (já removido manualmente, ex:
     `use-bisteco` em 2026-08-19), não é erro — só segue."""
-    zone_url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
+    zone_url = f"{CLOUDFLARE_API}/zones/{zone_id}/dns_records"
     req = urllib.request.Request(
         f"{zone_url}?name={subdomain_host}",
         headers={"Authorization": f"Bearer {token}"},
@@ -355,39 +358,57 @@ def kubectl_exec_stdin(deployment: str, remote_cmd: list[str], stdin_text: str) 
         raise ProvisionError(f"kubectl exec falhou:\n{result.stderr}")
 
 
-def create_dns_record(subdomain_host: str, ip: str, token: str, zone_id: str) -> None:
-    url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
-    payload = json.dumps(
-        {"type": "A", "name": subdomain_host, "content": ip, "ttl": 300, "proxied": False}
-    ).encode()
+def _cloudflare(method: str, url: str, token: str, payload: dict | None = None) -> dict:
+    """Uma chamada à API do Cloudflare; devolve o JSON. Erro HTTP vira ProvisionError com o corpo,
+    exceto os códigos de 'registro já existe' (81057/81058), tratados por quem chama."""
     req = urllib.request.Request(
-        url,
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        url, method=method,
+        data=None if payload is None else json.dumps(payload).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(req) as resp:
-            body = json.loads(resp.read())
+            return json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        body = json.loads(e.read().decode())
-        # Já existe o registro? Cloudflare retorna 81057 ("record already exists")
-        # ou 81058 ("identical record already exists") nesse caso — não é fatal,
-        # mesmo vindo como HTTP 400/HTTPError em vez de um success:false em 200.
-        if any(err.get("code") in (81057, 81058) for err in body.get("errors", [])):
-            print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
-            return
-        raise ProvisionError(f"Cloudflare API HTTP {e.code}: {body}") from e
+        raise ProvisionError(f"Cloudflare API HTTP {e.code} ({method} {url.split('?')[0].rsplit('/', 1)[-1]}): {e.read().decode()}") from e
 
-    if not body.get("success"):
-        if any(err.get("code") in (81057, 81058) for err in body.get("errors", [])):
-            print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
-            return
-        raise ProvisionError(f"Cloudflare API rejeitou o registro: {body['errors']}")
-    print(f"  DNS criado: {subdomain_host} -> {ip}")
+
+def create_dns_record(subdomain_host: str, ip: str, token: str, zone_id: str) -> None:
+    """Deixa o host com UM registro A apontando para `ip` (sem proxy, TTL 300) — idempotente.
+    Antes só fazia POST: se já existia um A do mesmo nome com OUTRO IP (tenant recriado, IP trocado,
+    registro herdado de um servidor antigo), o Cloudflare aceitava os dois e metade das conexões
+    caía no IP morto. Agora: acha os A do nome; se já há um com o IP certo, mantém e apaga os
+    outros; se só há de outro IP, atualiza o primeiro e apaga o resto; se não há, cria."""
+    zone_url = f"{CLOUDFLARE_API}/zones/{zone_id}/dns_records"
+    desejado = {"type": "A", "name": subdomain_host, "content": ip, "ttl": 300, "proxied": False}
+    existentes = (_cloudflare("GET", f"{zone_url}?type=A&name={urllib.parse.quote(subdomain_host)}", token).get("result")) or []
+    certos = [r for r in existentes if r.get("content") == ip]
+    if certos:
+        manter, sobras = certos[0], [r for r in existentes if r["id"] != certos[0]["id"]]
+        print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
+    elif existentes:
+        manter, sobras = existentes[0], existentes[1:]
+        _cloudflare("PUT", f"{zone_url}/{manter['id']}", token, desejado)
+        print(f"  DNS atualizado: {subdomain_host} {manter.get('content')} -> {ip}")
+    else:
+        manter, sobras = None, []
+        try:
+            body = _cloudflare("POST", zone_url, token, desejado)
+        except ProvisionError as e:
+            # Corrida com outro processo criando o mesmo registro (81057/81058): não é fatal.
+            if "81057" in str(e) or "81058" in str(e):
+                print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
+                return
+            raise
+        if not body.get("success"):
+            if any(err.get("code") in (81057, 81058) for err in body.get("errors", [])):
+                print(f"  (registro DNS de {subdomain_host} já existia, seguindo)")
+                return
+            raise ProvisionError(f"Cloudflare API rejeitou o registro: {body['errors']}")
+        print(f"  DNS criado: {subdomain_host} -> {ip}")
+    for r in sobras:
+        _cloudflare("DELETE", f"{zone_url}/{r['id']}", token)
+        print(f"  DNS: removido registro A sobrando de {subdomain_host} ({r.get('content')})")
 
 
 def subscribe_app_to_waba(waba_id: str, access_token: str, verify_token: str, callback_uri: str) -> None:
