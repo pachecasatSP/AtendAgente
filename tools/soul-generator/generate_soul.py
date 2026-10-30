@@ -88,7 +88,10 @@ def build_catalog_block(config: dict) -> str:
         f"catálogo inteiro, pode mandar o link da vitrine: `{vitrine_url}`. "
         "Cliente de restaurante/lanchonete costuma pedir isso como "
         "**\"cardápio\"** ou **\"menu\"** em vez de \"catálogo\" — trate como "
-        "sinônimo, mesma resposta.\n"
+        "sinônimo, mesma resposta. **Espelhe a palavra que o cliente usou** "
+        "na sua resposta (se ele pediu \"cardápio\", responda mencionando "
+        "\"cardápio\", não \"catálogo\") — soa mais natural pro segmento "
+        "dele do que a palavra genérica.\n"
     )
 
 

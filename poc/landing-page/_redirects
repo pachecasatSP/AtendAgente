@@ -1,0 +1,13 @@
+# Netlify _redirects — salvar na raiz da pasta publicada (ao lado do index.html)
+
+# Uma única URL para a política de privacidade (o canonical aponta para /privacidade)
+/privacidade.html  /privacidade  301!
+/barbearias.html  /barbearias  301!
+/esmalterias.html  /esmalterias  301!
+/clinicas-de-estetica.html  /clinicas-de-estetica  301!
+
+# Opcional: forçar sem www -> www por regra, caso o domínio primário não esteja
+# definido no painel do Netlify (Domain management). Se o painel já cuida disso,
+# deixe comentado para não duplicar.
+# https://atendpragente.com.br/*  https://www.atendpragente.com.br/:splat  301!
+# http://atendpragente.com.br/*   https://www.atendpragente.com.br/:splat  301!

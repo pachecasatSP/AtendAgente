@@ -51,6 +51,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 .hint { font-weight: 500; color: var(--ink-faint); font-size: 0.85rem; text-align: center; padding: 1.5rem 0; }
 .banner { padding: 0.7rem 0.9rem; border-radius: 10px; margin-bottom: 1.2rem; font-weight: 700; font-size: 0.86rem; }
 .banner.erro { background: var(--error-bg); color: var(--error); }
+.banner.perigo { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
 .banner.alerta { background: #fff3d6; color: #8a6100; display: flex; align-items: center; gap: 0.5rem; }
 :root:not([data-theme="light"]) .banner.alerta { background: #3a2f10; color: #ffd666; }
 :root[data-theme="dark"] .banner.alerta { background: #3a2f10; color: #ffd666; }
@@ -83,7 +84,13 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
 .pedido-status.comprovante_recebido { background: #ffe6cc; color: #a15a00; }
 .pedido-status.pago { background: var(--leaf-pale); color: var(--leaf-deep); }
 .pedido-status.cancelado { background: var(--danger-bg); color: var(--danger); }
-.pedido-status.entregue { background: var(--leaf-pale); color: var(--leaf-deep); }
+.pedido-status.entregue {
+  background: var(--leaf-pale); color: var(--leaf-deep);
+  /* Essa pill fica dentro de .pedido-acoes, ao lado de botões
+     (font-size 0.76rem, padding 0.35rem 0.75rem) — sem isso ficava
+     visivelmente menor/desalinhada na linha. */
+  font-size: 0.76rem; padding: 0.35rem 0.75rem; align-self: center;
+}
 .pedido-btn.rastreio { border-color: var(--leaf); color: var(--leaf-deep); }
 .pedido-acoes { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .pedido-btn {
@@ -164,7 +171,7 @@ h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; mar
         <button type="button" id="btn-atualizar" class="pedido-btn atualizar">🔄 Atualizar</button>
       </div>
     </div>
-    <p class="lead">Evite fraudes! Sempre confira o pix no extrato da sua conta, para confirmar o pagamento.</p>
+    <div class="banner perigo">⚠️ Evite fraudes! Sempre confira o pix no extrato da sua conta, para confirmar o pagamento.</div>
 
     <div id="banner-rastreio" class="banner alerta" hidden>🔔 <span id="banner-rastreio-texto"></span></div>
     <div id="pedidos-erro" class="banner erro" hidden></div>

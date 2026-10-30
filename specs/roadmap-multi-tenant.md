@@ -1353,20 +1353,33 @@ código em imagens versionadas, publicadas num registry, e remove os
 |---|---|
 | `admin-mcp`, `calendar-mcp` | MCPs (uma imagem ou uma por serviço) |
 | `onboarding-service` + CronJobs `provision-tenant` (`agenda-lembrete`, `pedido-retencao`, `usage-watch`, `lixeira-watch`) | onboarding e jobs (mesmo código) |
-| `tenant-panel` (tenants e Duda) | painel, **uma só cópia** |
+| `tenant-panel` (painéis dos clientes) | **imagem do painel do tenant** |
+| `/root/hermes-tools/tenant-panel` (painel da Duda = painel administrativo do AtendPraGente) | **imagem própria do painel administrativo**, separada da anterior |
 | `comercial-backoffice` (+ `prospeccao`) | backoffice |
 | ConfigMap `mongo-sync-script` | sidecar `mongo-sync` |
 | ConfigMap `whatsapp-cloud-patch` sobre `hermes-agent` | `hermes-agent` derivada **de um digest fixo**, com o patch embutido |
 
-Decisão de granularidade (uma imagem com vários *entrypoints* versus uma
-por componente) fica para a implementação, depois de comparar os
-`requirements.txt`: uma imagem só é mais simples de versionar (uma versão
-vale para todos os nós), várias isolam dependências pesadas (ex.: Google
-API do `calendar-mcp`).
+**Decisão (2026-10-28): o painel vira duas imagens.** O painel da Duda é o
+painel **administrativo** do AtendPraGente e não precisa ter as funcionalidades
+da versão dos clientes: hoje já é outra coisa (6 arquivos e `app.py` de 26 KB,
+contra 92 KB do painel do tenant, congelado em 15-16/08). As duas apps têm
+mesma origem, mas passam a ter código, `requirements.txt`, ciclo de versão e
+imagem independentes (sugestão de pasta no repo: `tools/admin-panel/`, ao lado
+de `tools/tenant-panel/`). Assim, mudar o painel do cliente não arrisca o
+painel administrativo, e vice-versa. O custo é alguma duplicação (login,
+sessão, acesso ao Mongo): aceitável; se crescer, extrair um pacote comum. A
+granularidade das demais imagens (MCPs, onboarding e jobs, backoffice) fica
+para a implementação, depois de comparar os `requirements.txt`: uma imagem
+com vários *entrypoints* é mais simples de versionar; várias isolam
+dependências pesadas (ex.: Google API do `calendar-mcp`).
 
 **Passos (WBS):**
 
-1. **Zerar a divergência primeiro.** Comparar por hash cada pasta
+1. **Zerar a divergência primeiro** (e salvar o painel da Duda). O
+   `templates/index.html` do painel da Duda (104 KB, editado no servidor B em
+   16/08) **não existe em nenhum commit**: copiá-lo do servidor e commitar o
+   snapshot completo do painel atual em `tools/admin-panel/` antes de qualquer
+   outra coisa, para que a base da imagem administrativa seja reproduzível. Comparar por hash cada pasta
    `hostPath` e cada ConfigMap de código com o repo; onde o servidor tiver
    algo que o repo não tem, **commitar antes** (o servidor é a fonte de
    verdade do que roda hoje). Decidir se a Duda sobe com o `mongo-sync`
@@ -1407,7 +1420,8 @@ nós da AWS, onde o ECR e a role de pull da instância ficam disponíveis.
 Fazer antes simplificaria a migração, mas soma risco ao que já é um corte
 delicado.
 
-**Decisões em aberto:** granularidade das imagens; GHCR ou ECR; quem
+**Decisões em aberto:** granularidade das imagens dos MCPs, do onboarding e do
+backoffice (o painel já está decidido: duas imagens); GHCR ou ECR; quem
 dispara o deploy (manual por tenant, como hoje, ou pipeline); se a Duda
 adota o `mongo-sync` atual.
 

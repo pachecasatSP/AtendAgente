@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://atendpragente.com.br/sitemap.xml
+Sitemap: https://www.atendpragente.com.br/sitemap.xml
