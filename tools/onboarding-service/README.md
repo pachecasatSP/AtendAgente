@@ -1,5 +1,7 @@
 # Onboarding self-service (Fase 4)
 
+> **Atualização (2026-10-30)**: o modelo de deploy descrito aqui (`python:3.12-slim` + `pip install` no boot, código por `hostPath` em `/root/atendagente-tools`, `KUBECONFIG` em Secret, namespace `atendagente-onboarding`) foi **substituído**: imagem `ghcr.io/pachecasatsp/atendpragente-tools:<commit>` (com `kubectl`), namespace `atendagente-admin`, ServiceAccount `onboarding-service` com `Role` só em `atendagente`, e as imagens dos pods de tenant por `TENANT_HERMES_IMAGE`, `TENANT_PANEL_IMAGE`, `TENANT_SYNC_IMAGE` (e `TENANT_IMAGE_PULL_SECRET`). Manifestos em `infra-aws/k8s/atendpragente/admin.yaml`; `setup_onboarding_service.py` é legado. Ver `specs/infraestrutura-aws-atendpragente.md`.
+
 Serviço web novo (primeira dependência de framework — FastAPI — no
 repo) que implementa o fluxo completo: cliente conecta o próprio
 WhatsApp via **Embedded Signup** da Meta, preenche o formulário de SOUL

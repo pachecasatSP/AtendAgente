@@ -1,5 +1,7 @@
 # Roadmap Multi-Tenant — AtendPraGente
 
+> **Atualização (2026-10-30)**: os servidores citados neste roadmap (`62.238.103.17` / `ubuntu-16gb-hel1-1` para os tenants; `2.28.15.6` / `ubuntu-4gb-fsn1-1` para a Duda e o backoffice) e o Object Storage da Hetzner deixaram de existir em 2026-10-29. O AtendPraGente foi reconstruído em **um nó AWS** (`18.228.100.213`, namespaces `atendagente` e `atendagente-admin`, acesso por túnel SSM). A **Fase 13 (código em imagem Docker)**, que a seção correspondente marca como "PLANEJADA, não iniciada", foi **implementada** nessa reconstrução: 5 imagens no GHCR, provisionamento dinâmico sem `hostPath`, ServiceAccount no lugar do kubeconfig restrito. Ver `specs/infraestrutura-aws-atendpragente.md`. > corrige: `infraestrutura-aws-atendpragente.md`#Imagens e registry.
+
 ## Contexto
 
 Hoje o Hermes atende **um único número/persona por vez** (troca de SOUL =
