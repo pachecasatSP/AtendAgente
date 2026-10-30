@@ -51,6 +51,31 @@ PRECO_POR_PLANO = {
     "Crescendo": 717.90,
 }
 
+# O onboarding-service grava em `signups.plano` a CHAVE do seu dict
+# PLANOS ("comecando"), não o nome de tabela ("Começando") — procurar o
+# preço direto em PRECO_POR_PLANO com esse valor nunca achava nada e
+# nenhuma atribuição de comissão passava. Aceita as duas formas.
+_NOME_DO_PLANO = {
+    "entrada": "Entrada",
+    "comecando": "Começando",
+    "crescendo": "Crescendo",
+    **{nome.lower(): nome for nome in PRECO_POR_PLANO},
+}
+
+
+def nome_do_plano(plano: str | None) -> str | None:
+    """Nome de tabela do plano (chave de PRECO_POR_PLANO), ou None se o
+    plano não tem preço fixo (ex.: "gratuito", "Sem limite", "trial")."""
+    if not plano:
+        return None
+    return _NOME_DO_PLANO.get(str(plano).strip().lower())
+
+
+def preco_do_plano(plano: str | None) -> float | None:
+    nome = nome_do_plano(plano)
+    return PRECO_POR_PLANO[nome] if nome else None
+
+
 # Pra classificar o lead (plano_alvo), não só pra travar comissão —
 # "Sem limite" entra aqui mesmo sem preço de tabela (é sob consulta),
 # a atribuição de comissão desse plano continua manual (ver rota
@@ -421,18 +446,26 @@ def existe_atribuicao(tenant_id: str) -> bool:
     return _atribuicoes.find_one({"tenant_id": tenant_id}) is not None
 
 
-def atribuir_tenant(vendedor_id: str, tenant_id: str, plano: str, mrr: float) -> dict:
+def get_atribuicao(tenant_id: str) -> dict | None:
+    return _atribuicoes.find_one({"tenant_id": tenant_id})
+
+
+def atribuir_tenant(vendedor_id: str, tenant_id: str, plano: str, mrr: float) -> dict | None:
     """Cria a atribuição de comissão travando a taxa vigente na faixa
     ATUAL do vendedor (contagem de clientes ativos antes desse novo
-    cliente entrar) — não retroage sobre atribuições já existentes."""
+    cliente entrar) — não retroage sobre atribuições já existentes.
+
+    Um tenant só pode ser atribuído uma vez (primeiro toque): a criação é
+    um upsert atômico por `tenant_id`, então clique duplo ou dois
+    vendedores ao mesmo tempo não geram comissão em dobro. Devolve None
+    se o tenant já tinha atribuição (de qualquer vendedor, ativa ou não)."""
     qtd_atual = contar_clientes_ativos(vendedor_id)
     faixa = faixa_para(qtd_atual + 1)  # a faixa que esse novo cliente ocupa
     comissao_mensal = round(mrr * faixa["taxa"], 2)
     doc = {
         "_id": uuid.uuid4().hex,
-        "tenant_id": tenant_id,
         "vendedor_id": vendedor_id,
-        "plano_na_atribuicao": plano,
+        "plano_na_atribuicao": nome_do_plano(plano) or plano,
         "mrr_na_atribuicao": mrr,
         "taxa_travada": faixa["taxa"],
         "tier_na_atribuicao": faixa["tier"],
@@ -441,8 +474,18 @@ def atribuir_tenant(vendedor_id: str, tenant_id: str, plano: str, mrr: float) ->
         "atribuido_em": datetime.now(timezone.utc),
         "encerrado_em": None,
     }
-    _atribuicoes.insert_one(doc)
-    return doc
+    # tenant_id fica fora do $setOnInsert: já vem do filtro do upsert.
+    resultado = _atribuicoes.update_one({"tenant_id": tenant_id}, {"$setOnInsert": doc}, upsert=True)
+    if resultado.upserted_id is None:
+        return None
+    return {**doc, "tenant_id": tenant_id}
+
+
+def desfazer_atribuicao(atribuicao_id: str) -> None:
+    """Desfaz uma atribuição recém-criada quando o passo seguinte (marcar
+    o vendedor no onboarding-service) falha — sem isso o tenant ficaria
+    com comissão aqui e sem vendedor lá, ou o contrário."""
+    _atribuicoes.delete_one({"_id": atribuicao_id})
 
 
 def encerrar_atribuicao(tenant_id: str) -> None:

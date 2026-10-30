@@ -15,6 +15,7 @@ import re
 import secrets
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -240,11 +241,38 @@ def adicionar_comentario_lead(request: Request, lead_id: str, texto: str = Form(
     return RedirectResponse("/", status_code=303)
 
 
+def _atribuir_tenant(vendedor: dict, tenant: dict, origem_venda: str) -> str:
+    """Caminho único de atribuição (manual e por link de vendedor).
+
+    Ordem importa: primeiro valida o preço e reivindica a comissão aqui
+    (atômico, um tenant só é atribuído uma vez), e só então marca o
+    vendedor no onboarding-service. Se esse último passo falha, a
+    comissão recém-criada é desfeita e o erro sobe — nunca fica um lado
+    atribuído e o outro não.
+
+    Devolve "ok", "sem_preco" (plano sem valor de tabela: gratuito,
+    trial, Sem limite) ou "ja_atribuido"."""
+    tenant_id = tenant["tenant_id"]
+    plano = tenant.get("plano") or ""
+    mrr = store.preco_do_plano(plano)
+    if mrr is None:
+        return "sem_preco"
+    atribuicao = store.atribuir_tenant(vendedor["_id"], tenant_id, plano, mrr)
+    if atribuicao is None:
+        return "ja_atribuido"
+    try:
+        onboarding_client.atribuir_vendedor(tenant_id, vendedor["_id"], origem_venda=origem_venda)
+    except Exception:
+        store.desfazer_atribuicao(atribuicao["_id"])
+        raise
+    return "ok"
+
+
 @app.post("/leads/{lead_id}/atribuir-tenant")
 def atribuir_tenant(request: Request, lead_id: str, tenant_id: str = Form(...)):
     """Lead virou cliente de verdade: busca o signup no
-    onboarding-service, marca vendedor_id/origem_venda lá, e trava a
-    comissão aqui na faixa atual do vendedor (specs/comissao-vendedores.md)."""
+    onboarding-service, trava a comissão aqui na faixa atual do vendedor
+    e marca vendedor_id/origem_venda lá (specs/comissao-vendedores.md)."""
     vendedor = require_session(request)
     lead = store.get_lead(lead_id)
     if not lead or lead["vendedor_id"] != vendedor["_id"]:
@@ -255,13 +283,28 @@ def atribuir_tenant(request: Request, lead_id: str, tenant_id: str = Form(...)):
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant não encontrado no onboarding-service")
 
-    onboarding_client.atribuir_vendedor(tenant_id.strip(), vendedor["_id"], origem_venda=f"lead:{lead_id}")
+    # Primeiro toque: tenant já marcado para outro vendedor não é roubado.
+    dono = tenant.get("vendedor_id")
+    if dono and dono != vendedor["_id"]:
+        raise HTTPException(status_code=409, detail="Esse tenant já está atribuído a outro vendedor")
 
-    plano = tenant.get("plano", "")
-    mrr = store.PRECO_POR_PLANO.get(plano)
-    if mrr is None:
-        raise HTTPException(status_code=400, detail=f"Plano '{plano}' sem preço de tabela cadastrado (ex.: plano Sem limite) — atribuir manualmente no Mongo por enquanto")
-    store.atribuir_tenant(vendedor["_id"], tenant_id.strip(), plano, mrr)
+    try:
+        resultado = _atribuir_tenant(vendedor, tenant, origem_venda=f"lead:{lead_id}")
+    except httpx.HTTPError:
+        raise HTTPException(
+            status_code=502,
+            detail="Não consegui registrar o vendedor no onboarding-service; nada foi gravado, tente de novo",
+        )
+    if resultado == "sem_preco":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Plano '{tenant.get('plano')}' sem preço de tabela cadastrado (ex.: gratuito, Sem limite) — nada foi gravado; atribuir manualmente no Mongo por enquanto",
+        )
+    if resultado == "ja_atribuido":
+        existente = store.get_atribuicao(tenant["tenant_id"])
+        if not existente or existente["vendedor_id"] != vendedor["_id"]:
+            raise HTTPException(status_code=409, detail="Esse tenant já está atribuído a outro vendedor")
+        # Já era dele (ex.: o link pessoal atribuiu antes) — só fecha o lead, sem comissão nova.
     store.update_lead_status(lead_id, "fechado")
     return RedirectResponse("/", status_code=303)
 
@@ -401,14 +444,13 @@ def _reconciliar_convites_vendedor(tenants: list[dict]) -> int:
         vendedor = store.get_vendedor_by_slug(slug)
         if not vendedor:
             continue
-        plano = tenant.get("plano", "")
-        mrr = store.PRECO_POR_PLANO.get(plano)
-        if mrr is None:
-            continue
-        onboarding_client.atribuir_vendedor(tenant["tenant_id"], vendedor["_id"], origem_venda="link-vendedor")
-        store.atribuir_tenant(vendedor["_id"], tenant["tenant_id"], plano, mrr)
-        tenant["vendedor_id"] = vendedor["_id"]
-        reconciliados += 1
+        try:
+            resultado = _atribuir_tenant(vendedor, tenant, origem_venda="link-vendedor")
+        except httpx.HTTPError:
+            continue  # onboarding fora do ar: a atribuição foi desfeita, tenta de novo no próximo carregamento
+        if resultado == "ok":
+            tenant["vendedor_id"] = vendedor["_id"]
+            reconciliados += 1
     return reconciliados
 
 
