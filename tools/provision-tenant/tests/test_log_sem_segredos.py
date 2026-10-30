@@ -32,5 +32,5 @@ def test_cli_passa_mostrar_segredos():
 
 
 def test_onboarding_nao_pede_para_mostrar():
-    onboarding = Path(pt.__file__).resolve().parents[2] / "onboarding-service" / "app" / "main.py"
+    onboarding = Path(pt.__file__).resolve().parents[1] / "onboarding-service" / "app" / "main.py"
     assert "mostrar_segredos" not in onboarding.read_text(encoding="utf-8")
