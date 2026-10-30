@@ -953,7 +953,22 @@ def wait_for_health(deployment: str, timeout_s: int = 120) -> bool:
     return True
 
 
-def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dict | None:
+def imprimir_resumo(tenant_id: str, host: str, credentials: dict, mostrar_segredos: bool) -> None:
+    """Resumo final. Os segredos (verify token do webhook, link de configuração do painel) só saem no
+    terminal de quem rodou a CLI (`mostrar_segredos=True`). Chamado pelo onboarding, o stdout vai para o
+    log do pod — e logs são lidos, copiados e colados —, então lá eles NÃO são impressos: o onboarding
+    guarda o link na página de conclusão do cliente e o verify token já foi usado no registro do webhook."""
+    print(f"\n✓ Tenant '{tenant_id}' no ar em https://{host}/whatsapp/webhook")
+    if mostrar_segredos:
+        print(f"  Verify token pro cadastro do webhook na Meta: {credentials['verify_token']}")
+        print(f"  Link de configuração do painel (uso único): https://{host}/painel/setup?token={credentials['panel_setup_token']}")
+        print("  (o token não fica salvo em lugar nenhum além do Secret do cluster — anote agora.)")
+    else:
+        print("  (verify token e link de configuração do painel não são impressos aqui; ficam no Secret "
+              f"{tenant_id}-hermes-env e, o link, na página de conclusão do cadastro.)")
+
+
+def provision(tenant_config_path: Path, env: dict, dry_run: bool = False, mostrar_segredos: bool = False) -> dict | None:
     config = yaml.safe_load(tenant_config_path.read_text(encoding="utf-8"))
 
     tenant_id = config["tenant_id"]
@@ -1015,13 +1030,7 @@ def provision(tenant_config_path: Path, env: dict, dry_run: bool = False) -> dic
     subprocess.run(["kubectl", "-n", NAMESPACE, "rollout", "restart", f"deploy/{prefix}"], check=True)
     wait_for_health(prefix)
 
-    print(f"\n✓ Tenant '{tenant_id}' no ar em https://{host}/whatsapp/webhook")
-    print(f"  Verify token pro cadastro do webhook na Meta: {credentials['verify_token']}")
-    print(f"  Link de configuração do painel (uso único): https://{host}/painel/setup?token={credentials['panel_setup_token']}")
-    print(
-        "  (o token não fica salvo em lugar nenhum além do Secret do "
-        "cluster — anote agora.)"
-    )
+    imprimir_resumo(tenant_id, host, credentials, mostrar_segredos)
     return credentials
 
 
@@ -1054,7 +1063,7 @@ def main() -> None:
                     env[k] = f"<{k}-nao-setado>"
         else:
             require_env(env)
-        provision(args.tenant_yaml, env, dry_run=args.dry_run)
+        provision(args.tenant_yaml, env, dry_run=args.dry_run, mostrar_segredos=True)
     except ProvisionError as e:
         print(f"ERRO: {e}", file=sys.stderr)
         sys.exit(1)
