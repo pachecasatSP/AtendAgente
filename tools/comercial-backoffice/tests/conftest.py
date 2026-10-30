@@ -12,10 +12,11 @@ os.environ.setdefault("MONGO_URI", "mongodb://127.0.0.1:1/teste")  # porta morta
 os.environ.setdefault("BACKOFFICE_SESSION_SECRET", "0123456789abcdef0123456789abcdef")
 os.environ.setdefault("ONBOARDING_ADMIN_KEY", "chave-de-teste")
 os.environ.setdefault("ADMIN_PIN", "1234")
+os.environ.setdefault("SESSION_HTTPS_ONLY", "0")  # TestClient fala http://; o cookie Secure é testado à parte
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import onboarding_client, store  # noqa: E402
+from app import churn, onboarding_client, ratelimit, store  # noqa: E402
 
 SENHA = "senha-de-teste-123"
 
@@ -39,12 +40,25 @@ class OnboardingFalso:
     """Registra o que o backoffice mandaria ao onboarding-service."""
 
     def __init__(self):
-        self.tenants: list[dict] = []
+        self.tenants: list[dict] = []  # tenants "live"
+        self.cancelados: list[str] = []  # tenant_id na lixeira (cancelados)
+        self.excluidos: list[str] = []  # tenant_id excluídos recentemente
         self.atribuicoes: list[tuple] = []
         self.erro = None  # exceção a levantar em atribuir_vendedor
+        self.erro_leitura = None  # exceção a levantar ao ler tenants/lixeira
 
     def listar_tenants(self):
+        if self.erro_leitura:
+            raise self.erro_leitura
         return [dict(t) for t in self.tenants]
+
+    def listar_lixeira(self):
+        if self.erro_leitura:
+            raise self.erro_leitura
+        return {
+            "cancelados": [{"tenant_id": t} for t in self.cancelados],
+            "excluidos_recentemente": [{"tenant_id": t} for t in self.excluidos],
+        }
 
     def atribuir_vendedor(self, tenant_id, vendedor_id, origem_venda):
         if self.erro:
@@ -57,8 +71,19 @@ class OnboardingFalso:
 def onboarding(monkeypatch):
     falso = OnboardingFalso()
     monkeypatch.setattr(onboarding_client, "listar_tenants", falso.listar_tenants)
+    monkeypatch.setattr(onboarding_client, "listar_lixeira", falso.listar_lixeira)
     monkeypatch.setattr(onboarding_client, "atribuir_vendedor", falso.atribuir_vendedor)
     return falso
+
+
+@pytest.fixture(autouse=True)
+def estado_em_memoria_limpo():
+    """Contadores de tentativas e intervalo da sincronização de churn vivem em memória."""
+    ratelimit.reiniciar()
+    churn.reiniciar_intervalo()
+    yield
+    ratelimit.reiniciar()
+    churn.reiniciar_intervalo()
 
 
 def tenant(tenant_id="loja-a", plano="comecando", **extra):

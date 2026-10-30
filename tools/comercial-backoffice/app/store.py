@@ -1,8 +1,8 @@
-"""CRUD fino sobre o Mongo PRÓPRIO do backoffice (namespace `hermes`,
-servidor 2.28.15.6 — não o Mongo compartilhado do `atendagente`, que só
-é alcançável de dentro daquele outro cluster; ver
-specs/comissao-vendedores.md e o plano de deploy). Coleções:
-`vendedores`, `leads`, `atribuicoes_comissao`.
+"""CRUD fino sobre o Mongo PRÓPRIO do backoffice (`mongo-backoffice`, no
+namespace `atendagente-admin` — não o Mongo compartilhado dos tenants, que
+fica no namespace `atendagente`; ver specs/infraestrutura-aws-atendpragente.md
+e specs/comissao-vendedores.md). Coleções: `vendedores`, `leads`,
+`atribuicoes_comissao`, `prospeccoes`, `prospeccao_estado`.
 
 Regra de comissão implementada aqui (specs/comissao-vendedores.md,
 seção "Faixas de clientes"): taxa CHEIA sobre o MRR do cliente, travada
@@ -29,6 +29,10 @@ _prospeccoes = _db["prospeccoes"]
 _prospeccao_estado = _db["prospeccao_estado"]
 
 LEAD_STATUS = ["novo", "em_conversa", "proposta", "fechado", "perdido"]
+
+# specs/comissao-vendedores.md, "Condições gerais" 2: cliente que cancela
+# nos primeiros 60 dias estorna a comissão desses meses.
+CLAWBACK_DIAS = 60
 
 # Régua crescente oficial (specs/comissao-vendedores.md) — faixas de
 # CONTAGEM de clientes ativos, taxa cheia sobre o MRR da carteira toda.
@@ -303,8 +307,9 @@ def create_lead(
     vendedor_id: str,
     plano_alvo: str | None = None,
     segmento: str | None = None,
+    lead_id: str | None = None,
 ) -> str:
-    lead_id = uuid.uuid4().hex
+    lead_id = lead_id or uuid.uuid4().hex
     now = datetime.now(timezone.utc)
     _leads.insert_one(
         {
@@ -406,7 +411,11 @@ def forecast_mes(vendedor_id: str) -> dict:
     fechados = sum(1 for l in leads if l["status"] == "fechado")
     com_reuniao = [l for l in leads if l.get("reunioes")]
     reunioes_feitas = len(com_reuniao)
-    taxa_conversao = (fechados / reunioes_feitas) if reunioes_feitas else 0.0
+    # Só conta como conversão de reunião o lead que teve reunião E fechou:
+    # fechado sem reunião (atribuição por link, por exemplo) inflava a taxa
+    # e podia passar de 100%.
+    fechados_com_reuniao = sum(1 for l in com_reuniao if l["status"] == "fechado")
+    taxa_conversao = (fechados_com_reuniao / reunioes_feitas) if reunioes_feitas else 0.0
 
     em_aberto_com_reuniao = [l for l in com_reuniao if l["status"] not in ("fechado", "perdido")]
     fechamentos_esperados = round(len(em_aberto_com_reuniao) * taxa_conversao, 1)
@@ -488,17 +497,84 @@ def desfazer_atribuicao(atribuicao_id: str) -> None:
     _atribuicoes.delete_one({"_id": atribuicao_id})
 
 
-def encerrar_atribuicao(tenant_id: str) -> None:
-    """Cliente cancelou (ou passou do clawback de 60 dias sem pagar) —
-    para de contar comissão e de contar como cliente ativo do vendedor."""
-    _atribuicoes.update_one(
-        {"tenant_id": tenant_id, "ativo": True},
-        {"$set": {"ativo": False, "encerrado_em": datetime.now(timezone.utc)}},
+MOTIVOS_ENCERRAMENTO = ("cancelado", "excluido")
+
+
+def _como_utc(momento: datetime) -> datetime:
+    """O Mongo devolve datetime sem fuso; tudo aqui é gravado em UTC."""
+    return momento.replace(tzinfo=timezone.utc) if momento.tzinfo is None else momento
+
+
+def encerrar_atribuicao(tenant_id: str, motivo: str = "cancelado") -> dict | None:
+    """Cliente cancelou (ou o tenant foi excluído) — para de contar
+    comissão e de contar como cliente ativo do vendedor.
+
+    Registra o churn: `motivo_encerramento`, `dias_ate_encerrar` e
+    `dentro_clawback` (cancelou antes de CLAWBACK_DIAS). O valor a estornar
+    NÃO é calculado aqui — o backoffice não registra pagamentos de comissão,
+    só a mensalidade projetada; o flag diz ao fechamento mensal quais
+    atribuições entram no estorno. Devolve a atribuição atualizada, ou None
+    se o tenant não tinha atribuição ativa (idempotente)."""
+    if motivo not in MOTIVOS_ENCERRAMENTO:
+        raise ValueError(f"motivo de encerramento inválido: {motivo!r}")
+    atribuicao = _atribuicoes.find_one({"tenant_id": tenant_id, "ativo": True})
+    if not atribuicao:
+        return None
+    agora = datetime.now(timezone.utc)
+    dias = (agora - _como_utc(atribuicao["atribuido_em"])).days
+    campos = {
+        "ativo": False,
+        "encerrado_em": agora,
+        "motivo_encerramento": motivo,
+        "dias_ate_encerrar": dias,
+        "dentro_clawback": dias < CLAWBACK_DIAS,
+    }
+    resultado = _atribuicoes.update_one({"_id": atribuicao["_id"], "ativo": True}, {"$set": campos})
+    if resultado.modified_count != 1:
+        return None  # outra execução encerrou primeiro
+    return {**atribuicao, **campos}
+
+
+def reabrir_atribuicao(tenant_id: str) -> bool:
+    """Tenant cancelado que foi restaurado dentro da janela da lixeira
+    (mesmo cliente, nova assinatura) volta a gerar comissão, na taxa que
+    já estava travada. Só reabre encerramento por cancelamento: tenant
+    excluído é definitivo."""
+    resultado = _atribuicoes.update_one(
+        {"tenant_id": tenant_id, "ativo": False, "motivo_encerramento": "cancelado"},
+        {
+            "$set": {"ativo": True, "encerrado_em": None, "reaberto_em": datetime.now(timezone.utc)},
+            "$unset": {"motivo_encerramento": "", "dias_ate_encerrar": "", "dentro_clawback": ""},
+        },
     )
+    return resultado.modified_count == 1
 
 
 def list_atribuicoes_ativas(vendedor_id: str) -> list[dict]:
     return list(_atribuicoes.find({"vendedor_id": vendedor_id, "ativo": True}))
+
+
+def list_todas_atribuicoes_ativas() -> list[dict]:
+    return list(_atribuicoes.find({"ativo": True}))
+
+
+def list_atribuicoes_canceladas() -> list[dict]:
+    """Encerradas por cancelamento (candidatas a reabrir se o tenant voltar)."""
+    return list(_atribuicoes.find({"ativo": False, "motivo_encerramento": "cancelado"}))
+
+
+def churn_do_vendedor(vendedor_id: str) -> dict:
+    """Rastreamento de churn por vendedor (pré-requisito do crédito de
+    indicação e do bônus semestral, specs/comissao-vendedores.md): quantas
+    atribuições já foram encerradas e quantas caíram dentro do clawback."""
+    encerradas = list(_atribuicoes.find({"vendedor_id": vendedor_id, "ativo": False}))
+    total = _atribuicoes.count_documents({"vendedor_id": vendedor_id})
+    clawbacks = sum(1 for a in encerradas if a.get("dentro_clawback"))
+    return {
+        "encerradas": len(encerradas),
+        "clawbacks": clawbacks,
+        "taxa_churn": (len(encerradas) / total) if total else 0.0,
+    }
 
 
 def comissao_do_mes(vendedor_id: str) -> dict:
@@ -544,13 +620,14 @@ def upsert_prospeccao(
     categoria: str,
     telefone: str | None,
     site: str | None,
-) -> None:
+) -> bool:
     """Prioridade = tem telefone (WhatsApp costuma ser o mesmo número em
     negócio pequeno no Brasil) — é o critério pedido pra ordenar quem
-    vale a pena abordar primeiro."""
+    vale a pena abordar primeiro. Devolve True se o candidato é novo,
+    False se já existia (só atualiza `visto_em` e os dados)."""
     now = datetime.now(timezone.utc)
     prioridade = 2 if telefone else (1 if site else 0)
-    _prospeccoes.update_one(
+    resultado = _prospeccoes.update_one(
         {"_id": place_id},
         {
             "$set": {
@@ -567,6 +644,7 @@ def upsert_prospeccao(
         },
         upsert=True,
     )
+    return resultado.upserted_id is not None
 
 
 def get_prospeccao(place_id: str) -> dict | None:
@@ -606,5 +684,12 @@ def marcar_prospeccao_desqualificada(place_id: str, motivo: str = "") -> None:
     )
 
 
-def marcar_prospeccao_convertida(place_id: str, lead_id: str) -> None:
-    _prospeccoes.update_one({"_id": place_id}, {"$set": {"convertido_lead_id": lead_id}})
+def reivindicar_prospeccao(place_id: str, lead_id: str) -> bool:
+    """Captura atômica do candidato ("primeiro toque"): só o primeiro
+    vendedor a chegar aqui leva — o segundo, mesmo que clique no mesmo
+    instante, recebe False."""
+    resultado = _prospeccoes.update_one(
+        {"_id": place_id, "convertido_lead_id": None},
+        {"$set": {"convertido_lead_id": lead_id}},
+    )
+    return resultado.modified_count == 1
