@@ -3,6 +3,8 @@
 > Documento de contexto para retomar o projeto em outra conversa. Resume
 > decisões, estado atual, credenciais (só localização, nunca valores) e
 > pendências. Última atualização: 2026-07-24.
+>
+> **Atualização (2026-10-30)**: as referências a servidores, IPs e ao Object Storage da Hetzner neste documento são históricas (perdidos em 2026-10-29). Estado vigente da infraestrutura em `specs/infraestrutura-aws-atendpragente.md`.
 
 ---
 

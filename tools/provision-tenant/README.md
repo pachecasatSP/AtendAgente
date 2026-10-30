@@ -1,5 +1,7 @@
 # Provisionamento de tenant (Fase 3 do roadmap multi-tenant)
 
+> **Atualização (2026-10-30)**: o pod do tenant gerado por `build_infra_manifest` não usa mais `hostPath` nem os ConfigMaps `mongo-sync-script` e `whatsapp-cloud-patch`: o código do painel, do sync e o adaptador de WhatsApp com patch vêm **dentro das imagens**, escolhidas por `TENANT_HERMES_IMAGE`, `TENANT_PANEL_IMAGE` e `TENANT_SYNC_IMAGE` (obrigatórias, sem default). `create_dns_record` agora é idempotente, e o resumo final só imprime o verify token e o link do painel na CLI (`mostrar_segredos=True`). Os `setup_*.py` deste diretório (mongo, CronJobs) são legado; os manifestos vigentes estão em `infra-aws/k8s/atendpragente/`. Ver `specs/infraestrutura-aws-atendpragente.md`.
+
 Colapsa num comando só o que foi feito manualmente na Fase 1: registro
 DNS (Cloudflare), Secret + PVC + Deployment + Service + Ingress
 (mesmo padrão validado), geração do `SOUL.md` (reaproveita
