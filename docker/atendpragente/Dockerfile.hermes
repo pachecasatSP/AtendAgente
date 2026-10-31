@@ -1,0 +1,9 @@
+# atendpragente-hermes: o Hermes dos tenants e da Duda, com o adaptador de WhatsApp Cloud PATCHEADO embutido (antes: ConfigMap whatsapp-cloud-patch
+# montado por cima). Base por DIGEST (a mesma do HupyFlow e do re.colocarme, v0.21.5); trocar de versao e decisao explicita e exige revalidar o patch.
+FROM nousresearch/hermes-agent@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db
+COPY tools/provision-tenant/whatsapp_cloud_patched.py /opt/hermes/gateway/platforms/whatsapp_cloud.py
+RUN chmod 0644 /opt/hermes/gateway/platforms/whatsapp_cloud.py
+# Textos de primeiro contato que o Hermes (feito para CLI) repassa ao cliente final: "o /help mostra os comandos" e a oferta de montar perfil.
+# O patch FALHA o build se o trecho esperado nao existir mais (base trocada), em vez de publicar uma imagem sem ele.
+COPY tools/provision-tenant/patch_textos_hermes.py /tmp/patch_textos_hermes.py
+RUN /opt/hermes/.venv/bin/python3 /tmp/patch_textos_hermes.py /opt/hermes && rm /tmp/patch_textos_hermes.py
