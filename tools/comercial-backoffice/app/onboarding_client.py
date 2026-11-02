@@ -1,10 +1,12 @@
-"""Cliente HTTP fino pro `/api/admin/*` do onboarding-service — o
-backoffice roda num servidor Hetzner diferente (2.28.15.6, namespace
-`hermes`) do onboarding-service (62.238.103.17, namespace
-`atendagente`), sem rede privada entre os dois (confirmado por SSH,
-ver plano de deploy). Qualquer coisa sobre tenant passa por aqui, nunca
-por acesso direto ao Mongo do atendagente — mesmo padrão que o
-admin-mcp já usa pra falar com o onboarding-service a partir da Duda.
+"""Cliente HTTP fino pro `/api/admin/*` do onboarding-service. Backoffice
+e onboarding rodam no mesmo cluster (namespace `atendagente-admin`), mas o
+backoffice tem Mongo próprio e é o onboarding quem é dono dos `signups`:
+qualquer coisa sobre tenant passa por aqui, nunca por acesso direto ao
+Mongo dos tenants — mesmo padrão que o admin-mcp usa a partir da Duda.
+
+`ONBOARDING_BASE_URL` aponta por padrão pro host público; dentro do
+cluster dá pra apontar pro Service interno (`http://onboarding-service.
+atendagente-admin.svc.cluster.local:8000`) setando a variável no manifesto.
 """
 import os
 
@@ -26,6 +28,14 @@ def _post(path: str, json: dict | None = None) -> httpx.Response:
 
 def listar_tenants() -> list[dict]:
     resp = _get("/api/admin/tenants")
+    resp.raise_for_status()
+    return resp.json()
+
+
+def listar_lixeira() -> dict:
+    """{"cancelados": [{tenant_id, ...}], "excluidos_recentemente": [{tenant_id, ...}]}
+    — fonte do churn: ver app/churn.py."""
+    resp = _get("/api/admin/lixeira")
     resp.raise_for_status()
     return resp.json()
 

@@ -5,7 +5,7 @@
 
 <div class="card">
   <table>
-    <thead><tr><th>Nome</th><th>Cidade</th><th>Status</th><th>Tier</th><th>Comissão do mês</th><th>Meses abaixo da meta</th><th>Ação</th></tr></thead>
+    <thead><tr><th>Nome</th><th>Cidade</th><th>Status</th><th>Tier</th><th>Comissão do mês</th><th>Meses abaixo da meta</th><th>Churn</th><th>Ação</th></tr></thead>
     <tbody>
       {% for v in vendedores %}
       <tr>
@@ -15,6 +15,7 @@
         <td>{{ v.comissao.tier_atual }} ({{ v.comissao.qtd_clientes_ativos }} clientes)</td>
         <td>R$ {{ "%.2f"|format(v.comissao.total) }}</td>
         <td>{% if v.meses_abaixo_meta >= 2 %}<span class="pill bad">{{ v.meses_abaixo_meta }}</span>{% else %}{{ v.meses_abaixo_meta }}{% endif %}</td>
+        <td>{{ v.churn.encerradas }} cancelado(s){% if v.churn.clawbacks %} · <span class="pill bad">{{ v.churn.clawbacks }} em clawback</span>{% endif %}</td>
         <td>
           <span class="pin-gate">
             <button type="button" class="secondary pin-toggle">{{ 'Desativar' if v.status == 'ativo' else 'Reativar' }}</button>

@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Bootstrap único do backoffice comercial (Frente 2) — namespace
+"""LEGADO — não usar no cluster atual. Este script fez o deploy na Hetzner
+(servidor 2.28.15.6, namespace `hermes`, código por `hostPath`), que deixou
+de existir em 2026-10-29. O backoffice agora roda no namespace
+`atendagente-admin` da AWS, por imagem; o manifesto vigente é
+`infra-aws/k8s/atendpragente/backoffice.yaml` (ver
+specs/infraestrutura-aws-atendpragente.md). Mantido só como referência
+histórica do que foi aplicado.
+
+Bootstrap único do backoffice comercial (Frente 2) — namespace
 `hermes` (mesma máquina da Duda, 2.28.15.6, NÃO o namespace
 `atendagente` do onboarding-service — ver "Topologia de deploy" no
 plano e specs/comissao-vendedores.md). Sobe um Mongo PRÓPRIO (não o

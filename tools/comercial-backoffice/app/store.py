@@ -1,8 +1,8 @@
-"""CRUD fino sobre o Mongo PRÓPRIO do backoffice (namespace `hermes`,
-servidor 2.28.15.6 — não o Mongo compartilhado do `atendagente`, que só
-é alcançável de dentro daquele outro cluster; ver
-specs/comissao-vendedores.md e o plano de deploy). Coleções:
-`vendedores`, `leads`, `atribuicoes_comissao`.
+"""CRUD fino sobre o Mongo PRÓPRIO do backoffice (`mongo-backoffice`, no
+namespace `atendagente-admin` — não o Mongo compartilhado dos tenants, que
+fica no namespace `atendagente`; ver specs/infraestrutura-aws-atendpragente.md
+e specs/comissao-vendedores.md). Coleções: `vendedores`, `leads`,
+`atribuicoes_comissao`, `prospeccoes`, `prospeccao_estado`.
 
 Regra de comissão implementada aqui (specs/comissao-vendedores.md,
 seção "Faixas de clientes"): taxa CHEIA sobre o MRR do cliente, travada
@@ -30,6 +30,10 @@ _prospeccao_estado = _db["prospeccao_estado"]
 
 LEAD_STATUS = ["novo", "em_conversa", "proposta", "fechado", "perdido"]
 
+# specs/comissao-vendedores.md, "Condições gerais" 2: cliente que cancela
+# nos primeiros 60 dias estorna a comissão desses meses.
+CLAWBACK_DIAS = 60
+
 # Régua crescente oficial (specs/comissao-vendedores.md) — faixas de
 # CONTAGEM de clientes ativos, taxa cheia sobre o MRR da carteira toda.
 # Consolidado vai até 49 de propósito (não 20): impede que cruzar de 20
@@ -50,6 +54,31 @@ PRECO_POR_PLANO = {
     "Começando": 157.90,
     "Crescendo": 717.90,
 }
+
+# O onboarding-service grava em `signups.plano` a CHAVE do seu dict
+# PLANOS ("comecando"), não o nome de tabela ("Começando") — procurar o
+# preço direto em PRECO_POR_PLANO com esse valor nunca achava nada e
+# nenhuma atribuição de comissão passava. Aceita as duas formas.
+_NOME_DO_PLANO = {
+    "entrada": "Entrada",
+    "comecando": "Começando",
+    "crescendo": "Crescendo",
+    **{nome.lower(): nome for nome in PRECO_POR_PLANO},
+}
+
+
+def nome_do_plano(plano: str | None) -> str | None:
+    """Nome de tabela do plano (chave de PRECO_POR_PLANO), ou None se o
+    plano não tem preço fixo (ex.: "gratuito", "Sem limite", "trial")."""
+    if not plano:
+        return None
+    return _NOME_DO_PLANO.get(str(plano).strip().lower())
+
+
+def preco_do_plano(plano: str | None) -> float | None:
+    nome = nome_do_plano(plano)
+    return PRECO_POR_PLANO[nome] if nome else None
+
 
 # Pra classificar o lead (plano_alvo), não só pra travar comissão —
 # "Sem limite" entra aqui mesmo sem preço de tabela (é sob consulta),
@@ -278,8 +307,9 @@ def create_lead(
     vendedor_id: str,
     plano_alvo: str | None = None,
     segmento: str | None = None,
+    lead_id: str | None = None,
 ) -> str:
-    lead_id = uuid.uuid4().hex
+    lead_id = lead_id or uuid.uuid4().hex
     now = datetime.now(timezone.utc)
     _leads.insert_one(
         {
@@ -381,7 +411,11 @@ def forecast_mes(vendedor_id: str) -> dict:
     fechados = sum(1 for l in leads if l["status"] == "fechado")
     com_reuniao = [l for l in leads if l.get("reunioes")]
     reunioes_feitas = len(com_reuniao)
-    taxa_conversao = (fechados / reunioes_feitas) if reunioes_feitas else 0.0
+    # Só conta como conversão de reunião o lead que teve reunião E fechou:
+    # fechado sem reunião (atribuição por link, por exemplo) inflava a taxa
+    # e podia passar de 100%.
+    fechados_com_reuniao = sum(1 for l in com_reuniao if l["status"] == "fechado")
+    taxa_conversao = (fechados_com_reuniao / reunioes_feitas) if reunioes_feitas else 0.0
 
     em_aberto_com_reuniao = [l for l in com_reuniao if l["status"] not in ("fechado", "perdido")]
     fechamentos_esperados = round(len(em_aberto_com_reuniao) * taxa_conversao, 1)
@@ -421,18 +455,26 @@ def existe_atribuicao(tenant_id: str) -> bool:
     return _atribuicoes.find_one({"tenant_id": tenant_id}) is not None
 
 
-def atribuir_tenant(vendedor_id: str, tenant_id: str, plano: str, mrr: float) -> dict:
+def get_atribuicao(tenant_id: str) -> dict | None:
+    return _atribuicoes.find_one({"tenant_id": tenant_id})
+
+
+def atribuir_tenant(vendedor_id: str, tenant_id: str, plano: str, mrr: float) -> dict | None:
     """Cria a atribuição de comissão travando a taxa vigente na faixa
     ATUAL do vendedor (contagem de clientes ativos antes desse novo
-    cliente entrar) — não retroage sobre atribuições já existentes."""
+    cliente entrar) — não retroage sobre atribuições já existentes.
+
+    Um tenant só pode ser atribuído uma vez (primeiro toque): a criação é
+    um upsert atômico por `tenant_id`, então clique duplo ou dois
+    vendedores ao mesmo tempo não geram comissão em dobro. Devolve None
+    se o tenant já tinha atribuição (de qualquer vendedor, ativa ou não)."""
     qtd_atual = contar_clientes_ativos(vendedor_id)
     faixa = faixa_para(qtd_atual + 1)  # a faixa que esse novo cliente ocupa
     comissao_mensal = round(mrr * faixa["taxa"], 2)
     doc = {
         "_id": uuid.uuid4().hex,
-        "tenant_id": tenant_id,
         "vendedor_id": vendedor_id,
-        "plano_na_atribuicao": plano,
+        "plano_na_atribuicao": nome_do_plano(plano) or plano,
         "mrr_na_atribuicao": mrr,
         "taxa_travada": faixa["taxa"],
         "tier_na_atribuicao": faixa["tier"],
@@ -441,21 +483,98 @@ def atribuir_tenant(vendedor_id: str, tenant_id: str, plano: str, mrr: float) ->
         "atribuido_em": datetime.now(timezone.utc),
         "encerrado_em": None,
     }
-    _atribuicoes.insert_one(doc)
-    return doc
+    # tenant_id fica fora do $setOnInsert: já vem do filtro do upsert.
+    resultado = _atribuicoes.update_one({"tenant_id": tenant_id}, {"$setOnInsert": doc}, upsert=True)
+    if resultado.upserted_id is None:
+        return None
+    return {**doc, "tenant_id": tenant_id}
 
 
-def encerrar_atribuicao(tenant_id: str) -> None:
-    """Cliente cancelou (ou passou do clawback de 60 dias sem pagar) —
-    para de contar comissão e de contar como cliente ativo do vendedor."""
-    _atribuicoes.update_one(
-        {"tenant_id": tenant_id, "ativo": True},
-        {"$set": {"ativo": False, "encerrado_em": datetime.now(timezone.utc)}},
+def desfazer_atribuicao(atribuicao_id: str) -> None:
+    """Desfaz uma atribuição recém-criada quando o passo seguinte (marcar
+    o vendedor no onboarding-service) falha — sem isso o tenant ficaria
+    com comissão aqui e sem vendedor lá, ou o contrário."""
+    _atribuicoes.delete_one({"_id": atribuicao_id})
+
+
+MOTIVOS_ENCERRAMENTO = ("cancelado", "excluido")
+
+
+def _como_utc(momento: datetime) -> datetime:
+    """O Mongo devolve datetime sem fuso; tudo aqui é gravado em UTC."""
+    return momento.replace(tzinfo=timezone.utc) if momento.tzinfo is None else momento
+
+
+def encerrar_atribuicao(tenant_id: str, motivo: str = "cancelado") -> dict | None:
+    """Cliente cancelou (ou o tenant foi excluído) — para de contar
+    comissão e de contar como cliente ativo do vendedor.
+
+    Registra o churn: `motivo_encerramento`, `dias_ate_encerrar` e
+    `dentro_clawback` (cancelou antes de CLAWBACK_DIAS). O valor a estornar
+    NÃO é calculado aqui — o backoffice não registra pagamentos de comissão,
+    só a mensalidade projetada; o flag diz ao fechamento mensal quais
+    atribuições entram no estorno. Devolve a atribuição atualizada, ou None
+    se o tenant não tinha atribuição ativa (idempotente)."""
+    if motivo not in MOTIVOS_ENCERRAMENTO:
+        raise ValueError(f"motivo de encerramento inválido: {motivo!r}")
+    atribuicao = _atribuicoes.find_one({"tenant_id": tenant_id, "ativo": True})
+    if not atribuicao:
+        return None
+    agora = datetime.now(timezone.utc)
+    dias = (agora - _como_utc(atribuicao["atribuido_em"])).days
+    campos = {
+        "ativo": False,
+        "encerrado_em": agora,
+        "motivo_encerramento": motivo,
+        "dias_ate_encerrar": dias,
+        "dentro_clawback": dias < CLAWBACK_DIAS,
+    }
+    resultado = _atribuicoes.update_one({"_id": atribuicao["_id"], "ativo": True}, {"$set": campos})
+    if resultado.modified_count != 1:
+        return None  # outra execução encerrou primeiro
+    return {**atribuicao, **campos}
+
+
+def reabrir_atribuicao(tenant_id: str) -> bool:
+    """Tenant cancelado que foi restaurado dentro da janela da lixeira
+    (mesmo cliente, nova assinatura) volta a gerar comissão, na taxa que
+    já estava travada. Só reabre encerramento por cancelamento: tenant
+    excluído é definitivo."""
+    resultado = _atribuicoes.update_one(
+        {"tenant_id": tenant_id, "ativo": False, "motivo_encerramento": "cancelado"},
+        {
+            "$set": {"ativo": True, "encerrado_em": None, "reaberto_em": datetime.now(timezone.utc)},
+            "$unset": {"motivo_encerramento": "", "dias_ate_encerrar": "", "dentro_clawback": ""},
+        },
     )
+    return resultado.modified_count == 1
 
 
 def list_atribuicoes_ativas(vendedor_id: str) -> list[dict]:
     return list(_atribuicoes.find({"vendedor_id": vendedor_id, "ativo": True}))
+
+
+def list_todas_atribuicoes_ativas() -> list[dict]:
+    return list(_atribuicoes.find({"ativo": True}))
+
+
+def list_atribuicoes_canceladas() -> list[dict]:
+    """Encerradas por cancelamento (candidatas a reabrir se o tenant voltar)."""
+    return list(_atribuicoes.find({"ativo": False, "motivo_encerramento": "cancelado"}))
+
+
+def churn_do_vendedor(vendedor_id: str) -> dict:
+    """Rastreamento de churn por vendedor (pré-requisito do crédito de
+    indicação e do bônus semestral, specs/comissao-vendedores.md): quantas
+    atribuições já foram encerradas e quantas caíram dentro do clawback."""
+    encerradas = list(_atribuicoes.find({"vendedor_id": vendedor_id, "ativo": False}))
+    total = _atribuicoes.count_documents({"vendedor_id": vendedor_id})
+    clawbacks = sum(1 for a in encerradas if a.get("dentro_clawback"))
+    return {
+        "encerradas": len(encerradas),
+        "clawbacks": clawbacks,
+        "taxa_churn": (len(encerradas) / total) if total else 0.0,
+    }
 
 
 def comissao_do_mes(vendedor_id: str) -> dict:
@@ -501,13 +620,14 @@ def upsert_prospeccao(
     categoria: str,
     telefone: str | None,
     site: str | None,
-) -> None:
+) -> bool:
     """Prioridade = tem telefone (WhatsApp costuma ser o mesmo número em
     negócio pequeno no Brasil) — é o critério pedido pra ordenar quem
-    vale a pena abordar primeiro."""
+    vale a pena abordar primeiro. Devolve True se o candidato é novo,
+    False se já existia (só atualiza `visto_em` e os dados)."""
     now = datetime.now(timezone.utc)
     prioridade = 2 if telefone else (1 if site else 0)
-    _prospeccoes.update_one(
+    resultado = _prospeccoes.update_one(
         {"_id": place_id},
         {
             "$set": {
@@ -524,6 +644,7 @@ def upsert_prospeccao(
         },
         upsert=True,
     )
+    return resultado.upserted_id is not None
 
 
 def get_prospeccao(place_id: str) -> dict | None:
@@ -563,5 +684,12 @@ def marcar_prospeccao_desqualificada(place_id: str, motivo: str = "") -> None:
     )
 
 
-def marcar_prospeccao_convertida(place_id: str, lead_id: str) -> None:
-    _prospeccoes.update_one({"_id": place_id}, {"$set": {"convertido_lead_id": lead_id}})
+def reivindicar_prospeccao(place_id: str, lead_id: str) -> bool:
+    """Captura atômica do candidato ("primeiro toque"): só o primeiro
+    vendedor a chegar aqui leva — o segundo, mesmo que clique no mesmo
+    instante, recebe False."""
+    resultado = _prospeccoes.update_one(
+        {"_id": place_id, "convertido_lead_id": None},
+        {"$set": {"convertido_lead_id": lead_id}},
+    )
+    return resultado.modified_count == 1

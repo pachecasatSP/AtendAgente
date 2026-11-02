@@ -1,0 +1,17 @@
+# atendpragente-tools: onboarding-service, admin-mcp, calendar-mcp e os CronJobs (agenda-lembrete, pedido-retencao, usage-watch, lixeira-watch).
+# O codigo fica em /app com a MESMA estrutura de pastas que o servidor antigo montava por hostPath (/app/onboarding-service, /app/provision-tenant,
+# /app/soul-generator, /app/ai-assist, /app/admin-mcp, /app/calendar-mcp), entao os sys.path do codigo continuam validos. Cada workload escolhe o comando.
+# Inclui o kubectl (o onboarding provisiona tenants por kubectl com a ServiceAccount do pod).
+FROM python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+ARG KUBECTL_VERSION=v1.36.3
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates  && curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"  && curl -fsSLo /tmp/kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256"  && echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c -  && chmod 0755 /usr/local/bin/kubectl && rm -f /tmp/kubectl.sha256  && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements-tools.txt /tmp/requirements-tools.txt
+COPY locks/ /tmp/locks/
+RUN if [ -s /tmp/locks/tools.txt ]; then pip install -r /tmp/requirements-tools.txt -c /tmp/locks/tools.txt; else pip install -r /tmp/requirements-tools.txt; fi  && rm -rf /tmp/locks /tmp/requirements-tools.txt
+COPY tools/ /app/
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app && chown -R root:root /app && chmod -R a-w /app
+USER 10001
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "/app/onboarding-service"]

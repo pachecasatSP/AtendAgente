@@ -1,0 +1,12 @@
+# atendpragente-panel: painel do tenant (tools/tenant-panel). Um pod de painel por tenant (provisionamento dinamico), mesma imagem.
+FROM python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /app
+COPY tools/tenant-panel/requirements.txt /tmp/requirements.txt
+COPY locks/ /tmp/locks/
+RUN if [ -s /tmp/locks/panel.txt ]; then pip install -r /tmp/requirements.txt -c /tmp/locks/panel.txt; else pip install -r /tmp/requirements.txt; fi && rm -rf /tmp/locks /tmp/requirements.txt
+COPY tools/tenant-panel/ /app/
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app && chmod -R a-w /app
+USER 10001
+EXPOSE 8000
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "/app"]

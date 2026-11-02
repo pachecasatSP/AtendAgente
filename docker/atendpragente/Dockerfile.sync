@@ -1,0 +1,10 @@
+# atendpragente-sync: sidecar mongo-sync de cada tenant (espelha as conversas do Hermes no Mongo).
+FROM python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+COPY locks/ /tmp/locks/
+RUN if [ -s /tmp/locks/sync.txt ]; then pip install pymongo boto3 -c /tmp/locks/sync.txt; else pip install pymongo boto3; fi && rm -rf /tmp/locks
+WORKDIR /scripts
+COPY tools/provision-tenant/mongo_sync/sync_conversations.py /scripts/sync_conversations.py
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin app && chmod -R a-w /scripts
+USER 10001
+CMD ["python", "/scripts/sync_conversations.py"]

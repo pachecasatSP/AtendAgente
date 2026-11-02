@@ -1,36 +1,56 @@
 """Backoffice comercial — CRM de leads + apuração de comissão pra
 vendedores/parceiros externos do AtendPraGente (specs/comissao-vendedores.md).
 
-Roda no mesmo servidor da Duda (2.28.15.6, namespace `hermes`), com
-Mongo PRÓPRIO (não o do atendagente) — ver "Topologia de deploy" no
-plano. Qualquer coisa sobre tenant (atribuir vendedor, listar, uso)
-passa pela API HTTP do onboarding-service via `app/onboarding_client.py`,
-nunca por acesso direto ao Mongo do outro cluster.
+Roda no namespace `atendagente-admin` do cluster AWS, com Mongo PRÓPRIO
+(`mongo-backoffice`, não o dos tenants) — ver
+specs/infraestrutura-aws-atendpragente.md. Qualquer coisa sobre tenant
+(atribuir vendedor, listar, uso, ciclo de vida) passa pela API HTTP do
+onboarding-service via `app/onboarding_client.py`, nunca por acesso
+direto ao Mongo dos tenants.
 
 Estilo de código deliberadamente igual ao onboarding-service/tenant-panel:
 FastAPI single-file, sem Pydantic/ODM, documentos Mongo como dicts crus.
 """
+import logging
 import os
 import re
 import secrets
+import threading
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Request
+import httpx
+from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from . import onboarding_client, prospeccao, store
+from . import churn, onboarding_client, prospeccao, ratelimit, store
+
+log = logging.getLogger("backoffice")
 
 PROSPECCAO_CHAMADAS_POR_LOTE = 50
 
 BACKOFFICE_SESSION_SECRET = os.environ["BACKOFFICE_SESSION_SECRET"]
 ADMIN_PIN = os.environ.get("ADMIN_PIN", "")
 SIGNUP_BASE_URL = os.environ.get("SIGNUP_BASE_URL", "https://atendpragente.com.br")
+# Cookie só trafega por HTTPS. Em produção o TLS termina no Traefik, mas o
+# navegador vê https, então o cookie "Secure" funciona. Pra rodar local em
+# http://localhost, exporte SESSION_HTTPS_ONLY=0.
+SESSION_HTTPS_ONLY = os.environ.get("SESSION_HTTPS_ONLY", "1") != "0"
 
 app = FastAPI(title="AtendPraGente — Backoffice Comercial")
-app.add_middleware(SessionMiddleware, secret_key=BACKOFFICE_SESSION_SECRET, session_cookie="backoffice_session")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=BACKOFFICE_SESSION_SECRET,
+    session_cookie="backoffice_session",
+    https_only=SESSION_HTTPS_ONLY,
+    same_site="lax",
+)
+
+# Uma busca manual no Google Places por vez (gasta cota de verdade).
+_busca_em_andamento = threading.Lock()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 
@@ -81,11 +101,18 @@ def require_admin_role(request: Request) -> dict:
     return vendedor
 
 
-def _check_pin(pin: str) -> None:
+def _check_pin(pin: str, vendedor: dict) -> None:
     """Mesmo padrão do admin-mcp — PIN pra ações sensíveis (pausar
-    tenant, etc.), nunca decidido pela IA, só o humano digita."""
-    if not ADMIN_PIN or not secrets.compare_digest(pin, ADMIN_PIN):
+    tenant, etc.), nunca decidido pela IA, só o humano digita. Compara em
+    bytes (PIN com acento não pode virar erro 500) e limita tentativas
+    erradas por admin, pra o PIN não ser adivinhado por força bruta."""
+    chave = f"pin:{vendedor['_id']}"
+    if ratelimit.bloqueado(chave):
+        raise HTTPException(status_code=429, detail="Muitas tentativas de PIN; aguarde alguns minutos")
+    if not ADMIN_PIN or not secrets.compare_digest(pin.encode("utf-8"), ADMIN_PIN.encode("utf-8")):
+        ratelimit.registrar_falha(chave)
         raise HTTPException(status_code=403, detail="PIN inválido")
+    ratelimit.zerar(chave)
 
 
 @app.get("/health")
@@ -104,10 +131,20 @@ def login_page(request: Request, erro: str | None = None):
 
 @app.post("/login", response_class=HTMLResponse)
 def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+    # Chave por IP+usuário: barra força bruta sem deixar um atacante
+    # trancar o usuário de verdade (que entra de outro IP).
+    origem = request.client.host if request.client else "?"
+    chave = f"login:{origem}:{username.strip().lower()}"
+    if ratelimit.bloqueado(chave):
+        return templates.TemplateResponse(
+            request, "login.html", {"erro": "Muitas tentativas. Aguarde alguns minutos e tente de novo."}, status_code=429
+        )
     vendedor = store.get_vendedor_by_username(username.strip())
     if vendedor and vendedor.get("status") == "ativo" and store.verify_password(password, vendedor):
+        ratelimit.zerar(chave)
         request.session["vendedor_id"] = vendedor["_id"]
         return RedirectResponse("/", status_code=303)
+    ratelimit.registrar_falha(chave)
     return templates.TemplateResponse(
         request, "login.html", {"erro": "Usuário ou senha incorretos."}, status_code=400
     )
@@ -124,6 +161,7 @@ def logout(request: Request):
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     vendedor = require_session(request)
+    churn.sincronizar_se_necessario()  # cliente que cancelou não pode continuar somando comissão
     comissao = store.comissao_do_mes(vendedor["_id"])
     bate_bonus = store.bate_gatilho_bonus_rampa(comissao["qtd_clientes_ativos"])
     leads = store.list_leads_by_vendedor(vendedor["_id"])
@@ -240,11 +278,38 @@ def adicionar_comentario_lead(request: Request, lead_id: str, texto: str = Form(
     return RedirectResponse("/", status_code=303)
 
 
+def _atribuir_tenant(vendedor: dict, tenant: dict, origem_venda: str) -> str:
+    """Caminho único de atribuição (manual e por link de vendedor).
+
+    Ordem importa: primeiro valida o preço e reivindica a comissão aqui
+    (atômico, um tenant só é atribuído uma vez), e só então marca o
+    vendedor no onboarding-service. Se esse último passo falha, a
+    comissão recém-criada é desfeita e o erro sobe — nunca fica um lado
+    atribuído e o outro não.
+
+    Devolve "ok", "sem_preco" (plano sem valor de tabela: gratuito,
+    trial, Sem limite) ou "ja_atribuido"."""
+    tenant_id = tenant["tenant_id"]
+    plano = tenant.get("plano") or ""
+    mrr = store.preco_do_plano(plano)
+    if mrr is None:
+        return "sem_preco"
+    atribuicao = store.atribuir_tenant(vendedor["_id"], tenant_id, plano, mrr)
+    if atribuicao is None:
+        return "ja_atribuido"
+    try:
+        onboarding_client.atribuir_vendedor(tenant_id, vendedor["_id"], origem_venda=origem_venda)
+    except Exception:
+        store.desfazer_atribuicao(atribuicao["_id"])
+        raise
+    return "ok"
+
+
 @app.post("/leads/{lead_id}/atribuir-tenant")
 def atribuir_tenant(request: Request, lead_id: str, tenant_id: str = Form(...)):
     """Lead virou cliente de verdade: busca o signup no
-    onboarding-service, marca vendedor_id/origem_venda lá, e trava a
-    comissão aqui na faixa atual do vendedor (specs/comissao-vendedores.md)."""
+    onboarding-service, trava a comissão aqui na faixa atual do vendedor
+    e marca vendedor_id/origem_venda lá (specs/comissao-vendedores.md)."""
     vendedor = require_session(request)
     lead = store.get_lead(lead_id)
     if not lead or lead["vendedor_id"] != vendedor["_id"]:
@@ -255,13 +320,28 @@ def atribuir_tenant(request: Request, lead_id: str, tenant_id: str = Form(...)):
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant não encontrado no onboarding-service")
 
-    onboarding_client.atribuir_vendedor(tenant_id.strip(), vendedor["_id"], origem_venda=f"lead:{lead_id}")
+    # Primeiro toque: tenant já marcado para outro vendedor não é roubado.
+    dono = tenant.get("vendedor_id")
+    if dono and dono != vendedor["_id"]:
+        raise HTTPException(status_code=409, detail="Esse tenant já está atribuído a outro vendedor")
 
-    plano = tenant.get("plano", "")
-    mrr = store.PRECO_POR_PLANO.get(plano)
-    if mrr is None:
-        raise HTTPException(status_code=400, detail=f"Plano '{plano}' sem preço de tabela cadastrado (ex.: plano Sem limite) — atribuir manualmente no Mongo por enquanto")
-    store.atribuir_tenant(vendedor["_id"], tenant_id.strip(), plano, mrr)
+    try:
+        resultado = _atribuir_tenant(vendedor, tenant, origem_venda=f"lead:{lead_id}")
+    except httpx.HTTPError:
+        raise HTTPException(
+            status_code=502,
+            detail="Não consegui registrar o vendedor no onboarding-service; nada foi gravado, tente de novo",
+        )
+    if resultado == "sem_preco":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Plano '{tenant.get('plano')}' sem preço de tabela cadastrado (ex.: gratuito, Sem limite) — nada foi gravado; atribuir manualmente no Mongo por enquanto",
+        )
+    if resultado == "ja_atribuido":
+        existente = store.get_atribuicao(tenant["tenant_id"])
+        if not existente or existente["vendedor_id"] != vendedor["_id"]:
+            raise HTTPException(status_code=409, detail="Esse tenant já está atribuído a outro vendedor")
+        # Já era dele (ex.: o link pessoal atribuiu antes) — só fecha o lead, sem comissão nova.
     store.update_lead_status(lead_id, "fechado")
     return RedirectResponse("/", status_code=303)
 
@@ -302,15 +382,20 @@ def converter_prospeccao(request: Request, place_id: str, cidade: str = Form(...
     prospect = store.get_prospeccao(place_id)
     if not prospect or prospect.get("convertido_lead_id"):
         raise HTTPException(status_code=404, detail="Candidato não encontrado (já convertido por outro vendedor?)")
-    lead_id = store.create_lead(
+    # Primeiro toque: reivindica o candidato de forma atômica ANTES de criar
+    # o lead — dois vendedores clicando juntos não levam o mesmo candidato.
+    lead_id = uuid.uuid4().hex
+    if not store.reivindicar_prospeccao(place_id, lead_id):
+        raise HTTPException(status_code=404, detail="Candidato não encontrado (já convertido por outro vendedor?)")
+    store.create_lead(
         negocio=prospect["negocio"],
         contato=prospect.get("telefone") or "",
         cidade=cidade,
         origem="prospecção automática",
         vendedor_id=vendedor["_id"],
         segmento=store.segmento_para_categoria(prospect.get("categoria", "")),
+        lead_id=lead_id,
     )
-    store.marcar_prospeccao_convertida(place_id, lead_id)
     return RedirectResponse("/prospeccao", status_code=303)
 
 
@@ -326,14 +411,29 @@ def desqualificar_prospeccao(request: Request, place_id: str, motivo: str = Form
     return RedirectResponse("/prospeccao", status_code=303)
 
 
+def _buscar_lote_em_segundo_plano() -> None:
+    try:
+        resultado = prospeccao.buscar_lote(PROSPECCAO_CHAMADAS_POR_LOTE)
+        log.info("busca manual de prospecção concluída: %s", resultado)
+    except Exception:  # noqa: BLE001 — roda fora da requisição; só dá pra registrar
+        log.exception("busca manual de prospecção falhou")
+    finally:
+        _busca_em_andamento.release()
+
+
 @app.post("/admin/prospeccao/buscar-mais")
-def admin_buscar_mais_prospeccoes(request: Request, pin: str = Form(...)):
+def admin_buscar_mais_prospeccoes(request: Request, background: BackgroundTasks, pin: str = Form(...)):
     """Gasta chamadas de Google Places de verdade — PIN-gated pelo
     mesmo motivo das outras ações sensíveis: custo real, decisão
-    humana, nunca automática além do lote diário do CronJob."""
-    require_admin_role(request)
-    _check_pin(pin)
-    prospeccao.buscar_lote(PROSPECCAO_CHAMADAS_POR_LOTE)
+    humana, nunca automática além do lote diário do CronJob.
+
+    São até 50 chamadas HTTP em sequência: roda em segundo plano e a
+    página volta na hora (antes a requisição ficava presa minutos e
+    estourava o tempo do navegador/proxy). Uma busca por vez."""
+    admin = require_admin_role(request)
+    _check_pin(pin, admin)
+    if _busca_em_andamento.acquire(blocking=False):
+        background.add_task(_buscar_lote_em_segundo_plano)
     return RedirectResponse("/prospeccao", status_code=303)
 
 
@@ -342,11 +442,12 @@ def admin_buscar_mais_prospeccoes(request: Request, pin: str = Form(...)):
 @app.get("/admin/vendedores", response_class=HTMLResponse)
 def admin_listar_vendedores(request: Request):
     admin = require_admin_role(request)
+    churn.sincronizar_se_necessario()
     vendedores = store.list_vendedores(status=None)
     dados = []
     for v in vendedores:
         comissao = store.comissao_do_mes(v["_id"])
-        dados.append({**v, "comissao": comissao})
+        dados.append({**v, "comissao": comissao, "churn": store.churn_do_vendedor(v["_id"])})
     return templates.TemplateResponse(request, "admin_vendedores.html", {"vendedores": dados, "vendedor": admin})
 
 
@@ -374,8 +475,8 @@ def admin_criar_vendedor(
 def admin_atualizar_status_vendedor(request: Request, vendedor_id: str, status: str = Form(...), pin: str = Form(...)):
     """Desativar vendedor é ação sensível (fim de linha, seção "regra
     de saída" do spec) — exige PIN, mesmo padrão do admin-mcp."""
-    require_admin_role(request)
-    _check_pin(pin)
+    admin = require_admin_role(request)
+    _check_pin(pin, admin)
     if status not in ("ativo", "inativo"):
         raise HTTPException(status_code=400, detail="Status inválido")
     store.update_vendedor(vendedor_id, status=status)
@@ -401,14 +502,13 @@ def _reconciliar_convites_vendedor(tenants: list[dict]) -> int:
         vendedor = store.get_vendedor_by_slug(slug)
         if not vendedor:
             continue
-        plano = tenant.get("plano", "")
-        mrr = store.PRECO_POR_PLANO.get(plano)
-        if mrr is None:
-            continue
-        onboarding_client.atribuir_vendedor(tenant["tenant_id"], vendedor["_id"], origem_venda="link-vendedor")
-        store.atribuir_tenant(vendedor["_id"], tenant["tenant_id"], plano, mrr)
-        tenant["vendedor_id"] = vendedor["_id"]
-        reconciliados += 1
+        try:
+            resultado = _atribuir_tenant(vendedor, tenant, origem_venda="link-vendedor")
+        except httpx.HTTPError:
+            continue  # onboarding fora do ar: a atribuição foi desfeita, tenta de novo no próximo carregamento
+        if resultado == "ok":
+            tenant["vendedor_id"] = vendedor["_id"]
+            reconciliados += 1
     return reconciliados
 
 
@@ -417,6 +517,7 @@ def admin_listar_tenants(request: Request):
     admin = require_admin_role(request)
     tenants = onboarding_client.listar_tenants()
     reconciliados = _reconciliar_convites_vendedor(tenants)
+    churn.sincronizar_se_necessario()
     return templates.TemplateResponse(
         request, "admin_tenants.html", {"tenants": tenants, "vendedor": admin, "reconciliados": reconciliados}
     )
@@ -440,7 +541,7 @@ def admin_alertas(request: Request):
 
 @app.post("/admin/tenants/{tenant_id}/ativar")
 def admin_ativar_tenant(request: Request, tenant_id: str, enabled: bool = Form(...), pin: str = Form(...)):
-    require_admin_role(request)
-    _check_pin(pin)
+    admin = require_admin_role(request)
+    _check_pin(pin, admin)
     onboarding_client.ativar_tenant(tenant_id, enabled)
     return RedirectResponse("/admin/tenants", status_code=303)

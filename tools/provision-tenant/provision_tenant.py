@@ -312,6 +312,21 @@ def apply_display_defaults(prefix: str) -> None:
     if result.returncode != 0:
         raise ProvisionError(f"hermes config set (approvals.mode) falhou:\n{result.stderr}")
 
+    # Na primeira mensagem de todas, o Hermes (default "ask") troca a
+    # apresentação por uma nota que manda o agente oferecer "montar um
+    # perfil curtinho" do cliente e citar o /help — mecanismo de CLI
+    # vazando pro WhatsApp de atendimento. "off" desliga a oferta; a
+    # menção ao /help que sobra na nota de apresentação é trocada na
+    # imagem (tools/provision-tenant/patch_textos_hermes.py). A memória
+    # de quem já conversou continua funcionando, só não é anunciada.
+    result = subprocess.run(
+        ["kubectl", "-n", NAMESPACE, "exec", f"deploy/{prefix}", "--",
+         "hermes", "config", "set", "onboarding.profile_build", "off"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise ProvisionError(f"hermes config set (onboarding.profile_build) falhou:\n{result.stderr}")
+
 
 def publish_soul(tenant_id: str, config: dict) -> None:
     """Regenera o SOUL.md a partir de `config` e publica no pod do

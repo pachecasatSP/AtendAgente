@@ -40,6 +40,7 @@ def buscar_lote(max_chamadas: int) -> dict:
     novos = 0
     atualizados = 0
     erros = []
+    vistos = set()  # place_id repetido entre termos da mesma rodada não conta duas vezes
     chamadas = 0
     while chamadas < max_chamadas:
         query = QUERY_MATRIX[cursor % total]
@@ -53,7 +54,7 @@ def buscar_lote(max_chamadas: int) -> dict:
                     continue
                 nome = lugar.get("displayName", {}).get("text", "")
                 telefone = lugar.get("nationalPhoneNumber")
-                store.upsert_prospeccao(
+                e_novo = store.upsert_prospeccao(
                     place_id=place_id,
                     negocio=nome,
                     endereco=lugar.get("formattedAddress", ""),
@@ -62,10 +63,16 @@ def buscar_lote(max_chamadas: int) -> dict:
                     telefone=telefone,
                     site=lugar.get("websiteUri"),
                 )
-                novos += 1
+                if place_id in vistos:
+                    continue
+                vistos.add(place_id)
+                if e_novo:
+                    novos += 1
+                else:
+                    atualizados += 1
         except Exception as exc:  # noqa: BLE001 — segue pro próximo termo, não trava o lote
             erros.append(f"{query}: {exc}")
         cursor += 1
         chamadas += 1
     store.set_prospeccao_cursor(cursor)
-    return {"chamadas": chamadas, "resultados_upsertados": novos, "erros": erros}
+    return {"chamadas": chamadas, "novos": novos, "atualizados": atualizados, "erros": erros}
