@@ -989,8 +989,14 @@ button.secondary {
         const resp = await fetch('/painel/api/catalogo/import', { method: 'POST', body: formData });
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.detail || 'Falha no import');
-        const linhas = data.criados.map((c) => `${c.nome} -> ${c.slug}.jpg`).join('\n');
-        resultEl.textContent = `${data.criados.length} produto(s) criado(s). Nomeie as fotos assim:\n${linhas}`;
+        const criados = data.criados || [];
+        const atualizados = (data.atualizados || []).length;
+        const iguais = (data.sem_alteracao || []).length;
+        let msg = `${criados.length} produto(s) novo(s), ${atualizados} atualizado(s), ${iguais} já estava(m) igual(is).`;
+        if (criados.length) {
+          msg += `\nNomeie as fotos dos novos assim:\n${criados.map((c) => `${c.nome} -> ${c.slug}.jpg`).join('\n')}`;
+        }
+        resultEl.textContent = msg;
         resultEl.style.whiteSpace = 'pre-wrap';
       } catch (err) {
         resultEl.textContent = err.message;

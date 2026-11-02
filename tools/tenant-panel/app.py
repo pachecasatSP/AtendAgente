@@ -802,12 +802,49 @@ def api_catalogo_template(request: Request) -> Response:
     )
 
 
+def _preco_do_csv(valor) -> float:
+    try:
+        return float((valor or "0").replace(",", "."))
+    except ValueError:
+        return 0.0
+
+
+def _mudancas_do_import(item: dict, row: dict, nome: str) -> dict:
+    """Campos de um item JÁ existente que a linha do CSV muda de fato.
+    Só colunas presentes na planilha entram (planilha só com nome+preco
+    não apaga descrição); o que não muda fica de fora, então reimportar
+    a mesma planilha não gera escrita nenhuma. Slug, foto e `ativo` não
+    vêm do CSV e nunca são tocados."""
+    novo = {"nome": nome}
+    if "descricao" in row:
+        novo["descricao"] = (row.get("descricao") or "").strip()
+    if "preco" in row:
+        novo["preco"] = _preco_do_csv(row.get("preco"))
+    if "categoria" in row:
+        novo["categoria"] = (row.get("categoria") or "").strip()
+    tipo = item.get("tipo") or "produto"
+    if "tipo" in row:
+        tipo = (row.get("tipo") or "produto").strip().lower()
+        if tipo not in TIPOS_CATALOGO:
+            tipo = "produto"
+    novo["tipo"] = tipo
+    extras = {k: item.get(k) for k in ("data_evento", "horario_atendimento")}
+    extras.update({k: row[k] for k in ("data_evento", "horario_atendimento") if k in row})
+    novo.update(_catalogo_tipo_fields(tipo, extras))
+    return {k: v for k, v in novo.items() if (item.get(k) if item.get(k) is not None else "") != v}
+
+
 @app.post("/painel/api/catalogo/import")
 async def api_importar_catalogo(request: Request, file: UploadFile = File(...)) -> dict:
     """Import em massa via CSV (colunas nome,descricao,preco,categoria,
     tipo,data_evento,horario_atendimento — as três últimas são
-    opcionais) — devolve a lista nome->slug pro cliente nomear as fotos
-    antes do upload em massa (ver /painel/api/catalogo/fotos-bulk)."""
+    opcionais). Reimportar NÃO duplica: a linha cujo nome já existe no
+    catálogo (comparado como o slug: sem acento, caixa ou pontuação)
+    ATUALIZA o item, mantendo slug, foto e `ativo`. Cada item existente
+    casa no máximo uma vez por importação, então nomes repetidos DENTRO
+    da planilha ainda viram itens distintos. Devolve `criados` (com o
+    slug, pro cliente nomear as fotos antes do upload em massa — ver
+    /painel/api/catalogo/fotos-bulk), `atualizados` e `sem_alteracao`."""
     require_session(request)
     raw = await file.read()
     try:
@@ -816,15 +853,26 @@ async def api_importar_catalogo(request: Request, file: UploadFile = File(...)) 
         raise HTTPException(status_code=400, detail="Arquivo precisa estar em UTF-8")
 
     now = datetime.now(timezone.utc)
-    criados = []
+    existentes: dict[str, list[dict]] = {}
+    for it in catalogo_col.find({"tenant_id": TENANT_ID}).sort("criado_em", 1):
+        existentes.setdefault(slugify(it.get("nome", "")), []).append(it)
+
+    criados, atualizados, sem_alteracao = [], [], []
     for row in csv.DictReader(io.StringIO(text)):
         nome = (row.get("nome") or "").strip()
         if not nome:
             continue
-        try:
-            preco = float((row.get("preco") or "0").replace(",", "."))
-        except ValueError:
-            preco = 0.0
+        fila = existentes.get(slugify(nome))
+        if fila:
+            item = fila.pop(0)
+            mudancas = _mudancas_do_import(item, row, nome)
+            if mudancas:
+                catalogo_col.update_one({"_id": item["_id"]}, {"$set": {**mudancas, "atualizado_em": now}})
+                atualizados.append({"nome": nome, "slug": item["slug"]})
+            else:
+                sem_alteracao.append({"nome": nome, "slug": item["slug"]})
+            continue
+        preco = _preco_do_csv(row.get("preco"))
         tipo = (row.get("tipo") or "produto").strip().lower()
         if tipo not in TIPOS_CATALOGO:
             tipo = "produto"
@@ -845,11 +893,12 @@ async def api_importar_catalogo(request: Request, file: UploadFile = File(...)) 
         })
         criados.append({"nome": nome, "slug": slug})
 
-    if not criados:
+    if not (criados or atualizados or sem_alteracao):
         raise HTTPException(status_code=400, detail="Nenhum produto válido encontrado (esperado: coluna 'nome')")
 
-    _mark_catalogo_pending()
-    return {"ok": True, "criados": criados}
+    if criados or atualizados:
+        _mark_catalogo_pending()
+    return {"ok": True, "criados": criados, "atualizados": atualizados, "sem_alteracao": sem_alteracao}
 
 
 @app.get("/painel/api/contatos/template.csv")
