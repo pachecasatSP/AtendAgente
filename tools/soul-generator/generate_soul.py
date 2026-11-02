@@ -91,7 +91,18 @@ def build_catalog_block(config: dict) -> str:
         "sinônimo, mesma resposta. **Espelhe a palavra que o cliente usou** "
         "na sua resposta (se ele pediu \"cardápio\", responda mencionando "
         "\"cardápio\", não \"catálogo\") — soa mais natural pro segmento "
-        "dele do que a palavra genérica.\n"
+        "dele do que a palavra genérica.\n\n"
+        "**Pedido de catálogo, cardápio, lista de produtos ou preços nunca é "
+        "caso de \"não tenho\" nem de encaminhar.** O catálogo existe e está "
+        "em `/opt/data/catalogo.csv`. Nesses casos, **leia o arquivo primeiro** "
+        f"e **mande o link da vitrine** (`{vitrine_url}`); se a pessoa quiser "
+        "só alguns itens, mande nome e preço deles direto na conversa. Antes "
+        "de dizer que não tem uma informação sobre produto, serviço, evento "
+        "ou preço, leia o arquivo — só diga que vai confirmar se, depois de "
+        "ler, o item realmente não estiver lá, ou se a leitura falhar. Para "
+        "esse assunto, esta seção vale mais que \"Não invento\" e que \"Quando "
+        "encaminhar\". Se nesta conversa você já disse que não tinha o "
+        "catálogo, aquilo estava errado: corrija e mande agora.\n"
     )
 
 
