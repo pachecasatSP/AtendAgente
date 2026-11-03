@@ -173,9 +173,18 @@ Testes: `onboarding-service/tests/test_paginas.py` (32 casos: lista fixa e trave
 
 Verificado no navegador com o app real do onboarding e o `store` falso: página inicial (convite usado e desistência) a 1280 px e 390 px; clique no botão da Meta **sem** o SDK (simulado); formulário de ponta a ponta até o último passo (endereço ocupado barra o avanço, depois libera; sugestão de exemplos no passo 5; foco no plano marcado; espaço entre linhas de campos), convite gratuito com 6 passos, Desistir (abrir, foco, Esc), abertura da ajuda de IA; aguardando (provisionando), falha e no ar a 390 px, claro e escuro, sem rolagem lateral. **Não verificado:** o login e o Embedded Signup da Meta de verdade (o clique no botão com o SDK real não foi feito: abre o login do Facebook), o envio do formulário (`POST` real aciona Asaas/provisionamento), a geração de sugestão da ajuda de IA, a busca de CEP (ViaCEP) e o aguardando a recarregar sozinho, o link de convite de teste ("duda"), teclado e leitor de tela, aparelho físico, e as páginas no cluster depois do deploy.
 
+## Atendimento pausado (`tapume.html`)
+
+Feito em 2026-11-04. A tela que aparece quando o WhatsApp do tenant está desligado (`WHATSAPP_CLOUD_ENABLED=false`) em `/painel/login`, `/painel`, `/agenda`, `/pedidos`, `/configuracoes` e `/vitrine`. Tinha emoji 🚧, faixa listrada amarela e preta no topo e no rodapé, fonte do sistema, o jargão "desse tenant" e, principalmente, **o mesmo texto na vitrine**, que é a página do **cliente final da loja**: ele lia "Fale com a AtendPraGente pra reativar o atendimento", recado que é do dono.
+
+- Agora usa `plataforma.css` e `acesso.css` (fontes da marca, tokens, escuro), com um selo de pausa em SVG, e o recado depende de quem abriu (`_render_tapume(request, publico=...)`, que troca as seis chamadas diretas ao template):
+  - **Dono** (painel, agenda, pedidos, configurações, login): "Atendimento pausado", "O atendimento no WhatsApp desta loja está temporariamente desativado.", "Fale com a AtendPraGente para reativar.", botão que abre o WhatsApp da AtendPraGente já com o nome e o código da loja no texto, e "Código da loja: <slug>" para o suporte. Nome da loja no topo, não o slug.
+  - **Cliente final** (vitrine): "Loja temporariamente indisponível. Voltamos em breve. Tente de novo mais tarde.", sem botão nem referência à plataforma.
+- O status HTTP continua 200 (como antes); não troquei por 503 porque o Cloudflare pode substituir o corpo de um 503 pela página dele. `noindex` nas duas.
+- Testes: `test_tapume.py` (8 casos: as cinco telas do dono com recado e link, a vitrine sem o recado do dono, base comum sem emoji/listra/fonte embutida). Suíte do painel: **94 passam**. Verificado no navegador a 390 px, claro e escuro. Não verificado: o link do botão no WhatsApp real e a tela em produção com um tenant realmente pausado.
+
 ## Próximas telas e dívidas
 
-- `tapume.html` (painel pausado) ainda é CSS inline sem as fontes da marca.
 - A tela da configurações é uma página de ~1.100 linhas com script inline (usa Jinja para dois valores): dá para extrair para `configuracoes.js` passando `soul_apply_minutes` e `catalogo_apply_minutes` por `data-*`.
 - O `backoffice` (`tools/comercial-backoffice`, `_base.html`, interno da equipe comercial) tem a própria base de CSS e não foi tocado.
 - O motor de customização da loja (ver acima) precisa de: onde gravar o layout/tokens por loja (`signups.config`), validação de cores (contraste) e fallback para a identidade da plataforma.

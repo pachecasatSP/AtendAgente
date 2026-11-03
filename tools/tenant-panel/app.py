@@ -205,6 +205,14 @@ def setup_submit(
     return RedirectResponse("/painel", status_code=303)
 
 
+def _render_tapume(request: Request, publico: bool = False):
+    """Tela de atendimento pausado (WHATSAPP_CLOUD_ENABLED=false). `publico`: quem abriu foi o cliente final da loja (vitrine), não o dono: o recado
+    de "fale com a AtendPraGente pra reativar" é do dono e não faz sentido pra ele."""
+    return templates.TemplateResponse(
+        request, "tapume.html", {"tenant_id": TENANT_ID, "nome_negocio": _nome_negocio_tenant(), "publico": publico}
+    )
+
+
 def _render_login(request: Request, *, erro: str | None = None, username: str = "", not_configured: bool = False, status_code: int = 200):
     return templates.TemplateResponse(
         request,
@@ -218,7 +226,7 @@ def _render_login(request: Request, *, erro: str | None = None, username: str = 
 def login_page(request: Request):
     # Sem parâmetro `erro` na URL: ninguém o usava e deixava qualquer link mostrar texto à escolha dentro da caixa de erro do login.
     if not TENANT_ENABLED:
-        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+        return _render_tapume(request)
     if request.session.get("username"):
         return RedirectResponse("/painel")
     return _render_login(request, not_configured=_get_auth_doc() is None)
@@ -320,7 +328,7 @@ templates.env.globals["url_estilo"] = url_estilo
 @app.get("/painel", response_class=HTMLResponse)
 def panel_shell(request: Request):
     if not TENANT_ENABLED:
-        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+        return _render_tapume(request)
     if not request.session.get("username"):
         return RedirectResponse("/painel/login")
     signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
@@ -473,7 +481,7 @@ def _catalogo_itens_view() -> list[dict]:
 @app.get("/configuracoes", response_class=HTMLResponse)
 def configuracoes_page(request: Request):
     if not TENANT_ENABLED:
-        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+        return _render_tapume(request)
     if not request.session.get("username"):
         return RedirectResponse("/painel/login")
 
@@ -1106,7 +1114,7 @@ def vitrine(request: Request):
     categoria — cada tipo sua própria seção, mesma ordem de
     TIPO_ORDEM."""
     if not TENANT_ENABLED:
-        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+        return _render_tapume(request, publico=True)
 
     itens = list(catalogo_col.find({"tenant_id": TENANT_ID, "ativo": True}).sort("categoria", 1))
     secoes: dict[str, dict[str, list[dict]]] = {}
@@ -1309,7 +1317,7 @@ PEDIDOS_PAGINA_TAMANHO = 20
 @app.get("/pedidos", response_class=HTMLResponse)
 def pedidos_page(request: Request):
     if not TENANT_ENABLED:
-        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+        return _render_tapume(request)
     if not request.session.get("username"):
         return RedirectResponse("/painel/login")
     return templates.TemplateResponse(request, "pedidos.html", {"tenant_id": TENANT_ID, "nome_negocio": _nome_negocio_tenant()})
@@ -1724,7 +1732,7 @@ def api_salvar_agenda(request: Request, payload: dict) -> dict:
 @app.get("/agenda", response_class=HTMLResponse)
 def agenda_page(request: Request):
     if not TENANT_ENABLED:
-        return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
+        return _render_tapume(request)
     if not request.session.get("username"):
         return RedirectResponse("/painel/login")
     return templates.TemplateResponse(request, "agenda.html", {"tenant_id": TENANT_ID, "nome_negocio": _nome_negocio_tenant()})
