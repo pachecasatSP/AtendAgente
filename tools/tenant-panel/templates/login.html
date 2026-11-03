@@ -1,127 +1,11 @@
 <!doctype html>
 <html lang="pt-br">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
+{% include "_cabeca.html" %}
 <title>Entrar — {{ nome_negocio }}</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='124' fill='%231FAE5C'/%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%23FFFCF5' stroke-width='44'/%3E%3Cpath d='M 166 210 C 180 120, 312 120, 330 215' fill='none' stroke='%23FFFCF5' stroke-width='34' stroke-linecap='round'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%23FFFCF5'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%23FFFCF5'/%3E%3Cpath d='M 330 215 C 400 235, 400 320, 270 365' fill='none' stroke='%23FFFCF5' stroke-width='28' stroke-linecap='round'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%23FFC93C'/%3E%3C/svg%3E">
-<link rel="preload" href="/painel/fonte/baloo2-800.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/painel/fonte/nunito-var.woff2" as="font" type="font/woff2" crossorigin>
-<style>
-@font-face { font-family: 'Baloo 2'; font-style: normal; font-weight: 800; font-display: swap; src: url(/painel/fonte/baloo2-800.woff2) format('woff2'); }
-@font-face { font-family: 'Nunito'; font-style: normal; font-weight: 300 900; font-display: swap; src: url(/painel/fonte/nunito-var.woff2) format('woff2'); }
-
-:root {
-  /* paleta da plataforma (a mesma da vitrine) */
-  --paper: #FFFCF5; --paper-card: #FFFFFF; --paper-soft: #FFF6E2; --leaf-pale: #E3F7EA;
-  --ink: #17231D; --ink-soft: #4A5A50; --ink-faint: #6B776F; --line: #E4E0D0;
-  --leaf: #1FAE5C; --leaf-deep: #0E7A3D; --spark: #FFC93C;
-
-  /* camada semântica: é aqui que o motor de customização vai mexer */
-  --fundo: var(--paper);
-  --superficie: var(--paper-card);
-  --texto: var(--ink);
-  --texto-suave: var(--ink-soft);
-  --borda: var(--line);
-  --borda-campo: #7A857E;            /* 3,9:1 sobre o fundo: o campo é visível (a --line não passa de 1,3:1) */
-  --acao: var(--leaf-deep);          /* texto branco sobre #0E7A3D = 5,9:1 */
-  --acao-texto: #FFFFFF;
-  --foco: var(--spark);
-  --erro: #AE3321; --erro-fundo: #FDECEA;
-  --fonte-titulo: 'Baloo 2', ui-rounded, 'Segoe UI Rounded', system-ui, sans-serif;
-  --fonte-corpo: 'Nunito', ui-rounded, system-ui, 'Segoe UI', sans-serif;
-  --raio-cartao: 12px;
-  --raio-controle: 10px;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
-    --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #93A398; --line: #24352B;
-    --borda-campo: #6C8174; --acao: #35C878; --acao-texto: #08150E; --foco: #FFD666;
-    --erro: #FF8A75; --erro-fundo: #3A1712;
-  }
-}
-:root[data-theme="dark"] {
-  --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
-  --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #93A398; --line: #24352B;
-  --borda-campo: #6C8174; --acao: #35C878; --acao-texto: #08150E; --foco: #FFD666;
-  --erro: #FF8A75; --erro-fundo: #3A1712;
-}
-
-*, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body {
-  margin: 0; min-height: 100vh; min-height: 100dvh;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.75rem;
-  padding: 2rem 1.25rem; background: var(--fundo); color: var(--texto);
-  font-family: var(--fonte-corpo); font-weight: 500; line-height: 1.5;
-}
-:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
-
-.marca { display: flex; align-items: center; gap: .75rem; width: 100%; max-width: 400px; }
-.marca svg { width: 44px; height: 44px; flex-shrink: 0; }
-.marca p { margin: 0; }
-.loja { font-family: var(--fonte-titulo); font-weight: 800; font-size: 1.35rem; line-height: 1.15; overflow-wrap: anywhere; }
-.plataforma { font-size: .8rem; color: var(--texto-suave); font-weight: 700; }
-
-.cartao {
-  width: 100%; max-width: 400px; padding: 1.75rem 1.5rem;
-  background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio-cartao);
-}
-h1 { font-family: var(--fonte-titulo); font-weight: 800; font-size: 1.3rem; line-height: 1.2; margin: 0 0 1.25rem; }
-
-.erro, .aviso { margin: 0 0 1.1rem; padding: .7rem .9rem; border-radius: var(--raio-controle); font-size: .9rem; font-weight: 700; }
-.erro { background: var(--erro-fundo); color: var(--erro); border-left: 4px solid var(--erro); }
-.aviso { background: var(--paper-soft); color: var(--texto-suave); font-weight: 600; border-left: 4px solid var(--spark); }
-
-.campo { margin-bottom: 1rem; }
-label { display: block; margin-bottom: .3rem; font-weight: 800; font-size: .9rem; }
-input {
-  display: block; width: 100%; min-height: 48px; padding: 0 .85rem;
-  background: var(--superficie); color: var(--texto); border: 1.5px solid var(--borda-campo); border-radius: var(--raio-controle);
-  font: inherit; font-size: 1rem;            /* 16px: abaixo disso o iPhone dá zoom ao focar */
-}
-input:focus { outline: 3px solid var(--foco); outline-offset: 1px; border-color: var(--texto); }
-.senha { position: relative; }
-.senha input { padding-right: 5.5rem; }
-.ver {
-  position: absolute; top: 0; right: 0; min-height: 48px; padding: 0 .9rem; border: 0; background: transparent;
-  color: var(--acao); font: inherit; font-size: .88rem; font-weight: 800; cursor: pointer; border-radius: var(--raio-controle);
-}
-.ver[hidden] { display: none; }
-
-.entrar {
-  display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; margin-top: 1.4rem;
-  border: 0; border-radius: var(--raio-controle); background: var(--acao); color: var(--acao-texto);
-  font: inherit; font-size: 1rem; font-weight: 800; cursor: pointer;
-}
-.entrar:hover { filter: brightness(1.08); }
-.entrar:active { transform: translateY(1px); }
-.entrar:disabled { opacity: .7; cursor: progress; }
-
-.ajuda { margin: 1.1rem 0 0; font-size: .88rem; color: var(--texto-suave); font-weight: 600; text-align: center; }
-.ajuda a { color: var(--acao); font-weight: 800; }
-.so-leitor { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-@media (max-width: 420px) { .cartao { padding: 1.5rem 1.15rem; } }
-</style>
 </head>
 <body>
-  <header class="marca">
-    <svg viewBox="0 0 512 512" aria-hidden="true">
-      <rect width="512" height="512" rx="124" fill="var(--leaf)"/>
-      <circle cx="246" cy="225" r="80" fill="none" stroke="var(--paper-card)" stroke-width="44"/>
-      <path d="M 166 210 C 180 120, 312 120, 330 215" fill="none" stroke="var(--paper-card)" stroke-width="34" stroke-linecap="round"/>
-      <circle cx="166" cy="215" r="34" fill="var(--paper-card)"/>
-      <circle cx="330" cy="215" r="34" fill="var(--paper-card)"/>
-      <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="var(--paper-card)" stroke-width="28" stroke-linecap="round"/>
-      <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
-    </svg>
-    <div>
-      <p class="loja">{{ nome_negocio }}</p>
-      <p class="plataforma">Painel · AtendPraGente</p>
-    </div>
-  </header>
+  {% include "_marca.html" %}
 
   <main class="cartao">
     <h1>Entrar no painel</h1>
@@ -129,7 +13,7 @@ input:focus { outline: 3px solid var(--foco); outline-offset: 1px; border-color:
     <p class="aviso" role="status">Esse painel ainda não tem usuário cadastrado. Use o link de configuração que você recebeu no fim do cadastro.</p>
     {% endif %}
     {% if erro %}<p class="erro" role="alert">{{ erro }}</p>{% endif %}
-    <form method="post" action="/painel/login" id="form-login">
+    <form method="post" action="/painel/login" data-envio="Entrando…">
       <div class="campo">
         <label for="username">Usuário</label>
         <input id="username" type="text" name="username" value="{{ username or '' }}" required
@@ -139,33 +23,15 @@ input:focus { outline: 3px solid var(--foco); outline-offset: 1px; border-color:
         <label for="password">Senha</label>
         <div class="senha">
           <input id="password" type="password" name="password" required autocomplete="current-password"{% if username %} autofocus{% endif %}>
-          <button class="ver" type="button" id="ver-senha" aria-controls="password" aria-pressed="false" hidden>Mostrar</button>
+          <button class="ver" type="button" data-ver-senha="password" aria-controls="password" aria-pressed="false" hidden>Mostrar</button>
         </div>
       </div>
-      <button class="entrar" type="submit" id="entrar">Entrar</button>
+      <button class="entrar" type="submit">Entrar</button>
     </form>
     <p class="ajuda">Esqueceu a senha?
       <a href="https://wa.me/5511920081743?text={{ ('Oi! Esqueci a senha do meu painel AtendPraGente (tenant: ' + tenant_id + ').') | urlencode }}" target="_blank" rel="noopener">Fale com a gente no WhatsApp<span class="so-leitor"> (abre em outra aba)</span></a>.
     </p>
   </main>
-
-<script>
-(function () {
-  var senha = document.getElementById('password');
-  var ver = document.getElementById('ver-senha');
-  var entrar = document.getElementById('entrar');
-  ver.hidden = false;                     // sem JS o botão fica escondido e o login funciona igual
-  ver.addEventListener('click', function () {
-    var mostrar = senha.type === 'password';
-    senha.type = mostrar ? 'text' : 'password';
-    ver.textContent = mostrar ? 'Ocultar' : 'Mostrar';
-    ver.setAttribute('aria-pressed', mostrar ? 'true' : 'false');
-  });
-  document.getElementById('form-login').addEventListener('submit', function () {
-    entrar.disabled = true; entrar.textContent = 'Entrando…';
-  });
-  window.addEventListener('pageshow', function () { entrar.disabled = false; entrar.textContent = 'Entrar'; });
-})();
-</script>
+  <script src="{{ url_estilo('plataforma.js') }}" defer></script>
 </body>
 </html>

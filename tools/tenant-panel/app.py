@@ -139,15 +139,32 @@ def require_session(request: Request) -> str:
     return username
 
 
+def _nome_negocio_tenant() -> str:
+    """Nome da loja pras telas de acesso (públicas, como a vitrine); cai no tenant_id se o cadastro não tiver."""
+    try:
+        signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"}) or {}
+    except Exception:
+        signup = {}
+    return (signup.get("config") or {}).get("nome_negocio") or TENANT_ID
+
+
+def _render_setup(request: Request, *, token: str, erro: str | None = None, username: str = "", status_code: int = 200):
+    return templates.TemplateResponse(
+        request,
+        "setup.html",
+        {"tenant_id": TENANT_ID, "nome_negocio": _nome_negocio_tenant(), "token": token, "erro": erro, "username": username},
+        status_code=status_code,
+    )
+
+
 @app.get("/painel/setup", response_class=HTMLResponse)
-def setup_page(request: Request, token: str = "", erro: str | None = None):
+def setup_page(request: Request, token: str = ""):
+    # Sem parâmetro `erro` na URL (mesmo motivo do login): o erro só existe na resposta do POST.
     if _get_auth_doc() is not None:
         return RedirectResponse("/painel/login")
     if not secrets_module.compare_digest(token, PANEL_SETUP_TOKEN):
         raise HTTPException(status_code=403, detail="Link de configuração inválido ou já usado")
-    return templates.TemplateResponse(
-        request, "setup.html", {"tenant_id": TENANT_ID, "token": token, "erro": erro}
-    )
+    return _render_setup(request, token=token)
 
 
 @app.post("/painel/setup", response_class=HTMLResponse)
@@ -159,12 +176,7 @@ def setup_submit(
     password_confirm: str = Form(...),
 ):
     def erro_de_volta(msg: str) -> HTMLResponse:
-        return templates.TemplateResponse(
-            request,
-            "setup.html",
-            {"tenant_id": TENANT_ID, "token": token, "erro": msg},
-            status_code=400,
-        )
+        return _render_setup(request, token=token, erro=msg, username=username.strip(), status_code=400)
 
     if _get_auth_doc() is not None:
         return RedirectResponse("/painel/login", status_code=303)
@@ -191,15 +203,6 @@ def setup_submit(
     )
     request.session["username"] = username
     return RedirectResponse("/painel", status_code=303)
-
-
-def _nome_negocio_tenant() -> str:
-    """Nome da loja pra tela de login (pública, como a vitrine); cai no tenant_id se o cadastro não tiver."""
-    try:
-        signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"}) or {}
-    except Exception:
-        signup = {}
-    return (signup.get("config") or {}).get("nome_negocio") or TENANT_ID
 
 
 def _render_login(request: Request, *, erro: str | None = None, username: str = "", not_configured: bool = False, status_code: int = 200):
@@ -285,6 +288,23 @@ FONTES_VITRINE = {
     "nunito-var.woff2": os.path.join(os.path.dirname(__file__), "static", "fontes", "nunito-var.woff2"),
 }
 VITRINE_LAYOUTS = ("lista", "grade")
+# CSS/JS comum das telas de acesso (login, criação de usuário), mesma ideia das fontes: lista fixa, cache de 1 ano e `?v=<hash>` pra trocar o endereço
+# quando o arquivo muda. Fica em /painel/estilo (não em /vitrine) porque o painel da Duda (modo admin) usa as mesmas telas.
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+ESTILOS_PLATAFORMA = {
+    "plataforma.css": (os.path.join(_STATIC_DIR, "plataforma.css"), "text/css; charset=utf-8"),
+    "plataforma.js": (os.path.join(_STATIC_DIR, "plataforma.js"), "text/javascript; charset=utf-8"),
+}
+
+
+def url_estilo(nome: str) -> str:
+    caminho, _ = ESTILOS_PLATAFORMA[nome]
+    with open(caminho, "rb") as f:
+        versao = hashlib.sha256(f.read()).hexdigest()[:10]
+    return f"/painel/estilo/{nome}?v={versao}"
+
+
+templates.env.globals["url_estilo"] = url_estilo
 
 
 @app.get("/painel", response_class=HTMLResponse)
@@ -1109,6 +1129,15 @@ def vitrine(request: Request):
          "tipos_compraveis": list(TIPOS_COMPRAVEIS), "layout": layout, "contato_wa": contato_wa,
          "total_itens": sum(s["total"] for s in secoes_ordenadas)},
     )
+
+
+@app.get("/painel/estilo/{nome}")
+def painel_estilo(nome: str) -> Response:
+    """Pública. Só os arquivos de ESTILOS_PLATAFORMA; qualquer outro nome é 404."""
+    item = ESTILOS_PLATAFORMA.get(nome)
+    if not item or not os.path.isfile(item[0]):
+        raise HTTPException(status_code=404, detail="Não encontrado")
+    return FileResponse(item[0], media_type=item[1], headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.get("/vitrine/fonte/{nome}")
