@@ -193,15 +193,32 @@ def setup_submit(
     return RedirectResponse("/painel", status_code=303)
 
 
+def _nome_negocio_tenant() -> str:
+    """Nome da loja pra tela de login (pública, como a vitrine); cai no tenant_id se o cadastro não tiver."""
+    try:
+        signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"}) or {}
+    except Exception:
+        signup = {}
+    return (signup.get("config") or {}).get("nome_negocio") or TENANT_ID
+
+
+def _render_login(request: Request, *, erro: str | None = None, username: str = "", not_configured: bool = False, status_code: int = 200):
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {"tenant_id": TENANT_ID, "nome_negocio": _nome_negocio_tenant(), "erro": erro, "username": username, "not_configured": not_configured},
+        status_code=status_code,
+    )
+
+
 @app.get("/painel/login", response_class=HTMLResponse)
-def login_page(request: Request, erro: str | None = None):
+def login_page(request: Request):
+    # Sem parâmetro `erro` na URL: ninguém o usava e deixava qualquer link mostrar texto à escolha dentro da caixa de erro do login.
     if not TENANT_ENABLED:
         return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
     if request.session.get("username"):
         return RedirectResponse("/painel")
-    if _get_auth_doc() is None:
-        return templates.TemplateResponse(request, "login.html", {"tenant_id": TENANT_ID, "erro": None, "not_configured": True})
-    return templates.TemplateResponse(request, "login.html", {"tenant_id": TENANT_ID, "erro": erro, "not_configured": False})
+    return _render_login(request, not_configured=_get_auth_doc() is None)
 
 
 @app.post("/painel/login", response_class=HTMLResponse)
@@ -210,12 +227,7 @@ def login_submit(request: Request, username: str = Form(...), password: str = Fo
     if doc and secrets_module.compare_digest(username.strip(), doc["username"]) and _verify_password(password, doc):
         request.session["username"] = doc["username"]
         return RedirectResponse("/painel", status_code=303)
-    return templates.TemplateResponse(
-        request,
-        "login.html",
-        {"tenant_id": TENANT_ID, "erro": "Usuário ou senha incorretos.", "not_configured": False},
-        status_code=400,
-    )
+    return _render_login(request, erro="Usuário ou senha incorretos.", username=username.strip(), status_code=400)
 
 
 @app.get("/painel/logout")
@@ -1100,6 +1112,7 @@ def vitrine(request: Request):
 
 
 @app.get("/vitrine/fonte/{nome}")
+@app.get("/painel/fonte/{nome}")  # a tela de login também usa; no modo admin /vitrine é bloqueado, /painel/fonte não
 def vitrine_fonte(nome: str) -> Response:
     """Pública. Só os arquivos de FONTES_VITRINE; qualquer outro nome é 404."""
     caminho = FONTES_VITRINE.get(nome)
