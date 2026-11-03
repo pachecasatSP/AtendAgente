@@ -53,3 +53,13 @@ input:focus { outline: 3px solid var(--foco); outline-offset: 1px; border-color:
 .lead { margin: -.6rem 0 1.25rem; color: var(--texto-suave); font-size: .95rem; }
 .dica { margin: .3rem 0 0; font-size: .82rem; color: var(--texto-suave); font-weight: 600; }
 .campo input:user-invalid { border-color: var(--erro); }
+
+/* atendimento pausado (tapume.html) */
+.pausa { text-align: center; }
+.pausa .selo { width: 52px; height: 52px; margin: 0 auto 1rem; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--aviso-fundo); color: var(--aviso-texto); }
+.pausa .selo .icone { width: 26px; height: 26px; fill: currentColor; stroke: none; }
+.pausa h1 { margin-bottom: .6rem; }
+.pausa .lead { margin: 0 0 .5rem; }
+.pausa .btn { width: 100%; min-height: 48px; margin-top: 1rem; font-size: 1rem; }
+.pausa .codigo { margin: 1.1rem 0 0; font-size: .82rem; color: var(--texto-suave); font-weight: 700; }
+.marca.so-nome { justify-content: center; }
