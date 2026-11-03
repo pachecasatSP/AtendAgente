@@ -70,17 +70,24 @@ def test_sem_cadastro_a_marca_cai_no_tenant_id(monkeypatch):
     assert 'class="loja">loja-teste<' in cli.get("/painel/login").text
 
 
+def css_da_pagina(cli, html):
+    href = re.search(r'href="(/painel/estilo/plataforma\.css\?v=[0-9a-f]{10})"', html).group(1)
+    r = cli.get(href)
+    assert r.status_code == 200
+    return r.text
+
+
 def test_sem_contorno_no_texto_e_sem_botao_amarelo_com_brilho(cli):
-    html = cli.get("/painel/login").text
-    assert "text-stroke" not in html
-    assert "var(--acao)" in html and "255,201,60" not in html
+    css = css_da_pagina(cli, cli.get("/painel/login").text)
+    assert "text-stroke" not in css
+    assert "var(--acao)" in css and "255,201,60" not in css
 
 
 def test_campos_com_autocomplete_e_fonte_de_16px(cli):
     html = cli.get("/painel/login").text
     assert 'autocomplete="username"' in html and 'autocomplete="current-password"' in html
     assert 'autocapitalize="none"' in html and 'spellcheck="false"' in html
-    assert re.search(r"input\s*\{[^}]*font-size:\s*1rem", html)
+    assert re.search(r"input\s*\{[^}]*font-size:\s*1rem", css_da_pagina(cli, html))
     assert 'for="username"' in html and 'for="password"' in html
 
 
@@ -115,4 +122,4 @@ def test_painel_sem_usuario_mostra_aviso_e_nao_alerta(monkeypatch):
 
 def test_botao_mostrar_senha_so_aparece_com_js(cli):
     html = cli.get("/painel/login").text
-    assert re.search(r'id="ver-senha"[^>]*\bhidden\b', html)  # sem JS fica escondido e o formulario funciona igual
+    assert re.search(r'data-ver-senha="password"[^>]*\bhidden\b', html)  # sem JS fica escondido e o formulario funciona igual

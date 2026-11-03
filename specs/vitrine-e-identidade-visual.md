@@ -85,10 +85,24 @@ Testes: `tools/tenant-panel/tests/test_login.py` (13 casos: sem base64, rota de 
 
 Verificado no navegador com o app real e Mongo falso: claro e escuro a 1280 px, 390 px em `iframe`, erro com usuário devolvido e cursor na senha, mostrar/ocultar senha, fontes carregadas por arquivo. **Não verificado:** aparelho físico, teclado virtual do iOS (zoom), gerenciador de senhas real, leitor de tela, nome de loja muito longo, o login no painel da Duda em produção.
 
-Fica para a próxima tela: `setup.html` (criação de usuário) repete o mesmo CSS inline; ao redesenhá-la, extrair a base comum (tokens, cartão, campos, botão) para um arquivo servido pela mesma rota de fontes, em vez de copiar de novo. `login`, `setup`, `index`, `form`, `signup`, `done` e `aguardando` ainda embutem fonte em base64 (`login` já saiu).
+## Criação de usuário (`/painel/setup`) e base comum das telas de acesso
+
+Feita em 2026-11-03, depois do login. `setup.html` tinha o mesmo CSS inline do login (e os mesmos problemas): 77 KB de fonte em base64, marca "AtendPraGente" sem a loja, botão amarelo com brilho, campos de 15 px sem `autocomplete`, placeholder como única instrução ("mínimo 8 caracteres" sumia ao digitar), nenhuma dica nem checagem da confirmação antes do envio, usuário apagado no erro e `?erro=` na URL (exigia token válido, então o risco era pequeno, mas não era usado).
+
+- **Base comum em arquivo:** `static/plataforma.css` (tokens de duas camadas, cartão, campos, botão, erro/aviso) e `static/plataforma.js` (mostrar/ocultar senha, checagem da confirmação, "Entrando…"/"Criando…" ao enviar), mais as partes `_cabeca.html` e `_marca.html`. `login.html` e `setup.html` só têm o que é próprio de cada tela. O motor de customização troca a camada semântica **num lugar só**.
+- **Rota pública `GET /painel/estilo/{nome}`** (lista fixa de dois nomes, `Cache-Control: public, max-age=31536000, immutable`, 404 para qualquer outro). O endereço leva `?v=<sha256 do arquivo, 10 caracteres>` (`url_estilo()`, global do Jinja), então uma mudança no arquivo troca o endereço e ninguém fica com CSS velho em cache. Fica sob `/painel` (não `/vitrine`) porque o painel da Duda usa as mesmas telas.
+- **Criação de usuário:** `autocomplete="new-password"` nos dois campos de senha (o gerenciador de senhas sugere uma senha forte), dica visível "Pelo menos 8 caracteres." ligada por `aria-describedby`, mostrar/ocultar nos dois campos, e a confirmação avisa "As senhas não são iguais." antes do envio (`setCustomValidity`). A validação do servidor continua igual e é a que vale.
+- **Erro do servidor:** `role="alert"`, usuário devolvido (escapado), cursor na senha, token preservado no formulário.
+- `<meta name="referrer" content="no-referrer">` e `noindex` nas duas telas: o link de `/painel/setup?token=...` carrega o token na URL.
+- `?erro=` removido de `GET /painel/setup`.
+- Contrato preservado: `GET /painel/setup?token=` (403 com token errado, redireciona ao login se já existe usuário), `POST /painel/setup` (`token`, `username`, `password`, `password_confirm`), 303 para `/painel`, 400 com a página no erro.
+
+Testes: `test_setup.py` (13 casos: sem base64 e marca da loja, atributos dos campos, referrer/noindex, 403 e redirecionamento, `?erro=` ignorado, os três erros de validação com usuário devolvido, escape, criação e entrada, rota de estilos e traversal, hash no endereço, modo admin) e `test_login.py` ajustado para ler o CSS do arquivo. Suíte do painel: **54 passam**.
+
+Verificado no navegador com o app real e Mongo falso: criação completa (cai no painel), confirmação diferente barrada com a mensagem, erro do servidor com cursor na senha, escuro a 1280 px, 390 px em `iframe`, CSS/JS/fontes carregados por arquivo. **Não verificado:** aparelho físico, gerenciador de senhas real (a sugestão de senha forte), leitor de tela, o painel da Duda em produção.
 
 ## Próximas telas e dívidas
 
-- **Fontes em base64** nas outras telas (~75 KB em cada `index`, `setup`, `signup`, `form`, `done`, `aguardando`; `login` já saiu): trocar pela rota de arquivo cacheável. Fora deste PR, porque mexe em telas autenticadas.
-- Painel, login, criação de usuário e onboarding: repetir o método (levantar com o navegador, tokens, ensaios, depois o template real).
+- **Fontes em base64** nas outras telas (~75 KB em cada `index`, `signup`, `form`, `done`, `aguardando`; `login` e `setup` já saíram): trocar pela rota de arquivo e, no que for comum, pela base `plataforma.css`.
+- Painel (`index.html`, ainda com o slug em verde com contorno na barra lateral), onboarding (`signup`, `form`, `done`, `aguardando`, em outro serviço, `onboarding-service`, que precisará da própria rota de arquivos): repetir o método (levantar com o navegador, tokens, ensaios, depois o template real).
 - O motor de customização precisa de: onde gravar o layout/tokens por loja (`signups.config`), validação de cores (contraste), e fallback para a identidade da plataforma.
