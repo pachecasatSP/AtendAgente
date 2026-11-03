@@ -1,0 +1,29 @@
+/* Agenda (/agenda): semana. Celular = um dia por linha; a partir de 900 px = sete colunas. */
+.semana-nav { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
+.semana-botoes { display: flex; gap: .5rem; }
+.semana-rotulo { margin: 0; font-size: 1.05rem; }
+.semana { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+.dia { display: grid; grid-template-columns: 4.2rem minmax(0, 1fr); gap: .25rem .75rem; align-items: start; padding-top: .75rem; border-top: 1px solid var(--borda); }
+.dia:first-child { border-top: 0; padding-top: 0; }
+.dia-cab { display: flex; flex-direction: column; align-items: center; line-height: 1.15; padding: .35rem 0; border-radius: var(--raio-controle); font-weight: 800; font-size: .78rem; color: var(--texto-suave); text-transform: uppercase; letter-spacing: .03em; }
+.dia-cab .num { font-family: var(--fonte-titulo); font-size: 1.35rem; color: var(--texto); text-transform: none; letter-spacing: 0; }
+.dia.hoje .dia-cab { background: var(--acao); color: var(--acao-texto); }
+.dia.hoje .dia-cab .num { color: var(--acao-texto); }
+.dia-eventos { display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+.dia-vazio { margin: 0; padding: .6rem 0; font-size: .85rem; color: var(--texto-suave); font-weight: 600; }
+.evento { display: flex; flex-direction: column; gap: .3rem; padding: .6rem .75rem; border: 1px solid var(--borda); border-radius: var(--raio-controle); background: var(--fundo); min-width: 0; }
+.evento-hora { font-weight: 800; font-size: .85rem; color: var(--acao); font-variant-numeric: tabular-nums; }
+.evento-titulo { margin: 0; font-weight: 700; font-size: .95rem; overflow-wrap: anywhere; }
+.evento-acoes { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .75rem; margin-top: .15rem; }
+.evento-link { color: var(--acao); font-weight: 800; font-size: .85rem; }
+.evento .btn { flex-shrink: 1; max-width: 100%; min-height: 40px; font-size: .85rem; white-space: normal; text-align: center; line-height: 1.2; padding: .4rem .75rem; }
+.evento { overflow: hidden; }
+
+@media (min-width: 900px) {
+  .semana { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .6rem; }
+  .dia { display: flex; flex-direction: column; gap: .5rem; padding-top: 0; border-top: 0; }
+  .dia-cab { flex-direction: column; border-bottom: 2px solid var(--borda); border-radius: 0; padding: 0 0 .4rem; background: transparent; }
+  .dia.hoje .dia-cab { background: transparent; color: var(--acao); border-bottom-color: var(--acao); }
+  .dia.hoje .dia-cab .num { color: var(--acao); }
+  .dia-vazio { text-align: center; padding: .3rem 0; }
+}

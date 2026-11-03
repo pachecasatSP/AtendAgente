@@ -1,257 +1,34 @@
 <!doctype html>
 <html lang="pt-br">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agenda — Painel {{ tenant_id }}</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='124' fill='%231FAE5C'/%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%23FFFCF5' stroke-width='44'/%3E%3Cpath d='M 166 210 C 180 120, 312 120, 330 215' fill='none' stroke='%23FFFCF5' stroke-width='34' stroke-linecap='round'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%23FFFCF5'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%23FFFCF5'/%3E%3Cpath d='M 330 215 C 400 235, 400 320, 270 365' fill='none' stroke='%23FFFCF5' stroke-width='28' stroke-linecap='round'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%23FFC93C'/%3E%3C/svg%3E">
-<style>
-:root {
-  --paper: #FFFCF5; --paper-card: #FFFFFF; --paper-soft: #FFF6E2; --leaf-pale: #E3F7EA;
-  --ink: #17231D; --ink-soft: #4A5A50; --ink-faint: #8A9690;
-  --leaf: #1FAE5C; --leaf-deep: #0E7A3D; --spark: #FFC93C; --line: #E4E0D0;
-  --error: #C0392B; --error-bg: #FBE9E7; --danger: #D64545; --danger-bg: #FCE9E8;
-  --font-display: ui-rounded, 'Segoe UI Rounded', 'Baloo 2', sans-serif;
-  --font-body: ui-rounded, 'Segoe UI', 'Nunito', sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
-    --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
-    --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
-    --error: #FF8A75; --error-bg: #3A1712; --danger: #FF8A75; --danger-bg: #3A1712;
-  }
-}
-:root[data-theme="dark"] {
-  --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
-  --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
-  --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
-  --error: #FF8A75; --error-bg: #3A1712; --danger: #FF8A75; --danger-bg: #3A1712;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
-  font-family: var(--font-body); font-weight: 500; line-height: 1.5;
-  padding: 2.5rem 1.25rem 5rem; display: flex; flex-direction: column; align-items: center;
-}
-.top { width: 100%; max-width: 980px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.6rem; }
-.brand { display: inline-flex; align-items: center; gap: 0.55rem; }
-.brand-mark { width: 30px; height: 30px; flex-shrink: 0; }
-.brand-word { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; color: var(--ink); }
-.brand-word .pra { color: var(--leaf-deep); }
-.back-link { color: var(--ink-faint); text-decoration: none; font-weight: 800; font-size: 0.85rem; }
-.back-link:hover { color: var(--leaf-deep); }
-.card {
-  background: var(--paper-card); border: 1px solid var(--line); border-radius: 20px;
-  padding: 1.8rem; max-width: 980px; width: 100%; margin-bottom: 1.5rem;
-  box-shadow: 0 20px 50px -30px rgba(23,35,29,0.2);
-}
-h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; margin: 0 0 0.35rem; }
-.lead { color: var(--ink-soft); margin: 0 0 1.2rem; font-size: 0.92rem; }
-.hint { font-weight: 500; color: var(--ink-faint); font-size: 0.85rem; text-align: center; padding: 1.5rem 0; }
-.banner { padding: 0.7rem 0.9rem; border-radius: 10px; margin-bottom: 1.2rem; font-weight: 700; font-size: 0.86rem; }
-.banner.erro { background: var(--error-bg); color: var(--error); }
-.week-nav { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
-.week-nav-buttons { display: flex; gap: 0.5rem; align-items: center; }
-.week-nav button {
-  font-family: var(--font-body); font-weight: 800; font-size: 0.85rem; cursor: pointer;
-  background: var(--paper-soft); color: var(--ink); border: 1px solid var(--line); border-radius: 999px;
-  padding: 0.45rem 0.9rem;
-}
-.week-nav button:hover { border-color: var(--leaf); color: var(--leaf-deep); }
-.week-label { font-family: var(--font-display); font-weight: 800; font-size: 1rem; }
-.week-scroll { overflow-x: auto; }
-.week-grid { display: grid; grid-template-columns: repeat(7, minmax(130px, 1fr)); gap: 0.6rem; min-width: 910px; }
-.day-col { display: flex; flex-direction: column; gap: 0.4rem; }
-.day-header {
-  text-align: center; font-weight: 800; font-size: 0.78rem; color: var(--ink-faint);
-  padding-bottom: 0.4rem; border-bottom: 2px solid var(--line); text-transform: uppercase; letter-spacing: 0.03em;
-}
-.day-header .num { display: block; font-family: var(--font-display); font-size: 1.15rem; color: var(--ink); text-transform: none; letter-spacing: 0; margin-top: 0.1rem; }
-.day-col.hoje .day-header { color: var(--leaf-deep); border-color: var(--leaf); }
-.day-col.hoje .day-header .num { color: var(--leaf-deep); }
-.evento-chip {
-  display: flex; flex-direction: column; gap: 0.1rem; padding: 0.5rem 0.6rem;
-  border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
-  text-decoration: none; color: var(--ink); font-size: 0.78rem;
-}
-.evento-chip:hover { border-color: var(--leaf); background: var(--leaf-pale); }
-.evento-hora { font-weight: 800; color: var(--leaf-deep); font-size: 0.72rem; }
-.evento-titulo { font-weight: 700; }
-.evento-status {
-  align-self: flex-start; font-size: 0.66rem; font-weight: 800; padding: 0.1rem 0.45rem;
-  border-radius: 999px; margin-top: 0.1rem;
-}
-.evento-status.aguardando { background: #fff3d6; color: #8a6100; }
-.evento-status.confirmado { background: #dcf5e3; color: #1c6b3a; }
-.evento-status.recusado { background: #fde2e2; color: #a12525; }
-.evento-confirmar-btn {
-  align-self: flex-start; margin-top: 0.1rem; font-size: 0.66rem; font-weight: 800;
-  padding: 0.15rem 0.5rem; border-radius: 999px; border: 1px solid var(--leaf);
-  background: var(--paper); color: var(--leaf-deep); cursor: pointer;
-}
-.evento-confirmar-btn:hover { background: var(--leaf-pale); }
-.evento-confirmar-btn:disabled { opacity: 0.6; cursor: default; }
-.day-vazio { font-size: 0.72rem; color: var(--ink-faint); text-align: center; padding: 0.4rem 0; }
-[hidden] { display: none !important; }
-</style>
+{% include "_cabeca.html" %}
+<link rel="stylesheet" href="{{ url_estilo('interno.css') }}">
+<link rel="stylesheet" href="{{ url_estilo('agenda.css') }}">
+<title>Agenda — {{ nome_negocio }}</title>
 </head>
-<body>
-  <div class="top">
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
-        <rect x="0" y="0" width="512" height="512" rx="124" fill="var(--leaf)"/>
-        <circle cx="246" cy="225" r="80" fill="none" stroke="var(--paper-card)" stroke-width="44"/>
-        <path d="M 166 210 C 180 120, 312 120, 330 215" fill="none" stroke="var(--paper-card)" stroke-width="34" stroke-linecap="round"/>
-        <circle cx="166" cy="215" r="34" fill="var(--paper-card)"/>
-        <circle cx="330" cy="215" r="34" fill="var(--paper-card)"/>
-        <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="var(--paper-card)" stroke-width="28" stroke-linecap="round"/>
-        <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
-      </svg>
-      <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
-    </div>
-    <a href="/painel" class="back-link">&larr; Voltar pras conversas</a>
-  </div>
+<body class="interno" style="--largura: 1180px">
+  <div class="pagina">
+    {% include "_topo_interno.html" %}
 
-  <div class="card">
-    <h1>Agenda</h1>
-    <p class="lead">Compromissos marcados pelo bot na sua Google Agenda, por semana.</p>
+    <main class="card">
+      <h1>Agenda</h1>
+      <p class="lead">Compromissos marcados pelo bot na sua Google Agenda, por semana.</p>
 
-    <div class="week-nav">
-      <div class="week-nav-buttons">
-        <button type="button" id="week-prev">&larr; Anterior</button>
-        <button type="button" id="week-hoje">Hoje</button>
-        <button type="button" id="week-next">Próxima &rarr;</button>
+      <div class="semana-nav">
+        <div class="semana-botoes">
+          <button type="button" class="btn contorno" id="week-prev">Anterior</button>
+          <button type="button" class="btn contorno" id="week-hoje">Hoje</button>
+          <button type="button" class="btn contorno" id="week-next">Próxima</button>
+        </div>
+        <h2 class="semana-rotulo" id="week-label" aria-live="polite"></h2>
       </div>
-      <span class="week-label" id="week-label"></span>
-    </div>
 
-    <div id="agenda-erro" class="banner erro" hidden></div>
-    <div class="week-scroll">
-      <div id="week-grid" class="week-grid"></div>
-    </div>
+      <div id="agenda-erro" class="banner erro" role="alert" hidden></div>
+      <p id="agenda-carregando" class="vazio" role="status" hidden>Carregando…</p>
+      <div id="week-grid" class="semana" aria-label="Compromissos da semana"></div>
+    </main>
   </div>
-
-  <script>
-    const DIAS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
-    let semanaOffset = 0;
-
-    function fmtData(d) {
-      return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-    }
-
-    const STATUS_LABEL = {
-      aguardando_confirmacao: ['aguardando', 'Aguardando confirmação'],
-      confirmado: ['confirmado', 'Confirmado'],
-      recusado: ['recusado', 'Pediu remarcação'],
-    };
-
-    async function enviarConfirmacao(agendamentoId, btn) {
-      btn.disabled = true;
-      btn.textContent = 'Enviando…';
-      try {
-        const resp = await fetch('/painel/api/agenda/confirmar', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agendamento_id: agendamentoId }),
-        });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) throw new Error(data.detail || 'Não consegui mandar a confirmação.');
-        carregarSemana();
-      } catch (err) {
-        alert(err.message);
-        btn.disabled = false;
-        btn.textContent = 'Confirmar';
-      }
-    }
-
-    async function carregarSemana() {
-      const gridEl = document.getElementById('week-grid');
-      const erroEl = document.getElementById('agenda-erro');
-      const labelEl = document.getElementById('week-label');
-      erroEl.hidden = true;
-      gridEl.innerHTML = '<p class="hint">Carregando…</p>';
-
-      try {
-        const resp = await fetch(`/painel/api/agenda/eventos?semana=${semanaOffset}`);
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.detail || 'Não consegui buscar os eventos.');
-
-        const inicio = new Date(data.semana_inicio + 'T00:00:00');
-        const fim = new Date(data.semana_fim + 'T00:00:00');
-        labelEl.textContent = `${fmtData(inicio)} – ${fmtData(fim)}`;
-
-        const hojeStr = new Date().toISOString().slice(0, 10);
-        const porDia = {};
-        for (let i = 0; i < 7; i++) {
-          const d = new Date(inicio);
-          d.setDate(d.getDate() + i);
-          porDia[d.toISOString().slice(0, 10)] = [];
-        }
-        (data.eventos || []).forEach((ev) => {
-          if (!ev.inicio) return;
-          const chave = ev.inicio.slice(0, 10);
-          if (porDia[chave]) porDia[chave].push(ev);
-        });
-
-        gridEl.innerHTML = '';
-        Object.keys(porDia).forEach((chave, i) => {
-          const d = new Date(chave + 'T00:00:00');
-          const col = document.createElement('div');
-          col.className = 'day-col' + (chave === hojeStr ? ' hoje' : '');
-          const header = document.createElement('div');
-          header.className = 'day-header';
-          header.innerHTML = `${DIAS[i]}<span class="num">${d.getDate()}</span>`;
-          col.appendChild(header);
-
-          const eventosDia = porDia[chave].sort((a, b) => a.inicio.localeCompare(b.inicio));
-          if (!eventosDia.length) {
-            const vazio = document.createElement('div');
-            vazio.className = 'day-vazio';
-            vazio.textContent = '—';
-            col.appendChild(vazio);
-          } else {
-            eventosDia.forEach((ev) => {
-              const chip = document.createElement(ev.link_evento ? 'a' : 'div');
-              chip.className = 'evento-chip';
-              if (ev.link_evento) { chip.href = ev.link_evento; chip.target = '_blank'; chip.rel = 'noopener'; }
-              const hora = new Date(ev.inicio).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-              chip.innerHTML = `<span class="evento-hora">${hora}</span><span class="evento-titulo"></span>`;
-              chip.querySelector('.evento-titulo').textContent = ev.titulo;
-              const statusInfo = STATUS_LABEL[ev.status];
-              if (statusInfo) {
-                const statusEl = document.createElement('span');
-                statusEl.className = `evento-status ${statusInfo[0]}`;
-                statusEl.textContent = statusInfo[1];
-                chip.appendChild(statusEl);
-              } else if (ev.status === 'agendado' && ev.tem_contato && ev.id) {
-                const confirmarBtn = document.createElement('button');
-                confirmarBtn.type = 'button';
-                confirmarBtn.className = 'evento-confirmar-btn';
-                confirmarBtn.textContent = 'Confirmar';
-                confirmarBtn.addEventListener('click', (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  enviarConfirmacao(ev.id, confirmarBtn);
-                });
-                chip.appendChild(confirmarBtn);
-              }
-              col.appendChild(chip);
-            });
-          }
-          gridEl.appendChild(col);
-        });
-      } catch (err) {
-        gridEl.innerHTML = '';
-        erroEl.textContent = err.message;
-        erroEl.hidden = false;
-      }
-    }
-
-    document.getElementById('week-prev').addEventListener('click', () => { semanaOffset -= 1; carregarSemana(); });
-    document.getElementById('week-next').addEventListener('click', () => { semanaOffset += 1; carregarSemana(); });
-    document.getElementById('week-hoje').addEventListener('click', () => { semanaOffset = 0; carregarSemana(); });
-    carregarSemana();
-  </script>
+  <script src="{{ url_estilo('interno.js') }}" defer></script>
+  <script src="{{ url_estilo('agenda.js') }}" defer></script>
 </body>
 </html>

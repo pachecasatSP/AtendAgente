@@ -1,0 +1,57 @@
+/* Configurações (/configuracoes): só o que é desta tela. Base em plataforma.css e interno.css. */
+.conn-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem 1rem; margin: 0; font-size: .88rem; color: var(--texto-suave); }
+.conn-info strong { color: var(--texto); font-weight: 800; margin-right: .2rem; }
+.conn-info code { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: .82rem; background: var(--paper-soft); padding: .05rem .35rem; border-radius: 5px; }
+.numero-linha { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .75rem; margin-bottom: .6rem; }
+.numero-texto { flex: 1; min-width: 160px; font-weight: 700; overflow-wrap: anywhere; }
+.numero-linha button { margin-top: 0; min-height: 40px; }
+
+/* texto livre no formato "um por linha: a | b | c": fonte monoespaçada alinha as colunas */
+textarea { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 1rem; }
+
+/* ajuda de IA nos campos difíceis */
+.ai-assist-btn { margin-top: .5rem; min-height: 40px; padding: 0 .9rem; font-size: .85rem; background: transparent; color: var(--acao); border-color: var(--acao); }
+.ai-assist-btn:hover { background: var(--acao-suave); filter: none; }
+.ai-assist-box { margin-top: .6rem; padding: .85rem .9rem; background: var(--fundo); border: 1px solid var(--borda); border-radius: var(--raio-cartao); }
+.ai-assist-box input.ai-assist-hint { margin: 0 0 .6rem; }
+.ai-assist-gerar, .ai-assist-usar { margin-top: 0; min-height: 40px; font-size: .88rem; }
+.ai-assist-descartar { margin-top: 0; min-height: 40px; font-size: .88rem; background: transparent; color: var(--texto-suave); border-color: var(--borda-campo); }
+.ai-assist-erro { margin: .6rem 0 0; font-size: .85rem; font-weight: 700; color: var(--erro); }
+.ai-assist-resultado { margin-top: .7rem; }
+.ai-assist-texto { margin: 0 0 .6rem; font-size: .92rem; white-space: pre-wrap; background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio-controle); padding: .6rem .75rem; }
+.ai-assist-acoes { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+/* catálogo */
+.produto-list { display: flex; flex-direction: column; gap: .6rem; margin: 1rem 0 1.4rem; }
+.produto-row { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem .8rem; padding: .65rem .75rem; border: 1px solid var(--borda); border-radius: var(--raio-cartao); background: var(--fundo); }
+.produto-row.inativo { border-style: dashed; }
+.produto-row.inativo .produto-nome { color: var(--texto-suave); }
+.produto-thumb { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--acao-suave); color: var(--acao); font-family: var(--fonte-titulo); font-weight: 800; font-size: 1rem; }
+.produto-info { flex: 1 1 160px; min-width: 0; }
+.produto-nome { font-weight: 800; font-size: .95rem; margin: 0; overflow-wrap: anywhere; }
+.produto-meta { font-size: .82rem; color: var(--texto-suave); margin: .1rem 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.produto-acoes { display: flex; flex-wrap: wrap; gap: .4rem; flex-shrink: 0; margin-left: auto; }
+.produto-acoes button, .produto-acoes .foto-upload-btn {
+  position: relative; margin: 0; min-height: 40px; padding: 0 .75rem; display: inline-flex; align-items: center; gap: .35rem;
+  background: transparent; color: var(--texto); border: 1.5px solid var(--borda-campo); border-radius: var(--raio-controle);
+  font: inherit; font-size: .85rem; font-weight: 800; cursor: pointer;
+}
+.produto-acoes button:hover, .produto-acoes .foto-upload-btn:hover { border-color: var(--acao); color: var(--acao); background: var(--acao-suave); filter: none; }
+.produto-acoes button.excluir { color: var(--erro); }
+.produto-acoes button.excluir:hover { border-color: var(--erro); background: var(--erro-fundo); color: var(--erro); }
+.produto-acoes .foto-upload-btn:focus-within { outline: 3px solid var(--foco); outline-offset: 2px; }
+@media (max-width: 520px) { .produto-acoes { width: 100%; margin-left: 0; } }
+.produto-paginacao { display: flex; align-items: center; justify-content: center; gap: .9rem; margin: -.4rem 0 1.4rem; }
+.produto-paginacao button { margin: 0; min-height: 40px; padding: 0 .9rem; font-size: .85rem; background: transparent; color: var(--acao); }
+.produto-paginacao button:hover { background: var(--acao-suave); filter: none; }
+.produto-paginacao-info { font-size: .85rem; color: var(--texto-suave); font-weight: 700; }
+
+/* seletores de arquivo: o <input> fica visualmente escondido mas continua focável pelo teclado */
+.foto-upload-btn input[type=file], .file-upload input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.file-upload { position: relative; display: flex; align-items: center; gap: .6rem; margin-top: .4rem; flex-wrap: wrap; }
+.file-upload-btn { display: inline-flex; align-items: center; gap: .4rem; min-height: 44px; padding: 0 1rem; cursor: pointer; background: transparent; color: var(--acao); border: 1.5px solid var(--acao); border-radius: var(--raio-controle); font-weight: 800; font-size: .9rem; white-space: nowrap; }
+.file-upload:hover .file-upload-btn { background: var(--acao-suave); }
+.file-upload:focus-within .file-upload-btn { outline: 3px solid var(--foco); outline-offset: 2px; }
+.file-upload-btn svg { width: 1em; height: 1em; flex-shrink: 0; }
+.file-upload-name { font-size: .85rem; color: var(--texto-suave); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.bulk-result { font-size: .88rem; color: var(--texto-suave); margin-top: .5rem; font-weight: 600; }

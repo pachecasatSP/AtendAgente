@@ -1,197 +1,19 @@
 <!doctype html>
 <html lang="pt-br">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Configurações — Painel {{ tenant_id }}</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='124' fill='%231FAE5C'/%3E%3Ccircle cx='246' cy='225' r='80' fill='none' stroke='%23FFFCF5' stroke-width='44'/%3E%3Cpath d='M 166 210 C 180 120, 312 120, 330 215' fill='none' stroke='%23FFFCF5' stroke-width='34' stroke-linecap='round'/%3E%3Ccircle cx='166' cy='215' r='34' fill='%23FFFCF5'/%3E%3Ccircle cx='330' cy='215' r='34' fill='%23FFFCF5'/%3E%3Cpath d='M 330 215 C 400 235, 400 320, 270 365' fill='none' stroke='%23FFFCF5' stroke-width='28' stroke-linecap='round'/%3E%3Ccircle cx='270' cy='365' r='24' fill='%23FFC93C'/%3E%3C/svg%3E">
-<style>
-:root {
-  --paper: #FFFCF5; --paper-card: #FFFFFF; --paper-soft: #FFF6E2; --leaf-pale: #E3F7EA;
-  --ink: #17231D; --ink-soft: #4A5A50; --ink-faint: #8A9690;
-  --leaf: #1FAE5C; --leaf-deep: #0E7A3D; --spark: #FFC93C; --line: #E4E0D0;
-  --error: #C0392B; --error-bg: #FBE9E7; --danger: #D64545; --danger-bg: #FCE9E8;
-  --font-display: ui-rounded, 'Segoe UI Rounded', 'Baloo 2', sans-serif;
-  --font-body: ui-rounded, 'Segoe UI', 'Nunito', sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
-    --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
-    --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
-    --error: #FF8A75; --error-bg: #3A1712; --danger: #FF8A75; --danger-bg: #3A1712;
-  }
-}
-:root[data-theme="dark"] {
-  --paper: #0F1B15; --paper-card: #182920; --paper-soft: #16261D; --leaf-pale: #1A3324;
-  --ink: #F3F6F1; --ink-soft: #C9D6CC; --ink-faint: #7C8B81;
-  --leaf: #35C878; --leaf-deep: #7EE3AC; --spark: #FFD666; --line: #24352B;
-  --error: #FF8A75; --error-bg: #3A1712; --danger: #FF8A75; --danger-bg: #3A1712;
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink);
-  font-family: var(--font-body); font-weight: 500; line-height: 1.6;
-  padding: 2.5rem 1.25rem 5rem; display: flex; flex-direction: column; align-items: center;
-}
-.top { width: 100%; max-width: 640px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.6rem; }
-.brand { display: inline-flex; align-items: center; gap: 0.55rem; }
-.brand-mark { width: 30px; height: 30px; flex-shrink: 0; }
-.brand-word { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; color: var(--ink); }
-.brand-word .pra { color: var(--leaf-deep); }
-.back-link { color: var(--ink-faint); text-decoration: none; font-weight: 800; font-size: 0.85rem; }
-.back-link:hover { color: var(--leaf-deep); }
-.card {
-  background: var(--paper-card); border: 1px solid var(--line); border-radius: 20px;
-  padding: 1.8rem 1.8rem 2rem; max-width: 640px; width: 100%; margin-bottom: 1.5rem;
-  box-shadow: 0 20px 50px -30px rgba(23,35,29,0.2);
-}
-h1 { font-family: var(--font-display); font-weight: 800; font-size: 1.25rem; margin: 0 0 0.35rem; }
-h2 { font-family: var(--font-display); font-weight: 800; font-size: 1.05rem; margin: 0 0 0.35rem; }
-.lead { color: var(--ink-soft); margin: 0 0 1.4rem; font-size: 0.92rem; }
-.tenant-tag { font-weight: 800; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--leaf-deep); margin-bottom: 0.4rem; }
-.banner { padding: 0.7rem 0.9rem; border-radius: 10px; margin-bottom: 1.2rem; font-weight: 700; font-size: 0.86rem; }
-.banner.pending { background: var(--paper-soft); color: var(--ink-soft); border: 1px solid var(--line); }
-.banner.erro { background: var(--error-bg); color: var(--error); }
-.banner.ok { background: var(--leaf-pale); color: var(--leaf-deep); }
-.soul-status { display: flex; align-items: center; gap: 0.55rem; padding: 0.6rem 0.85rem; border-radius: 10px; background: var(--paper-soft); border: 1px solid var(--line); margin-bottom: 0.3rem; font-weight: 700; font-size: 0.86rem; color: var(--ink-soft); }
-.soul-status-dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex-shrink: 0; background: var(--ink-faint); }
-.soul-status-dot.ok { background: var(--leaf); }
-.soul-status-dot.pending { background: var(--spark); animation: pulse 1.4s ease-in-out infinite; }
-.soul-status-dot.erro { background: var(--danger); }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-fieldset { border: none; padding: 0; margin: 0 0 1.4rem; }
-legend { font-family: var(--font-display); font-weight: 800; font-size: 0.95rem; margin-bottom: 0.5rem; padding: 0; }
-[hidden] { display: none !important; }
-label { display: block; margin-top: 1rem; font-weight: 800; font-size: 0.88rem; }
-label:first-of-type { margin-top: 0; }
-.checkbox-row { display: flex; align-items: center; gap: 0.5rem; }
-.checkbox-row input[type=checkbox] { width: auto; margin: 0; }
-
-.ai-assist-btn {
-  margin: 0.4rem 0 0; padding: 0.35rem 0.7rem; font-family: var(--font-body); font-weight: 700; font-size: 0.78rem;
-  background: var(--leaf-pale); color: var(--leaf-deep); border: none; border-radius: 999px; cursor: pointer;
-}
-.ai-assist-btn:hover { filter: brightness(0.96); }
-.ai-assist-box { margin-top: 0.6rem; padding: 0.8rem 0.9rem; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
-.ai-assist-hint {
-  width: 100%; box-sizing: border-box; font-family: var(--font-body); font-size: 0.86rem; padding: 0.5rem 0.7rem;
-  border: 1px solid var(--line); border-radius: 8px; margin: 0 0 0.6rem; background: var(--paper-card); color: var(--ink);
-}
-.ai-assist-gerar {
-  margin: 0; font-family: var(--font-body); font-weight: 700; font-size: 0.82rem; padding: 0.45rem 0.9rem;
-  background: var(--leaf); color: #fff; border: none; border-radius: 999px; cursor: pointer;
-}
-.ai-assist-erro { margin: 0.6rem 0 0; font-size: 0.8rem; font-weight: 700; color: var(--error); }
-.ai-assist-resultado { margin-top: 0.7rem; }
-.ai-assist-texto {
-  margin: 0 0 0.6rem; font-size: 0.86rem; white-space: pre-wrap; background: var(--paper-card); border: 1px solid var(--line);
-  border-radius: 8px; padding: 0.6rem 0.7rem;
-}
-.ai-assist-acoes { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-.ai-assist-usar, .ai-assist-descartar {
-  margin: 0; font-family: var(--font-body); font-weight: 700; font-size: 0.8rem; padding: 0.4rem 0.8rem; border-radius: 999px; cursor: pointer;
-}
-.ai-assist-usar { background: var(--leaf); color: #fff; border: none; }
-.ai-assist-descartar { background: var(--paper-card); color: var(--ink-soft); border: 1px solid var(--line); }
-.hint { font-weight: 500; color: var(--ink-faint); font-size: 0.78rem; margin-top: 0.2rem; }
-.conn-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.9rem; margin: 0; font-size: 0.68rem; color: var(--ink-soft); }
-.conn-info strong { color: var(--ink-faint); font-weight: 700; margin-right: 0.2rem; }
-.conn-info code { font-family: 'Courier New', monospace; font-size: 0.64rem; background: var(--paper); padding: 0.05rem 0.3rem; border-radius: 5px; }
-input[type=text], input[type=date], select, textarea {
-  width: 100%; padding: 0.6rem 0.75rem; margin-top: 0.35rem;
-  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
-  border-radius: 10px; box-sizing: border-box; font-family: inherit; font-size: 0.94rem;
-}
-textarea { resize: vertical; min-height: 4.5rem; font-family: 'Courier New', monospace; font-size: 0.85rem; }
-input:focus, select:focus, textarea:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
-.row { display: flex; gap: 0.8rem; align-items: flex-end; }
-.row > label { flex: 1; min-width: 0; margin-top: 0; }
-.row > label.field-narrow { flex: 0 0 96px; }
-@media (max-width: 420px) {
-  .row { flex-direction: column; gap: 0; align-items: stretch; }
-  .row > label.field-narrow { flex: 1; }
-  .produto-acoes { width: 100%; margin-left: 0; justify-content: flex-end; }
-  .produto-acoes button, .produto-acoes .foto-upload-btn { padding: 0.35rem 0.5rem; }
-}
-button {
-  margin-top: 1.4rem; font-family: var(--font-body); font-weight: 800; font-size: 0.95rem;
-  padding: 0.7rem 1.4rem; background: var(--spark); color: #211500; border: none; border-radius: 999px;
-  cursor: pointer; box-shadow: 0 12px 26px -12px rgba(255,201,60,0.7); transition: transform 0.15s ease;
-}
-button:hover { transform: translateY(-2px); }
-button:disabled { opacity: 0.6; cursor: default; transform: none; }
-.danger-card { border-color: var(--danger); }
-.danger-card h2 { color: var(--danger); }
-button.danger {
-  background: var(--danger-bg); color: var(--danger); box-shadow: none; border: 1px solid var(--danger);
-}
-a.vitrine-link { color: var(--leaf-deep); font-weight: 800; text-decoration: none; }
-a.vitrine-link:hover { text-decoration: underline; }
-button.secondary {
-  background: var(--paper-soft); color: var(--ink); box-shadow: none; border: 1px solid var(--line);
-  padding: 0.55rem 1rem; font-size: 0.85rem;
-}
-.produto-list { display: flex; flex-direction: column; gap: 0.6rem; margin: 1rem 0 1.6rem; }
-.produto-row {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 0.8rem; padding: 0.6rem 0.7rem;
-  border: 1px solid var(--line); border-radius: 12px; background: var(--paper);
-}
-.produto-row.inativo { opacity: 0.55; }
-.produto-paginacao { display: flex; align-items: center; justify-content: center; gap: 0.9rem; margin: -0.6rem 0 1.6rem; }
-.produto-paginacao button {
-  margin-top: 0; font-family: inherit; font-weight: 800; font-size: 0.82rem; cursor: pointer; padding: 0.4rem 0.9rem;
-  border-radius: 999px; border: 1px solid var(--line); background: var(--paper); color: var(--ink);
-  box-shadow: none;
-}
-.produto-paginacao button:disabled { opacity: 0.45; cursor: default; }
-.produto-paginacao-info { font-size: 0.8rem; color: var(--ink-faint); font-weight: 700; }
-.produto-thumb {
-  width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: var(--paper-soft);
-  flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
-}
-.produto-info { flex: 1 1 160px; min-width: 0; }
-.produto-nome { font-weight: 800; font-size: 0.9rem; margin: 0; }
-.produto-meta { font-size: 0.78rem; color: var(--ink-faint); margin: 0.1rem 0 0; }
-.produto-acoes { display: flex; flex-wrap: wrap; gap: 0.4rem; flex-shrink: 0; margin-left: auto; }
-.produto-acoes button, .produto-acoes .foto-upload-btn {
-  margin: 0; padding: 0.4rem 0.6rem; font-size: 0.78rem; background: var(--paper-soft); color: var(--ink-soft);
-  box-shadow: none; border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 0.3rem; line-height: 1;
-}
-.produto-acoes button.excluir { color: var(--danger); }
-.produto-acoes .foto-upload-btn:hover, .file-upload:hover .file-upload-btn { border-color: var(--leaf); color: var(--leaf-deep); }
-.produto-acoes .foto-upload-btn input[type=file], .file-upload input[type=file] { display: none; }
-.file-upload { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.4rem; flex-wrap: wrap; }
-.file-upload-btn {
-  display: inline-flex; align-items: center; gap: 0.4rem; cursor: pointer;
-  background: var(--paper-soft); color: var(--ink); border: 1px solid var(--line); border-radius: 999px;
-  padding: 0.5rem 1.1rem; font-weight: 800; font-size: 0.85rem; white-space: nowrap; transition: border-color 0.15s ease, color 0.15s ease;
-}
-.file-upload-btn svg { width: 1em; height: 1em; flex-shrink: 0; }
-.file-upload-name { font-size: 0.8rem; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bulk-result { font-size: 0.82rem; color: var(--ink-soft); margin-top: 0.5rem; }
-</style>
+{% include "_cabeca.html" %}
+<link rel="stylesheet" href="{{ url_estilo('interno.css') }}">
+<link rel="stylesheet" href="{{ url_estilo('configuracoes.css') }}">
+<title>Configurações — {{ nome_negocio }}</title>
 </head>
-<body>
-  <div class="top">
-    <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
-        <rect x="0" y="0" width="512" height="512" rx="124" fill="var(--leaf)"/>
-        <circle cx="246" cy="225" r="80" fill="none" stroke="var(--paper-card)" stroke-width="44"/>
-        <path d="M 166 210 C 180 120, 312 120, 330 215" fill="none" stroke="var(--paper-card)" stroke-width="34" stroke-linecap="round"/>
-        <circle cx="166" cy="215" r="34" fill="var(--paper-card)"/>
-        <circle cx="330" cy="215" r="34" fill="var(--paper-card)"/>
-        <path d="M 330 215 C 400 235, 400 320, 270 365" fill="none" stroke="var(--paper-card)" stroke-width="28" stroke-linecap="round"/>
-        <circle cx="270" cy="365" r="24" fill="var(--spark)"/>
-      </svg>
-      <span class="brand-word">Atend<span class="pra">Pra</span>Gente</span>
-    </div>
-    <a href="/painel" class="back-link">&larr; Voltar pras conversas</a>
-  </div>
+<body class="interno" style="--largura: 680px">
+  <div class="pagina">
+  {% include "_topo_interno.html" %}
+  <nav class="secoes" aria-label="Seções da página">
+    <a href="#whatsapp">WhatsApp</a><a href="#atendente">Atendente</a><a href="#catalogo">Catálogo</a><a href="#contatos">Contatos</a><a href="#agenda">Agenda</a><a href="#assinatura">Assinatura</a>
+  </nav>
 
-  <div class="card">
-    <div class="tenant-tag">{{ tenant_id }}</div>
+  <div class="card" id="whatsapp">
     <h2>Conexão do WhatsApp</h2>
     <div class="conn-info">
       <span class="conn-item"><strong>Número:</strong> {{ whatsapp_numero or "não disponível" }}</span>
@@ -216,8 +38,7 @@ button.secondary {
     </div>
   </div>
 
-  <div class="card">
-    <div class="tenant-tag">{{ tenant_id }}</div>
+  <div class="card" id="atendente">
     <h1>Configurações do atendente</h1>
     <p class="lead">Ajuste como o bot fala e pra quem ele transfere a conversa. As mudanças não aparecem na hora — elas entram numa fila e são publicadas em até <strong>{{ soul_apply_minutes }} minutos</strong>.</p>
 
@@ -244,7 +65,7 @@ button.secondary {
           <textarea name="tom_descricao" required maxlength="600">{{ tom_descricao }}</textarea>
           <div class="hint">Ex: "Português do Brasil, tom cordial e direto."</div>
         </label>
-        <button type="button" class="ai-assist-btn" data-field="tom_descricao">✨ Ajudar a escrever</button>
+        <button type="button" class="ai-assist-btn" data-field="tom_descricao">Ajudar a escrever</button>
         <div class="ai-assist-box" data-for="tom_descricao" hidden>
           <input type="text" class="ai-assist-hint" placeholder="ex: descontraído mas profissional">
           <button type="button" class="ai-assist-gerar">Gerar sugestão</button>
@@ -283,7 +104,7 @@ button.secondary {
         <label>Um por linha: nome | descrição | público-alvo (opcional)
           <textarea name="servicos" required rows="4">{{ servicos }}</textarea>
         </label>
-        <button type="button" class="ai-assist-btn" data-field="servicos">✨ Ajudar a escrever</button>
+        <button type="button" class="ai-assist-btn" data-field="servicos">Ajudar a escrever</button>
         <div class="ai-assist-box" data-for="servicos" hidden>
           <input type="text" class="ai-assist-hint" placeholder="ex: corto cabelo e faço barba, atendo em domicílio">
           <button type="button" class="ai-assist-gerar">Gerar sugestão</button>
@@ -304,7 +125,7 @@ button.secondary {
           <textarea name="como_trabalhamos" rows="4">{{ como_trabalhamos }}</textarea>
           <div class="hint">Ex: "Prazo: normalmente respondemos em até 1 dia útil"</div>
         </label>
-        <button type="button" class="ai-assist-btn" data-field="como_trabalhamos">✨ Ajudar a escrever</button>
+        <button type="button" class="ai-assist-btn" data-field="como_trabalhamos">Ajudar a escrever</button>
         <div class="ai-assist-box" data-for="como_trabalhamos" hidden>
           <input type="text" class="ai-assist-hint" placeholder="ex: atendemos seg a sáb, das 9h às 19h">
           <button type="button" class="ai-assist-gerar">Gerar sugestão</button>
@@ -335,7 +156,7 @@ button.secondary {
     </form>
   </div>
 
-  <div class="card">
+  <div class="card" id="catalogo">
     <h1>Catálogo</h1>
     <p class="lead">Cadastre produtos, serviços ou eventos — o bot consulta pra responder preço e detalhes, e você pode mandar o link da vitrine pro cliente: <a class="vitrine-link" href="/vitrine" target="_blank" rel="noopener">/vitrine</a>.</p>
 
@@ -370,11 +191,11 @@ button.secondary {
           {% if item.foto_url %}
             <img class="produto-thumb" src="{{ item.foto_url }}" alt="">
           {% else %}
-            <div class="produto-thumb">{{ {'produto': '📦', 'servico': '🛠️', 'evento': '📅'}[item.tipo] }}</div>
+            <div class="produto-thumb" aria-hidden="true">{{ item.nome|iniciais }}</div>
           {% endif %}
           <div class="produto-info">
             <p class="produto-nome">{{ item.nome }}{% if not item.ativo %} (inativo){% endif %}</p>
-            <p class="produto-meta">{{ {'produto': 'Produto', 'servico': 'Serviço', 'evento': 'Evento'}[item.tipo] }} · R$ {{ "%.2f"|format(item.preco or 0) }}{% if item.categoria %} · {{ item.categoria }}{% endif %}{% if item.tipo == 'evento' and item.data_evento %} · 📅 {{ item.data_evento | data_br }}{% endif %}{% if item.tipo == 'servico' and item.horario_atendimento %} · 🕒 {{ item.horario_atendimento }}{% endif %} · {{ item.slug }}</p>
+            <p class="produto-meta">{{ {'produto': 'Produto', 'servico': 'Serviço', 'evento': 'Evento'}[item.tipo] }} · {{ item.preco|brl }}{% if item.categoria %} · {{ item.categoria }}{% endif %}{% if item.tipo == 'evento' and item.data_evento %} · Data: {{ item.data_evento | data_br }}{% endif %}{% if item.tipo == 'servico' and item.horario_atendimento %} · Atendimento: {{ item.horario_atendimento }}{% endif %} · {{ item.slug }}</p>
           </div>
           <div class="produto-acoes">
             <label class="foto-upload-btn">
@@ -437,7 +258,7 @@ button.secondary {
 
     <fieldset>
       <legend>Import em massa</legend>
-      <a class="vitrine-link" href="/painel/api/catalogo/template.csv" style="display:inline-block; margin-bottom:0.8rem;">⬇ Baixar modelo de planilha (.csv)</a>
+      <a class="vitrine-link" href="/painel/api/catalogo/template.csv" style="display:inline-block; margin-bottom:0.8rem;"><svg class="icone" aria-hidden="true" viewBox="0 0 24 24" style="width:1em;height:1em;vertical-align:-.12em"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> Baixar modelo de planilha (.csv)</a>
       <label>Planilha CSV (colunas: nome, descricao, preco, categoria, tipo, data_evento, horario_atendimento — as três últimas são opcionais; tipo pode ser produto, servico ou evento)
         <div class="file-upload">
           <span class="file-upload-btn">
@@ -465,12 +286,12 @@ button.secondary {
     </fieldset>
   </div>
 
-  <div class="card">
+  <div class="card" id="contatos">
     <h1>Contatos antigos</h1>
     <p class="lead">Se esse número já era usado no WhatsApp antes de conectar ao AtendPraGente, importe os contatos que já eram seus clientes — quando eles escreverem de novo, o bot já vai saber que não é um estranho.</p>
     <fieldset>
       <legend>Import em massa</legend>
-      <a class="vitrine-link" href="/painel/api/contatos/template.csv" style="display:inline-block; margin-bottom:0.8rem;">⬇ Baixar modelo de planilha (.csv)</a>
+      <a class="vitrine-link" href="/painel/api/contatos/template.csv" style="display:inline-block; margin-bottom:0.8rem;"><svg class="icone" aria-hidden="true" viewBox="0 0 24 24" style="width:1em;height:1em;vertical-align:-.12em"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> Baixar modelo de planilha (.csv)</a>
       <label>Planilha CSV (colunas: nome, telefone, nota — nota é livre e opcional, ex: "cliente desde 2023, comprava sapato social")
         <div class="file-upload">
           <span class="file-upload-btn">
@@ -486,7 +307,7 @@ button.secondary {
     </fieldset>
   </div>
 
-  <div class="card">
+  <div class="card" id="agenda">
     <h1>Agenda</h1>
     <p class="lead">Deixe o bot marcar horário direto na sua Google Agenda — confere se está livre e já manda o link do evento (e um arquivo de convite pra adicionar no calendário) na conversa.</p>
 
@@ -521,7 +342,7 @@ button.secondary {
     {% endif %}
   </div>
 
-  <div class="card danger-card">
+  <div class="card danger-card" id="assinatura">
     <h2>Cancelar assinatura</h2>
     <p class="lead">Isso registra um pedido de cancelamento — nossa equipe confirma e finaliza o cancelamento na cobrança. Cobranças já feitas não são estornadas.</p>
     <p class="lead">Ao confirmar, o atendimento automático é desligado na hora, mas seus dados (conversas, catálogo, configurações) ficam guardados por <strong>10 dias</strong>. Se pedir a reativação nesse prazo, restauramos o mesmo atendimento (mediante um novo pagamento). Passados os 10 dias sem pedido de restauração, atendimento e dados são apagados definitivamente e não podem mais ser recuperados.</p>
@@ -533,7 +354,10 @@ button.secondary {
     </button>
   </div>
 
+  </div>
+  <script src="{{ url_estilo('interno.js') }}"></script>
   <script>
+    function escapeHtml(v) { const d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
     const form = document.getElementById('config-form');
     const saveBtn = document.getElementById('save-btn');
     const statusDot = document.getElementById('soul-status-dot');
@@ -630,11 +454,11 @@ button.secondary {
         whatsappNumerosLista.innerHTML = '';
         data.numeros.forEach((n) => {
           const row = document.createElement('div');
-          row.style.cssText = 'display:flex; align-items:center; gap:0.6rem; margin-bottom:0.5rem; flex-wrap:wrap;';
+          row.className = 'numero-linha';
           row.innerHTML = `
-            <span style="flex:1; min-width:160px;">${n.display_phone_number || n.id} ${n.verified_name ? '— ' + n.verified_name : ''}</span>
-            <button type="button" class="secondary whatsapp-testar" data-id="${n.id}">Testar</button>
-            <button type="button" class="whatsapp-confirmar" data-id="${n.id}" disabled>Confirmar troca</button>
+            <span class="numero-texto">${escapeHtml(n.display_phone_number || n.id)} ${n.verified_name ? '— ' + escapeHtml(n.verified_name) : ''}</span>
+            <button type="button" class="secondary whatsapp-testar" data-id="${escapeHtml(n.id)}">Testar</button>
+            <button type="button" class="whatsapp-confirmar" data-id="${escapeHtml(n.id)}" disabled>Confirmar troca</button>
           `;
           whatsappNumerosLista.appendChild(row);
         });
@@ -684,18 +508,18 @@ button.secondary {
             });
             const data = await resp.json();
             if (!resp.ok || !data.ok) throw new Error(data.erro || data.detail || 'Teste falhou');
-            e.target.textContent = 'Testado ✓';
+            e.target.textContent = 'Testado';
             const confirmarBtn = e.target.closest('div').querySelector('.whatsapp-confirmar');
             confirmarBtn.disabled = false;
           } catch (err) {
             e.target.disabled = false;
             e.target.textContent = 'Testar';
-            alert(err.message);
+            avisar(err.message);
           }
         }
 
         if (e.target.classList.contains('whatsapp-confirmar')) {
-          if (!confirm('Confirmar a troca pra esse número? O atendimento passa a usar ele em instantes.')) return;
+          if (!(await confirmar({ titulo: 'Trocar o número de WhatsApp?', texto: 'O atendimento passa a usar o número escolhido em instantes.', ok: 'Confirmar troca' }))) return;
           e.target.disabled = true;
           try {
             const resp = await fetch('/painel/api/whatsapp/confirmar-troca', {
@@ -712,7 +536,7 @@ button.secondary {
             pollWhatsappStatus();
           } catch (err) {
             e.target.disabled = false;
-            alert(err.message);
+            avisar(err.message);
           }
         }
       });
@@ -723,7 +547,7 @@ button.secondary {
     const cancelBtn = document.getElementById('cancel-btn');
     const cancelBanner = document.getElementById('cancel-banner');
     cancelBtn.addEventListener('click', async () => {
-      if (!confirm('Tem certeza que quer cancelar sua assinatura? O atendimento automático será desligado assim que nossa equipe confirmar. Seus dados ficam guardados por 10 dias, caso queira reativar — depois disso são apagados definitivamente.')) return;
+      if (!(await confirmar({ titulo: 'Cancelar a assinatura?', texto: 'O atendimento automático será desligado assim que nossa equipe confirmar. Seus dados ficam guardados por 10 dias, caso queira reativar — depois disso são apagados definitivamente.', ok: 'Cancelar assinatura', perigo: true }))) return;
       cancelBtn.disabled = true;
       try {
         const resp = await fetch('/painel/api/cancelar-assinatura', { method: 'POST' });
@@ -913,7 +737,7 @@ button.secondary {
         }
         location.reload();
       } catch (err) {
-        alert(err.message);
+        avisar(err.message);
       } finally {
         produtoSaveBtn.disabled = false;
       }
@@ -933,7 +757,7 @@ button.secondary {
           if (!resp.ok) throw new Error('Não foi possível atualizar');
           location.reload();
         } catch (err) {
-          alert(err.message);
+          avisar(err.message);
           btn.disabled = false;
         }
       });
@@ -942,14 +766,14 @@ button.secondary {
     document.querySelectorAll('.produto-row .excluir').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const row = btn.closest('.produto-row');
-        if (!confirm(`Excluir "${row.querySelector('.produto-nome').textContent.trim()}"?`)) return;
+        if (!(await confirmar({ titulo: 'Excluir este item?', texto: `"${row.querySelector('.produto-nome').textContent.trim()}" sai do catálogo.`, ok: 'Excluir', perigo: true }))) return;
         btn.disabled = true;
         try {
           const resp = await fetch(`/painel/api/catalogo/${row.dataset.id}`, { method: 'DELETE' });
           if (!resp.ok) throw new Error('Não foi possível excluir');
           row.remove();
         } catch (err) {
-          alert(err.message);
+          avisar(err.message);
           btn.disabled = false;
         }
       });
@@ -970,7 +794,7 @@ button.secondary {
           }
           location.reload();
         } catch (err) {
-          alert(err.message);
+          avisar(err.message);
         }
       });
     });
@@ -1048,7 +872,7 @@ button.secondary {
           msg += ` Sem produto correspondente: ${data.sem_correspondencia.join(', ')}`;
         }
         if (data.aviso_limite) {
-          msg += ` ⚠️ ${data.aviso_limite}`;
+          msg += ` Atenção: ${data.aviso_limite}`;
         }
         resultEl.textContent = msg;
         if (data.vinculados.length) setTimeout(() => location.reload(), 1200);
@@ -1060,7 +884,7 @@ button.secondary {
       }
     });
 
-    // Botão "✨ Ajudar" nos campos difíceis (ver
+    // Botão "Ajudar a escrever" nos campos difíceis (ver
     // specs/assistente-ia-configuracoes.md) — delegação num listener só.
     document.addEventListener('click', async (e) => {
       const abrirBtn = e.target.closest('.ai-assist-btn');

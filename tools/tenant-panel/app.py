@@ -297,6 +297,13 @@ ESTILOS_PLATAFORMA = {
     "acesso.css": (os.path.join(_STATIC_DIR, "acesso.css"), "text/css; charset=utf-8"),
     "painel.css": (os.path.join(_STATIC_DIR, "painel.css"), "text/css; charset=utf-8"),
     "painel.js": (os.path.join(_STATIC_DIR, "painel.js"), "text/javascript; charset=utf-8"),
+    "interno.css": (os.path.join(_STATIC_DIR, "interno.css"), "text/css; charset=utf-8"),
+    "interno.js": (os.path.join(_STATIC_DIR, "interno.js"), "text/javascript; charset=utf-8"),
+    "agenda.css": (os.path.join(_STATIC_DIR, "agenda.css"), "text/css; charset=utf-8"),
+    "agenda.js": (os.path.join(_STATIC_DIR, "agenda.js"), "text/javascript; charset=utf-8"),
+    "pedidos.css": (os.path.join(_STATIC_DIR, "pedidos.css"), "text/css; charset=utf-8"),
+    "pedidos.js": (os.path.join(_STATIC_DIR, "pedidos.js"), "text/javascript; charset=utf-8"),
+    "configuracoes.css": (os.path.join(_STATIC_DIR, "configuracoes.css"), "text/css; charset=utf-8"),
 }
 
 
@@ -480,6 +487,7 @@ def configuracoes_page(request: Request):
         "configuracoes.html",
         {
             "tenant_id": TENANT_ID,
+            "nome_negocio": _nome_negocio_tenant(),
             "soul_apply_minutes": SOUL_APPLY_MINUTES,
             "soul_pending": bool((signup or {}).get("soul_pending")),
             "soul_pending_error": (signup or {}).get("soul_pending_error"),
@@ -1304,7 +1312,7 @@ def pedidos_page(request: Request):
         return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
     if not request.session.get("username"):
         return RedirectResponse("/painel/login")
-    return templates.TemplateResponse(request, "pedidos.html", {"tenant_id": TENANT_ID})
+    return templates.TemplateResponse(request, "pedidos.html", {"tenant_id": TENANT_ID, "nome_negocio": _nome_negocio_tenant()})
 
 
 PEDIDOS_LOTE_BUSCA_LIMITE = 500  # teto de docs varridos pra montar os grupos — negócio pequeno não deveria chegar perto disso
@@ -1719,7 +1727,7 @@ def agenda_page(request: Request):
         return templates.TemplateResponse(request, "tapume.html", {"tenant_id": TENANT_ID})
     if not request.session.get("username"):
         return RedirectResponse("/painel/login")
-    return templates.TemplateResponse(request, "agenda.html", {"tenant_id": TENANT_ID})
+    return templates.TemplateResponse(request, "agenda.html", {"tenant_id": TENANT_ID, "nome_negocio": _nome_negocio_tenant()})
 
 
 @app.get("/painel/api/agenda/eventos")

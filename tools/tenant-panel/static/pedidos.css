@@ -1,0 +1,34 @@
+/* Pedidos (/pedidos): lista com rolagem infinita, ações por pedido e itens num <dialog>. */
+.cab { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; margin-bottom: .9rem; }
+.cab h1 { margin: 0; }
+.atualizar { display: flex; align-items: center; gap: .6rem; }
+.atualizar-info { font-size: .82rem; color: var(--texto-suave); font-weight: 600; }
+.sentinela { height: 1px; }
+
+.pedido-row { display: flex; flex-direction: column; gap: .6rem; padding: 1rem 0; border-top: 1px solid var(--borda); }
+.pedido-row:first-child { border-top: 0; }
+.pedido-top { display: flex; align-items: center; justify-content: space-between; gap: .6rem; flex-wrap: wrap; }
+.pedido-numero { margin: 0; font-size: 1.02rem; color: var(--acao); }
+.pedido-destaque { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem 1rem; }
+.pedido-valor { font-family: var(--fonte-titulo); font-weight: 800; font-size: 1.3rem; line-height: 1.2; }
+.pedido-cliente { display: inline-flex; align-items: center; gap: .35rem; font-weight: 800; font-size: .95rem; overflow-wrap: anywhere; }
+.pedido-cliente .icone, .pedido-endereco .icone { width: 18px; height: 18px; color: var(--texto-suave); }
+.pedido-meta { font-size: .82rem; color: var(--texto-suave); font-weight: 600; }
+.pedido-acoes { display: flex; flex-wrap: wrap; gap: .5rem; }
+.pedido-row .btn { min-height: 40px; font-size: .85rem; }
+.pedido-endereco { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .6rem .75rem; border-radius: var(--raio-controle); background: var(--fundo); border: 1px solid var(--borda); }
+.pedido-endereco label { display: inline-flex; align-items: center; gap: .35rem; margin: 0; font-size: .85rem; white-space: nowrap; }
+.pedido-endereco input { flex: 1 1 220px; margin: 0; min-height: 44px; }
+.pedido-alerta-rastreio { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .55rem .75rem; border-radius: var(--raio-controle); background: var(--aviso-fundo); color: var(--aviso-texto); border-left: 4px solid var(--spark); font-size: .88rem; font-weight: 700; }
+.pedido-alerta-rastreio .icone { width: 18px; height: 18px; }
+.pedido-alerta-rastreio .btn { border-color: currentColor; color: inherit; background: transparent; }
+.pedido-row.flash { animation: destaque 1.8s ease-out; }
+@keyframes destaque { 0% { background: var(--acao-suave); } 100% { background: transparent; } }
+
+#modal-itens { width: min(92vw, 420px); }
+#modal-itens h2 { margin-bottom: .8rem; }
+#modal-itens .acoes { margin-top: 1rem; }
+.item-linha { display: flex; justify-content: space-between; gap: .8rem; padding: .5rem 0; border-bottom: 1px solid var(--borda); font-size: .92rem; }
+.item-nome { font-weight: 700; overflow-wrap: anywhere; }
+.item-valor { color: var(--texto-suave); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.itens-total { display: flex; justify-content: space-between; margin-top: .6rem; padding-top: .6rem; border-top: 2px solid var(--borda); font-weight: 800; }
