@@ -5,7 +5,6 @@
   --bolha-bot: var(--acao-suave);
   --bolha-operador: var(--acao);
   --bolha-operador-texto: var(--acao-texto);
-  --alvo: 44px;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --conversa-fundo: #0C1710; } }
 :root[data-theme="dark"] { --conversa-fundo: #0C1710; }
@@ -14,7 +13,6 @@ html, body { height: 100%; }
 body { overflow: hidden; }
 .app { display: flex; height: 100vh; height: 100dvh; }
 button { font: inherit; color: inherit; cursor: pointer; }
-[hidden] { display: none !important; }
 
 /* ---------- coluna da esquerda ---------- */
 .lateral { width: 360px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; background: var(--superficie); border-right: 1px solid var(--borda); }
@@ -33,7 +31,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .nav a:hover, .nav button:hover { background: var(--acao-suave); }
 .nav .sair { margin-left: auto; padding: 0 .85rem; color: var(--texto-suave); font-size: .88rem; }
-.icone { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 
 .uso { padding: .6rem 1rem; border-bottom: 1px solid var(--borda); flex-shrink: 0; }
 .uso-rotulo { margin: 0 0 .35rem; font-size: .8rem; font-weight: 700; color: var(--texto-suave); }
@@ -82,14 +79,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .btn-icone:hover { background: var(--acao-suave); color: var(--acao); }
 .btn-icone.perigo:hover { background: var(--erro-fundo); color: var(--erro); }
 .voltar { display: none; }
-.btn {
-  min-height: var(--alvo); padding: 0 1rem; border-radius: var(--raio-controle); border: 1.5px solid var(--acao);
-  background: var(--acao); color: var(--acao-texto); font-weight: 800; font-size: .9rem; white-space: nowrap; flex-shrink: 0;
-}
-.btn:hover { filter: brightness(1.08); }
-.btn.contorno { background: transparent; color: var(--acao); }
-.btn.contorno:hover { background: var(--acao-suave); filter: none; }
-.btn:disabled { opacity: .6; cursor: progress; }
 
 .alerta-op { display: flex; align-items: center; gap: .75rem; padding: .6rem 1rem; background: var(--erro-fundo); color: var(--erro); border-bottom: 1px solid var(--borda); font-size: .9rem; font-weight: 700; flex-shrink: 0; }
 .alerta-op .icone { flex-shrink: 0; }
@@ -126,13 +115,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .previa img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
 .previa span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.toast { position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%); z-index: 30; max-width: min(92vw, 460px); padding: .75rem 1rem; border-radius: var(--raio-controle); background: var(--erro); color: var(--superficie); font-weight: 700; font-size: .92rem; }
-.dialogo { border: 1px solid var(--borda); border-radius: var(--raio-cartao); padding: 1.4rem 1.4rem 1.1rem; max-width: min(92vw, 420px); background: var(--superficie); color: var(--texto); }
-.dialogo::backdrop { background: rgba(10, 20, 14, .55); }
-.dialogo h2 { margin: 0 0 .5rem; font-family: var(--fonte-titulo); font-size: 1.2rem; }
-.dialogo p { margin: 0 0 1.1rem; color: var(--texto-suave); font-size: .92rem; }
-.dialogo .acoes { display: flex; justify-content: flex-end; gap: .6rem; }
-.btn.perigo { background: var(--erro); border-color: var(--erro); color: var(--superficie); }
 
 @media (max-width: 768px) {
   .lateral { width: 100%; border-right: 0; }
