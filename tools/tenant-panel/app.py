@@ -49,7 +49,7 @@ SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from pymongo import MongoClient
@@ -245,6 +245,34 @@ def fmt_data_br(iso: str) -> str:
 
 
 templates.env.filters["data_br"] = fmt_data_br
+
+
+def fmt_brl(valor) -> str:
+    """R$ 1.234,50 — mesmo formato do carrinho (JS), pra lista e pedido não divergirem."""
+    try:
+        v = float(valor or 0)
+    except (TypeError, ValueError):
+        v = 0.0
+    return "R$ " + f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def iniciais(nome: str) -> str:
+    """Duas iniciais do nome (palavras com 3+ letras) — o item sem foto mostra isso no lugar da imagem."""
+    palavras = [p for p in re.split(r"\s+", (nome or "").strip()) if len(p) > 2]
+    letras = "".join(p[0] for p in palavras[:2]).upper()
+    return letras or (nome or "?").strip()[:1].upper() or "?"
+
+
+templates.env.filters["brl"] = fmt_brl
+templates.env.filters["iniciais"] = iniciais
+
+# Fontes da marca da plataforma, servidas como arquivo (cacheável) em vez de base64 dentro de cada página pública. Lista fixa de nomes: a
+# rota nunca monta caminho a partir da entrada. O ingress de todo tenant já manda /vitrine (Prefix) pra este painel.
+FONTES_VITRINE = {
+    "baloo2-800.woff2": os.path.join(os.path.dirname(__file__), "static", "fontes", "baloo2-800.woff2"),
+    "nunito-var.woff2": os.path.join(os.path.dirname(__file__), "static", "fontes", "nunito-var.woff2"),
+}
+VITRINE_LAYOUTS = ("lista", "grade")
 
 
 @app.get("/painel", response_class=HTMLResponse)
@@ -1053,12 +1081,31 @@ def vitrine(request: Request):
     ]
 
     signup = signups_col.find_one({"tenant_id": TENANT_ID, "status": "live"})
-    nome_negocio = ((signup or {}).get("config") or {}).get("nome_negocio", TENANT_ID)
+    config = (signup or {}).get("config") or {}
+    nome_negocio = config.get("nome_negocio", TENANT_ID)
+    # Layout: ?layout= (pra testar) > config.vitrine_layout (o motor de customização da loja vai gravar aqui) > "lista".
+    layout = request.query_params.get("layout") or config.get("vitrine_layout") or "lista"
+    if layout not in VITRINE_LAYOUTS:
+        layout = "lista"
+    contato_wa = None
+    if not secoes_ordenadas:  # só a vitrine vazia precisa do contato (a Graph API é uma chamada à parte, cacheada)
+        numero = _numero_whatsapp_tenant()
+        contato_wa = f"https://wa.me/{numero}" if numero else None
     return templates.TemplateResponse(
         request, "vitrine.html",
         {"tenant_id": TENANT_ID, "nome_negocio": nome_negocio, "secoes": secoes_ordenadas,
-         "tipos_compraveis": list(TIPOS_COMPRAVEIS)},
+         "tipos_compraveis": list(TIPOS_COMPRAVEIS), "layout": layout, "contato_wa": contato_wa,
+         "total_itens": sum(s["total"] for s in secoes_ordenadas)},
     )
+
+
+@app.get("/vitrine/fonte/{nome}")
+def vitrine_fonte(nome: str) -> Response:
+    """Pública. Só os arquivos de FONTES_VITRINE; qualquer outro nome é 404."""
+    caminho = FONTES_VITRINE.get(nome)
+    if not caminho or not os.path.isfile(caminho):
+        raise HTTPException(status_code=404, detail="Não encontrado")
+    return FileResponse(caminho, media_type="font/woff2", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 def _proximo_numero_pedido() -> int:

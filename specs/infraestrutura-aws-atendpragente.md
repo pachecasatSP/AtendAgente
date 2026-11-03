@@ -84,9 +84,28 @@ Todas recriadas e gravadas por `infra-aws/scripts/atendpragente/preencher-creden
 ## 11. Fora de escopo e pendências
 
 - **Backups do Mongo e telemetria OTel do nó — feitos (2026-10-30, depois da primeira versão desta spec).** CronJobs `mongo-backup` (ns `atendagente`, minuto `:10`, todos os bancos do Mongo dos tenants) e `mongo-backoffice-backup` (ns `atendagente-admin`, `:15`), a cada 6 h: `mongodump` cifrado com `age` para o bucket de backup (prefixos `mongo-atendpragente/` e `mongo-backoffice/`); jobs manuais verificados no bucket. A verificação usa `mongorestore --dryRun --uri=…` (sem `--uri` ele tenta `localhost` e falha sempre). Agente OTel (`k8s.cluster.name=atendpragente`) reportando ao gateway do re.colocarme. Ficam de fora: os PVCs do Hermes (só snapshot diário do disco) e o backup cifrado dos Secrets. **Capacidade**: o nó está com 81% da CPU requisitada; cada tenant novo custa ~350m.
-- **Reconstruir/atualizar** o `linda-ana-calcados` para as imagens mais novas (`3799ae0`).
+- ~~**Reconstruir/atualizar** o `linda-ana-calcados` para as imagens mais novas (`3799ae0`).~~ **Feito em 2026-11-02** (imagens `609c6e5`, SOUL regenerado; ver seção 12).
 - **Textos do Hermes que vazam para o cliente** na primeira resposta ("o `/help` mostra os comandos…", oferta de "montar um perfil curtinho seu"): desligar com `hermes config set` na Duda e avaliar nos tenants.
 - **Agenda da Duda**: o `calendar-mcp` acha o tenant por um documento de signup no Mongo; a Duda não passa pelo onboarding, então precisa de um documento criado à mão para ligar a agenda dela (`CALENDAR_MCP_TOKEN` segue pendente).
 - **CronJobs**: todos suspensos; decidir quando ligar cada um.
 - Mensagens antigas que a Meta guardou por até 7 dias podem chegar de uma vez para a Duda agora que ela está no ar.
 - **Dois nós** (`atend-admin` e `atend-tenants`) continuam desejáveis quando a cota de vCPU subir; o desenho já separa os namespaces para isso.
+
+## 12. Atualização de 2026-11-02 (deploy por CI, SOULs, catálogo)
+
+**Deploy automático pelo GitHub Actions (feito).** Workflow `imagens` (`testes`, 5 imagens no GHCR, job `implantar`): só na `master`, só com a variável `DEPLOY_ATENDPRAGENTE='true'`, no ambiente `producao` (aprovação manual do dono, só a branch `master`), por papel IAM via OIDC + túnel SSM, com a ServiceAccount `ci-deploy` (RBAC: `patch` em Deployments e CronJobs dos dois namespaces; **sem acesso a Secrets**, `exec` nem recursos fora disso). `scripts/implantar.py` troca só a tag das imagens `atendpragente-*` e as variáveis `TENANT_*_IMAGE` do onboarding, um workload por vez, parando na primeira falha de rollout. Deploys feitos: `8f0d7c8` (PR #3) e `609c6e5` (PR #4); os 5 CronJobs de aplicação seguem **suspensos**. Imagens publicadas só na `master`; em PR o `implantar` é pulado.
+
+**Regra de escopo nos SOULs (PR #4).** `SOUL.template.md` ganhou, em "O que eu NÃO faço": o Hermes só conversa sobre o negócio do tenant, nunca discute política nem assunto fora do escopo e responde com uma frase curta voltando ao negócio. **Assunto fora do escopo não usa a frase de encaminhamento** ("Vou chamar {dono}…"), porque ela dispara o aviso real ao dono. O bloco Catálogo do `generate_soul.py` passou a mandar **ler o `catalogo.csv` e enviar o link da vitrine antes de qualquer "não tenho"**, com prioridade sobre "Não invento". Só vale para tenants novos e SOULs regenerados.
+
+**Como publicar um SOUL (dois caminhos).**
+- **Tenant:** `scripts/atendpragente/atualizar-tenant.sh <tenant> <tag>` (repositório `infra-aws`) marca `signups.soul_pending`; o `_soul_apply_loop` do `onboarding-service` (a cada `SOUL_APPLY_INTERVAL_SECONDS`, 300 s) regenera com o gerador da imagem e reinicia o Hermes. O gerador **não guarda cópia do SOUL anterior**: copiar `/opt/data/SOUL.md` antes.
+- **Duda:** o SOUL é um **arquivo escrito à mão** (`infra-aws/atendpragente/duda/SOUL.md`), fora do gerador. `scripts/atendpragente/atualizar-soul-duda.sh` guarda `/opt/data/SOUL.md.bak-<data>`, grava, confere tamanho e regra, reinicia o Hermes e espera o rollout. O `configurar-duda.sh` **recusa** rodar com o WhatsApp ligado.
+- Aplicado em 2026-11-02 02:33Z. Provado em mensagens reais: a Linda Ana mandou o link da vitrine, leu o `catalogo.csv` com `read_file` e recusou pergunta política sem encaminhar; a Duda recusou política sem "Vou acionar o Adolfo…".
+
+**Pipeline do catálogo (medido).** Painel grava em `catalogo_itens` e marca `signups.catalogo_pending` → o `_catalogo_apply_loop` do `onboarding-service` (300 s) roda `publish_catalog` (`kubectl exec … cat > /opt/data/catalogo.csv`, sem reiniciar) → `catalogo_applied_at`. Medido: salvo às 01:54:52Z, publicado às 01:57:08Z. O atraso máximo é o intervalo do loop.
+
+**Import de CSV do painel (PR #5).** Antes sempre criava itens novos (reimportar duplicou os 10 itens da Linda Ana, slug `-2`, sem foto). Agora a linha cujo nome já existe (comparado como o slug) **atualiza** o item; slug, foto e `ativo` não mudam; só as colunas presentes na planilha mudam; reimportar a mesma planilha não escreve nada nem republica. Resposta: `criados`, `atualizados`, `sem_alteracao`. Duplicatas que já existam **não são mescladas**.
+
+**Diagnóstico da Aninha** ("não tenho o catálogo, vou chamar o Adolfo", sem chamar ferramenta): o CSV estava publicado, `file` habilitado para `whatsapp_cloud` e o link já no SOUL; o modelo respondia com 1 chamada e 0 ferramentas. Causa provável (hipótese, coerente com a melhora): a regra "Não invento / encaminhar cedo é melhor que insistir" pesava mais que a seção Catálogo, e o histórico da sessão repetia "não tenho". Reproduzido antes e resolvido depois do PR #4.
+
+**Pendências novas:** `loja-de-teste2` (nenhum pod com esse nome); fontes da marca em base64 nas telas autenticadas (ver `vitrine-e-identidade-visual.md`); redesenho da vitrine e demais telas.
