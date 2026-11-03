@@ -1,0 +1,55 @@
+/* Telas de acesso (login, criação de usuário): página centrada com marca, cartão e formulário. Usa os tokens de plataforma.css. */
+body {
+  min-height: 100vh; min-height: 100dvh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.75rem;
+  padding: 2rem 1.25rem;
+}
+.marca { display: flex; align-items: center; gap: .75rem; width: 100%; max-width: 400px; }
+.marca svg { width: 44px; height: 44px; flex-shrink: 0; }
+.marca p { margin: 0; }
+.loja { font-family: var(--fonte-titulo); font-weight: 800; font-size: 1.35rem; line-height: 1.15; overflow-wrap: anywhere; }
+.plataforma { font-size: .8rem; color: var(--texto-suave); font-weight: 700; }
+
+.cartao {
+  width: 100%; max-width: 400px; padding: 1.75rem 1.5rem;
+  background: var(--superficie); border: 1px solid var(--borda); border-radius: var(--raio-cartao);
+}
+h1 { font-family: var(--fonte-titulo); font-weight: 800; font-size: 1.3rem; line-height: 1.2; margin: 0 0 1.25rem; }
+
+.erro, .aviso { margin: 0 0 1.1rem; padding: .7rem .9rem; border-radius: var(--raio-controle); font-size: .9rem; font-weight: 700; }
+.erro { background: var(--erro-fundo); color: var(--erro); border-left: 4px solid var(--erro); }
+.aviso { background: var(--paper-soft); color: var(--texto-suave); font-weight: 600; border-left: 4px solid var(--spark); }
+
+.campo { margin-bottom: 1rem; }
+label { display: block; margin-bottom: .3rem; font-weight: 800; font-size: .9rem; }
+input {
+  display: block; width: 100%; min-height: 48px; padding: 0 .85rem;
+  background: var(--superficie); color: var(--texto); border: 1.5px solid var(--borda-campo); border-radius: var(--raio-controle);
+  font: inherit; font-size: 1rem;            /* 16px: abaixo disso o iPhone dá zoom ao focar */
+}
+input:focus { outline: 3px solid var(--foco); outline-offset: 1px; border-color: var(--texto); }
+.senha { position: relative; }
+.senha input { padding-right: 5.5rem; }
+.ver {
+  position: absolute; top: 0; right: 0; min-height: 48px; padding: 0 .9rem; border: 0; background: transparent;
+  color: var(--acao); font: inherit; font-size: .88rem; font-weight: 800; cursor: pointer; border-radius: var(--raio-controle);
+}
+.ver[hidden] { display: none; }
+
+.entrar {
+  display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; margin-top: 1.4rem;
+  border: 0; border-radius: var(--raio-controle); background: var(--acao); color: var(--acao-texto);
+  font: inherit; font-size: 1rem; font-weight: 800; cursor: pointer;
+}
+.entrar:hover { filter: brightness(1.08); }
+.entrar:active { transform: translateY(1px); }
+.entrar:disabled { opacity: .7; cursor: progress; }
+
+.ajuda { margin: 1.1rem 0 0; font-size: .88rem; color: var(--texto-suave); font-weight: 600; text-align: center; }
+.ajuda a { color: var(--acao); font-weight: 800; }
+@media (max-width: 420px) { .cartao { padding: 1.5rem 1.15rem; } }
+
+/* criação de usuário */
+.lead { margin: -.6rem 0 1.25rem; color: var(--texto-suave); font-size: .95rem; }
+.dica { margin: .3rem 0 0; font-size: .82rem; color: var(--texto-suave); font-weight: 600; }
+.campo input:user-invalid { border-color: var(--erro); }
