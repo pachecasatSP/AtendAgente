@@ -89,7 +89,7 @@ def test_fontes_da_marca_carregam_nas_telas_internas(cli):
         html = cli.get(rota).text
         assert "/painel/fonte/baloo2-800.woff2" in html and "/painel/fonte/nunito-var.woff2" in html, rota
     base = ler("plataforma.css")
-    assert "@font-face" in base and "/painel/fonte/baloo2-800.woff2" in base
+    assert "@font-face" in base and "url(../fonte/baloo2-800.woff2)" in base and "url(../fonte/nunito-var.woff2)" in base   # relativo: serve no painel (/painel/fonte) e no onboarding (/fonte)
 
 
 def test_helper_de_aviso_e_confirmacao():

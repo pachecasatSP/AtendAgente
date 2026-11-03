@@ -1,6 +1,6 @@
 /* Base de toda tela da plataforma (acesso e painel): fontes, tokens de duas camadas (o motor de customização troca só a semântica), reset e foco. */
-@font-face { font-family: 'Baloo 2'; font-style: normal; font-weight: 800; font-display: swap; src: url(/painel/fonte/baloo2-800.woff2) format('woff2'); }
-@font-face { font-family: 'Nunito'; font-style: normal; font-weight: 300 900; font-display: swap; src: url(/painel/fonte/nunito-var.woff2) format('woff2'); }
+@font-face { font-family: 'Baloo 2'; font-style: normal; font-weight: 800; font-display: swap; src: url(../fonte/baloo2-800.woff2) format('woff2'); }
+@font-face { font-family: 'Nunito'; font-style: normal; font-weight: 300 900; font-display: swap; src: url(../fonte/nunito-var.woff2) format('woff2'); }
 
 :root {
   /* paleta da plataforma (a mesma da vitrine) */

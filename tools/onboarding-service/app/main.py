@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 # /app é o hostPath de tools/ inteiro — provision-tenant/, soul-generator/
@@ -81,6 +81,50 @@ WHATSAPP_NUMERO_APPLY_INTERVAL_SECONDS = int(os.environ.get("WHATSAPP_NUMERO_APP
 
 app = FastAPI(title="AtendAgente — Onboarding")
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+# Fontes e CSS da plataforma são os mesmos do painel (tools/tenant-panel/static): a imagem `tools` copia tools/ inteiro para /app, então o
+# arquivo está ao lado. Lista fixa de nomes (a rota nunca monta caminho a partir da entrada), cache de 1 ano e ?v=<hash> pra trocar o endereço
+# quando o conteúdo muda. O CSS aponta as fontes por caminho relativo (../fonte/...), então /estilo/x.css -> /fonte/x.woff2 aqui e
+# /painel/estilo/x.css -> /painel/fonte/x.woff2 no painel.
+_PAINEL_STATIC = _TOOLS_DIR / "tenant-panel" / "static"
+_PROPRIO_STATIC = Path(__file__).parent.parent / "static"
+FONTES = {
+    "baloo2-800.woff2": _PAINEL_STATIC / "fontes" / "baloo2-800.woff2",
+    "nunito-var.woff2": _PAINEL_STATIC / "fontes" / "nunito-var.woff2",
+}
+ESTILOS = {
+    "plataforma.css": (_PAINEL_STATIC / "plataforma.css", "text/css; charset=utf-8"),
+    "onboarding.css": (_PROPRIO_STATIC / "onboarding.css", "text/css; charset=utf-8"),
+    "signup.js": (_PROPRIO_STATIC / "signup.js", "text/javascript; charset=utf-8"),
+    "form.js": (_PROPRIO_STATIC / "form.js", "text/javascript; charset=utf-8"),
+    "aguardando.js": (_PROPRIO_STATIC / "aguardando.js", "text/javascript; charset=utf-8"),
+}
+_CACHE_LONGO = {"Cache-Control": "public, max-age=31536000, immutable"}
+
+
+def url_estilo(nome: str) -> str:
+    import hashlib
+    caminho, _ = ESTILOS[nome]
+    return f"/estilo/{nome}?v={hashlib.sha256(caminho.read_bytes()).hexdigest()[:10]}"
+
+
+templates.env.globals["url_estilo"] = url_estilo
+
+
+@app.get("/fonte/{nome}")
+def fonte(nome: str) -> FileResponse:
+    caminho = FONTES.get(nome)
+    if not caminho or not caminho.is_file():
+        raise HTTPException(404, "Não encontrado")
+    return FileResponse(caminho, media_type="font/woff2", headers=_CACHE_LONGO)
+
+
+@app.get("/estilo/{nome}")
+def estilo(nome: str) -> FileResponse:
+    item = ESTILOS.get(nome)
+    if not item or not item[0].is_file():
+        raise HTTPException(404, "Não encontrado")
+    return FileResponse(item[0], media_type=item[1], headers=_CACHE_LONGO)
 
 
 async def _soul_apply_loop() -> None:
@@ -283,7 +327,8 @@ def signup_callback(payload: dict):
 
 
 @app.get("/signup/{signup_id}/form", response_class=HTMLResponse)
-def form_page(signup_id: str, request: Request, erro: str | None = None):
+def form_page(signup_id: str, request: Request):
+    # Sem parâmetro `erro` na URL: ninguém o usava e deixava qualquer link mostrar texto à escolha dentro da caixa de erro do formulário.
     signup = store.get_signup(signup_id)
     if not signup:
         raise HTTPException(404, "Cadastro não encontrado")
@@ -292,7 +337,7 @@ def form_page(signup_id: str, request: Request, erro: str | None = None):
         "form.html",
         {
             "signup_id": signup_id,
-            "erro": erro,
+            "erro": None,
             "gratuito": bool(signup.get("invite_token")),
             "display_phone_number": signup.get("display_phone_number"),
             "verified_name": signup.get("verified_name"),
