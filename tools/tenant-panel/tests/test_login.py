@@ -71,10 +71,15 @@ def test_sem_cadastro_a_marca_cai_no_tenant_id(monkeypatch):
 
 
 def css_da_pagina(cli, html):
-    href = re.search(r'href="(/painel/estilo/plataforma\.css\?v=[0-9a-f]{10})"', html).group(1)
-    r = cli.get(href)
-    assert r.status_code == 200
-    return r.text
+    """Todos os CSS que a pagina referencia, juntos (plataforma.css = tokens, acesso.css = telas de acesso)."""
+    hrefs = re.findall(r'href="(/painel/estilo/[a-z]+\.css\?v=[0-9a-f]{10})"', html)
+    assert len(hrefs) == 2
+    out = ""
+    for h in hrefs:
+        r = cli.get(h)
+        assert r.status_code == 200
+        out += r.text
+    return out
 
 
 def test_sem_contorno_no_texto_e_sem_botao_amarelo_com_brilho(cli):

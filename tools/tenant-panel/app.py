@@ -294,6 +294,9 @@ _STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 ESTILOS_PLATAFORMA = {
     "plataforma.css": (os.path.join(_STATIC_DIR, "plataforma.css"), "text/css; charset=utf-8"),
     "plataforma.js": (os.path.join(_STATIC_DIR, "plataforma.js"), "text/javascript; charset=utf-8"),
+    "acesso.css": (os.path.join(_STATIC_DIR, "acesso.css"), "text/css; charset=utf-8"),
+    "painel.css": (os.path.join(_STATIC_DIR, "painel.css"), "text/css; charset=utf-8"),
+    "painel.js": (os.path.join(_STATIC_DIR, "painel.js"), "text/javascript; charset=utf-8"),
 }
 
 
@@ -321,8 +324,8 @@ def panel_shell(request: Request):
         pedidos_disponivel = bool(((signup or {}).get("config") or {}).get("pagamento_pix_ativo"))
     return templates.TemplateResponse(
         request, "index.html",
-        {"tenant_id": TENANT_ID, "agenda_disponivel": agenda_disponivel, "pedidos_disponivel": pedidos_disponivel,
-         "modo_admin": ADMIN_MODE},
+        {"tenant_id": TENANT_ID, "nome_negocio": _nome_negocio_tenant(), "agenda_disponivel": agenda_disponivel,
+         "pedidos_disponivel": pedidos_disponivel, "modo_admin": ADMIN_MODE},
     )
 
 
