@@ -1,5 +1,7 @@
 # Subida de Catálogos para o bot
 
+> **Atualização (2026-11-02)**: (1) **o import de CSV passou a atualizar itens existentes** em vez de duplicar (PR #5; ver "Import" abaixo); (2) o SOUL manda **ler o `catalogo.csv` e enviar o link da vitrine** antes de dizer "não tenho" (PR #4); (3) a vitrine foi **redesenhada** (lista/grade, chips de categoria, tokens, fontes por arquivo): ver `vitrine-e-identidade-visual.md`; (4) medido: o atraso entre salvar no painel e o CSV chegar ao pod é de até um ciclo do `_catalogo_apply_loop` (300 s).
+
 > **Atualização (2026-10-30)**: o bucket do catálogo deixou de ser o `recolocare-me-blob` da Hetzner (`fsn1.your-objectstorage.com`): as fotos vivem em `recolocarme-staging-atend-492715478912` (S3, `sa-east-1`, prefixo `atendpragente-pics/`, ACL `public-read` por objeto) e o `cdn.atendpragente.com.br` é um nginx no cluster novo (`18.228.100.213`, sem proxy do Cloudflare por ora) que reescreve o `Host` para esse bucket. As variáveis `OBJECT_STORAGE_*` têm os mesmos nomes; só mudam os valores. Fotos antigas foram perdidas. Ver `specs/infraestrutura-aws-atendpragente.md`.
 
 ## Contexto
@@ -131,6 +133,16 @@ recebe a funcionalidade de catálogo, não precisa atualizar lá):
   slugs, e **devolve pro usuário a lista `nome → slug`** (tela e/ou
   download) — é assim que ele sabe como nomear as fotos, sem precisar
   adivinhar a regra de normalização.
+  **Reimportar não duplica (2026-11-02):** a linha cujo nome já existe
+  (comparado como o slug: sem acento, caixa ou pontuação) **atualiza** o
+  item. Slug, foto e `ativo` nunca mudam; só as colunas presentes na
+  planilha mudam (planilha só com `nome,preco` não apaga a descrição);
+  reimportar a mesma planilha não escreve nada e não marca
+  `catalogo_pending`. Cada item existente casa no máximo uma vez por
+  importação, então nomes repetidos **dentro** da planilha continuam
+  sendo itens distintos. Resposta: `criados` (com o slug, para nomear
+  fotos), `atualizados`, `sem_alteracao`. Duplicatas já existentes não
+  são mescladas.
 - `POST /painel/api/catalogo/fotos-bulk` — upload em massa (zip ou
   múltiplos arquivos), casa cada arquivo pelo nome (sem extensão) com o
   `slug` do item já existente, sobe pro bucket, grava `foto_url`. Itens
@@ -142,7 +154,12 @@ recebe a funcionalidade de catálogo, não precisa atualizar lá):
   estourar timeout. Painel mostra status ("processando 40 itens...").
 - `GET /vitrine` — **pública, sem `require_session`** — lista só os
   itens `ativo: True` do tenant, agrupados por categoria, com foto/
-  preço/descrição. Template novo `vitrine.html`.
+  preço/descrição. Template novo `vitrine.html`. **Redesenhada em
+  2026-11-02** (`vitrine-e-identidade-visual.md`): layout `lista` (padrão)
+  ou `grade`, chips de categoria fixos no topo, preço em `R$ 1.234,50`,
+  descrição igual ao nome omitida, item sem foto com iniciais, fontes
+  da marca servidas por `/vitrine/fonte/{nome}`; o contrato do carrinho
+  e do `POST /vitrine/api/pedido` não mudou.
 - Link novo no header do `index.html` apontando pra vitrine pública
   (ex: "ver vitrine" ao lado do link de Configurações).
 
@@ -198,6 +215,10 @@ senão algo como:
 - Vinculação de foto no import em massa é só por slug exato — sem UI de
   arrastar-e-soltar pra corrigir itens "sem foto" na v1 (fica pro
   formulário unitário já existente).
+- A vitrine renderiza **todos** os itens (a rolagem infinita em lotes de
+  12 foi removida em 2026-11-02, porque escondia itens dos chips de
+  categoria); imagens seguem `loading="lazy"`. Catálogos de centenas de
+  itens geram HTML grande: reavaliar se aparecer tenant assim.
 - Sem cobrança de upsell por uso de fotos na v1 — só o metadado de uso
   é registrado, a régua de cobrança fica pra depois.
 
